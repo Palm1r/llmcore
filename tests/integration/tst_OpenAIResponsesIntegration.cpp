@@ -17,7 +17,7 @@ protected:
         ProviderTestBase::SetUp();
 
         m_apiKey = getEnvOrSkip("OPENAI_API_KEY");
-        m_url = getEnvOrDefault("OPENAI_API_URL", "https://api.openai.com");
+        m_url = getEnvOrDefault("OPENAI_API_URL", "https://api.openai.com/v1");
         m_model = getEnvOrDefault("OPENAI_RESPONSES_MODEL", "gpt-4.1-nano");
     }
 

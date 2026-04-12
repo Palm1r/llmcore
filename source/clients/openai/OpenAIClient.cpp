@@ -44,7 +44,7 @@ RequestID OpenAIClient::sendMessage(
 
     qCDebug(llmOpenAILog).noquote() << QString("Sending request %1").arg(id);
 
-    sendRequest(id, QUrl(m_url + "/v1/chat/completions"), request, mode);
+    sendRequest(id, QUrl(m_url + "/chat/completions"), request, mode);
     return id;
 }
 
@@ -59,7 +59,7 @@ RequestID OpenAIClient::ask(const QString &prompt, RequestCallbacks callbacks, R
 
 QFuture<QList<QString>> OpenAIClient::listModels()
 {
-    QUrl url(m_url + "/v1/models");
+    QUrl url(m_url + "/models");
     QNetworkRequest request = prepareNetworkRequest(url);
 
     return httpClient()
