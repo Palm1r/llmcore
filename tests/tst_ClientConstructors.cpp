@@ -35,7 +35,7 @@ TEST(ClaudeClientConstructor, Default)
 
 TEST(OpenAIClientConstructor, Basic)
 {
-    OpenAIClient client("https://api.openai.com", "sk-test", "gpt-4");
+    OpenAIClient client("https://api.openai.com/v1", "sk-test", "gpt-4");
 
     EXPECT_EQ(client.toolSchemaFormat(), ToolSchemaFormat::OpenAI);
     EXPECT_NE(client.tools(), nullptr);
@@ -54,7 +54,7 @@ TEST(OpenAIClientConstructor, Default)
 
 TEST(OpenAIResponsesClientConstructor, Basic)
 {
-    OpenAIResponsesClient client("https://api.openai.com", "sk-test", "o3-mini");
+    OpenAIResponsesClient client("https://api.openai.com/v1", "sk-test", "o3-mini");
 
     EXPECT_EQ(client.toolSchemaFormat(), ToolSchemaFormat::OpenAIResponses);
     EXPECT_NE(client.tools(), nullptr);

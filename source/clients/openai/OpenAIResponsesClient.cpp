@@ -45,7 +45,7 @@ RequestID OpenAIResponsesClient::sendMessage(
 
     qCDebug(llmOpenAILog).noquote() << QString("Sending request %1").arg(id);
 
-    sendRequest(id, QUrl(m_url + "/v1/responses"), request, mode);
+    sendRequest(id, QUrl(m_url + "/responses"), request, mode);
     return id;
 }
 
@@ -61,7 +61,7 @@ RequestID OpenAIResponsesClient::ask(
 
 QFuture<QList<QString>> OpenAIResponsesClient::listModels()
 {
-    QUrl url(m_url + "/v1/models");
+    QUrl url(m_url + "/models");
     QNetworkRequest request = prepareNetworkRequest(url);
 
     return httpClient()
