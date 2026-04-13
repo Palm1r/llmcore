@@ -81,14 +81,10 @@ See [MCP Protocol Coverage](docs/mcp/mcp_protocol_coverage.md) for the full spec
 
 ## Documentation
 
+- [Quick Start](docs/quick-start.md) — examples for LLM clients, tools, MCP server and client
 - [Integration](docs/integration.md) — FetchContent and installed setup
-- [Quick Start](docs/quick-start.md) — send your first request
-- [Tool Calling](docs/tool-calling.md) — register and use tools
-- [API Overview](docs/api-overview.md) — public classes, signals, callbacks
-- [Architecture](docs/architecture.md) — how LLMCore is built
-- [MCP Client](docs/mcp/client-usage.md) — consuming MCP servers
-- [MCP Server](docs/mcp/server-hosting.md) — building MCP servers
-- [MCP Sampling](docs/mcp/sampling.md) — `sampling/createMessage` integration
+- [MCP Protocol Coverage](docs/mcp/mcp_protocol_coverage.md) — spec-conformance matrix
+- [Architecture](docs/architecture.md) — internals, for contributors
 
 ## Support
 

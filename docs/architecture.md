@@ -85,17 +85,11 @@ docs/
 │   ├── messages-and-content.md
 │   ├── tools.md
 │   └── networking.md
-├── api-overview.md               ← public API cheatsheet
 ├── quick-start.md                ← usage walk-through
-├── tool-calling.md               ← end-user tool guide
 ├── integration.md                ← CMake integration
 └── mcp/
-    ├── README.md                 ← MCP docs entry
     ├── architecture.md           ← MCP-specific architecture entry
     ├── architecture/             ← MCP-specific architecture notes
-    ├── client-usage.md
-    ├── server-hosting.md
-    ├── sampling.md
     └── mcp_protocol_coverage.md
 ```
 
@@ -104,7 +98,7 @@ docs/
 ## Starting points by task
 
 - **Add a new LLM provider** → [`architecture/clients/base-client.md`](architecture/clients/base-client.md), then [`providers.md`](architecture/clients/providers.md).
-- **Add a tool that returns images** → [`architecture/tools.md`](architecture/tools.md) + [`tool-calling.md`](tool-calling.md).
+- **Add a tool that returns images** → [`architecture/tools.md`](architecture/tools.md).
 - **Requests hanging / SSE issues** → [`architecture/networking.md`](architecture/networking.md) + [`architecture/request-lifecycle.md`](architecture/request-lifecycle.md).
 - **Add a new content block type** → [`architecture/messages-and-content.md`](architecture/messages-and-content.md) + [`mcp/architecture/content-types.md`](mcp/architecture/content-types.md).
-- **Consume or host an MCP server** → [`mcp/client-usage.md`](mcp/client-usage.md) or [`mcp/server-hosting.md`](mcp/server-hosting.md), then [`mcp/architecture.md`](mcp/architecture.md).
+- **MCP internals** → [`mcp/architecture.md`](mcp/architecture.md).
