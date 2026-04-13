@@ -38,6 +38,7 @@ struct LLMCORE_EXPORT McpServerEntry
     // http (if set, stdio fields are ignored)
     QUrl url;
     QHash<QString, QString> headers;
+    QString httpSpec; // "2024-11-05" for legacy SSE, empty for latest
 };
 
 }
@@ -93,6 +94,7 @@ public:
     int toolExecutionDelay() const;
 
 signals:
+    void toolsChanged();
     void toolExecutionStarted(
         const QString &requestId, const QString &toolId, const QString &toolName);
     void toolExecutionResult(

@@ -42,6 +42,7 @@ void ToolsManager::addTool(BaseTool *tool)
     tool->setParent(this);
     m_tools.insert(toolName, tool);
     qCDebug(llmToolsLog).noquote() << QString("Added tool '%1'").arg(toolName);
+    emit toolsChanged();
 }
 
 void ToolsManager::removeTool(const QString &name)
@@ -49,6 +50,7 @@ void ToolsManager::removeTool(const QString &name)
     if (auto *t = m_tools.take(name)) {
         t->deleteLater();
         qCDebug(llmToolsLog).noquote() << QString("Removed tool '%1'").arg(name);
+        emit toolsChanged();
     }
 }
 
@@ -60,6 +62,8 @@ void ToolsManager::addMcpServer(const McpServerEntry &entry)
         Mcp::HttpTransportConfig cfg;
         cfg.endpoint = entry.url;
         cfg.headers = entry.headers;
+        if (entry.httpSpec == QLatin1String("2024-11-05"))
+            cfg.spec = Mcp::McpHttpSpec::V2024_11_05;
         transport = new Mcp::McpHttpTransport(cfg, nullptr, this);
     } else if (!entry.command.isEmpty()) {
         Mcp::StdioLaunchConfig cfg;
@@ -96,6 +100,7 @@ void ToolsManager::loadMcpServers(const QJsonObject &config)
 
         if (server.contains("url")) {
             entry.url = QUrl(server["url"].toString());
+            entry.httpSpec = server["spec"].toString();
             const QJsonObject headers = server["headers"].toObject();
             for (auto h = headers.begin(); h != headers.end(); ++h)
                 entry.headers.insert(h.key(), h.value().toString());
