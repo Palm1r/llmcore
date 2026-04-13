@@ -44,16 +44,6 @@ target_link_libraries(example-chat
     Qt6::Quick
 )
 
-# Ship the MCP server config template next to the chat executable so it is
-# picked up automatically on startup.
-add_custom_command(
-    TARGET example-chat POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${CMAKE_CURRENT_SOURCE_DIR}/mcp-servers.json
-        $<TARGET_FILE_DIR:example-chat>/mcp-servers.json
-    VERBATIM
-)
-
 # On Windows, run windeployqt so the example-chat binary ships with its
 # platform plugin, QML modules, and Qt DLLs. Without this the exe cannot
 # start when launched outside a Qt-aware shell environment.
