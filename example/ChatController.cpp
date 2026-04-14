@@ -45,7 +45,7 @@ void ChatController::send(const QString &text, const QString &model)
     payload["messages"] = m_history;
 
     if (m_currentProvider == "Claude")
-        payload["max_tokens"] = 4096;
+        payload["max_tokens"] = 20000;
 
     QJsonArray toolsDefs = m_client->tools()->getToolsDefinitions();
     if (!toolsDefs.isEmpty())
