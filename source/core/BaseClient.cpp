@@ -100,6 +100,16 @@ bool BaseClient::hasTools() const noexcept
     return m_toolsManager != nullptr;
 }
 
+int BaseClient::maxToolContinuations() const noexcept
+{
+    return m_maxToolContinuations;
+}
+
+void BaseClient::setMaxToolContinuations(int limit) noexcept
+{
+    m_maxToolContinuations = limit > 0 ? limit : 1;
+}
+
 RequestID BaseClient::createRequest(RequestCallbacks callbacks)
 {
     RequestID id = QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -497,7 +507,7 @@ bool BaseClient::checkContinuationLimit(const RequestID &id)
     if (it == m_requests.end())
         return false;
     ++it->continuationCount;
-    return it->continuationCount <= kMaxToolContinuations;
+    return it->continuationCount <= m_maxToolContinuations;
 }
 
 bool BaseClient::hasRequest(const RequestID &id) const noexcept

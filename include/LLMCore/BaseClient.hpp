@@ -122,6 +122,9 @@ public:
     ToolsManager *tools();
     bool hasTools() const noexcept;
 
+    int maxToolContinuations() const noexcept;
+    void setMaxToolContinuations(int limit) noexcept;
+
 signals:
     void chunkReceived(const LLMCore::RequestID &id, const QString &chunk);
     void accumulatedReceived(const LLMCore::RequestID &id, const QString &accumulated);
@@ -201,6 +204,7 @@ private:
     HttpClient *m_httpClient;
     ToolsManager *m_toolsManager = nullptr;
     QHash<RequestID, ActiveRequest> m_requests;
+    int m_maxToolContinuations = kMaxToolContinuations;
 };
 
 } // namespace LLMCore
