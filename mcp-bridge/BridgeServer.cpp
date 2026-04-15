@@ -3,6 +3,7 @@
 
 #include "BridgeServer.hpp"
 
+#include <QCoreApplication>
 #include <QTimer>
 
 using namespace LLMCore::Mcp;
@@ -29,7 +30,8 @@ BridgeServer::BridgeServer(const BridgeConfig &config, QObject *parent)
     }
 
     McpServerConfig serverCfg;
-    serverCfg.serverInfo = {"mcp-bridge", "0.1.0"};
+    serverCfg.serverInfo = {QCoreApplication::applicationName(),
+                            QCoreApplication::applicationVersion()};
     serverCfg.instructions = "MCP Bridge aggregating multiple upstream MCP servers.";
 
     m_server = new McpServer(m_serverTransport, serverCfg, this);
@@ -54,7 +56,11 @@ void BridgeServer::start()
             transport = new McpStdioClientTransport(launchCfg, this);
         }
 
-        auto *client = new McpClient(transport, Implementation{"mcp-bridge", "0.1.0"}, this);
+        auto *client = new McpClient(
+            transport,
+            Implementation{QCoreApplication::applicationName(),
+                           QCoreApplication::applicationVersion()},
+            this);
 
         Upstream upstream;
         upstream.name = entry.name;

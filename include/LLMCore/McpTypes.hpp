@@ -59,9 +59,9 @@ struct LLMCORE_EXPORT Implementation
 {
     QString name;
     QString version;
-    QString description;
-    QString title;
-    QList<IconInfo> icons;
+    QString description = {};
+    QString title = {};
+    QList<IconInfo> icons = {};
 
     QJsonObject toJson() const;
     static Implementation fromJson(const QJsonObject &obj);

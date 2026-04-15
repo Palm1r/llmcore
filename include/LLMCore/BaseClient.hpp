@@ -75,17 +75,17 @@ struct ActiveRequest
     HttpStream *stream = nullptr;
 
     bool errorMode = false;
-    QByteArray errorBody;
+    QByteArray errorBody = {};
 
-    DataBuffers buffers;
-    RequestCallbacks callbacks;
+    DataBuffers buffers = {};
+    RequestCallbacks callbacks = {};
 
-    QUrl url;
-    QJsonObject originalPayload;
+    QUrl url = {};
+    QJsonObject originalPayload = {};
     int continuationCount = 0;
     int emittedThinkingBlocksCount = 0;
     RequestMode mode = RequestMode::Streaming;
-    QString stopReason;
+    QString stopReason = {};
 };
 
 class LLMCORE_EXPORT BaseClient : public QObject
