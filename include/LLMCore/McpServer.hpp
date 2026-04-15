@@ -14,6 +14,7 @@
 
 #include <LLMCore/LLMCore_global.h>
 #include <LLMCore/McpTypes.hpp>
+#include <LLMCore/Version.hpp>
 
 namespace LLMCore {
 class BaseTool;
@@ -29,7 +30,7 @@ class BasePromptProvider;
 
 struct LLMCORE_EXPORT McpServerConfig
 {
-    Implementation serverInfo{"LLMCore-server", "0.1.0"};
+    Implementation serverInfo{"LLMCore-server", QStringLiteral(LLMCORE_VERSION_STRING)};
     QString instructions;
     bool advertiseLogging = true;
 };

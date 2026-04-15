@@ -8,6 +8,7 @@
 #include <LLMCore/McpRemoteTool.hpp>
 #include <LLMCore/McpStdioTransport.hpp>
 #include <LLMCore/ToolsManager.hpp>
+#include <LLMCore/Version.hpp>
 #include <QTimer>
 
 namespace LLMCore {
@@ -57,7 +58,7 @@ void ToolsManager::addMcpServer(const McpServerEntry &entry)
     }
 
     auto *client = new Mcp::McpClient(
-        transport, Mcp::Implementation{entry.name, "1.0.0"}, this);
+        transport, Mcp::Implementation{entry.name, QStringLiteral(LLMCORE_VERSION_STRING)}, this);
 
     client->connectAndInitialize().then(this, [this, client](const Mcp::InitializeResult &) {
         addMcpClient(client);
