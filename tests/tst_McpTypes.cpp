@@ -6,9 +6,9 @@
 #include <QJsonArray>
 #include <QJsonObject>
 
-#include <LLMCore/McpTypes.hpp>
+#include <LLMQore/McpTypes.hpp>
 
-using namespace LLMCore::Mcp;
+using namespace LLMQore::Mcp;
 
 TEST(McpTypesTest, ImplementationRoundTrip)
 {
@@ -44,7 +44,7 @@ TEST(McpTypesTest, ToolInfoRoundTrip)
 }
 
 // Note: ToolResult coverage moved to tst_ToolResult.cpp — the tool-call
-// envelope is now represented by LLMCore::ToolResult, not a MCP-specific
+// envelope is now represented by LLMQore::ToolResult, not a MCP-specific
 // struct.
 
 TEST(McpTypesTest, InitializeResultRoundTrip)

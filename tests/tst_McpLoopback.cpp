@@ -15,22 +15,22 @@
 #include <QTimer>
 #include <QtConcurrent/QtConcurrent>
 
-#include <LLMCore/BaseClient.hpp>
-#include <LLMCore/BaseElicitationProvider.hpp>
-#include <LLMCore/BasePromptProvider.hpp>
-#include <LLMCore/BaseResourceProvider.hpp>
-#include <LLMCore/BaseRootsProvider.hpp>
-#include <LLMCore/BaseTool.hpp>
-#include <LLMCore/McpClient.hpp>
-#include <LLMCore/McpExceptions.hpp>
-#include <LLMCore/McpPipeTransport.hpp>
-#include <LLMCore/McpServer.hpp>
-#include <LLMCore/McpSession.hpp>
-#include <LLMCore/ToolSchemaFormat.hpp>
-#include <LLMCore/ToolsManager.hpp>
+#include <LLMQore/BaseClient.hpp>
+#include <LLMQore/BaseElicitationProvider.hpp>
+#include <LLMQore/BasePromptProvider.hpp>
+#include <LLMQore/BaseResourceProvider.hpp>
+#include <LLMQore/BaseRootsProvider.hpp>
+#include <LLMQore/BaseTool.hpp>
+#include <LLMQore/McpClient.hpp>
+#include <LLMQore/McpExceptions.hpp>
+#include <LLMQore/McpPipeTransport.hpp>
+#include <LLMQore/McpServer.hpp>
+#include <LLMQore/McpSession.hpp>
+#include <LLMQore/ToolSchemaFormat.hpp>
+#include <LLMQore/ToolsManager.hpp>
 
-using namespace LLMCore;
-using namespace LLMCore::Mcp;
+using namespace LLMQore;
+using namespace LLMQore::Mcp;
 
 namespace {
 
@@ -78,11 +78,11 @@ public:
             {"required", QJsonArray{"text"}},
         };
     }
-    QFuture<LLMCore::ToolResult> executeAsync(const QJsonObject &input) override
+    QFuture<LLMQore::ToolResult> executeAsync(const QJsonObject &input) override
     {
         const QString text = input.value("text").toString();
-        return QtConcurrent::run([text]() -> LLMCore::ToolResult {
-            return LLMCore::ToolResult::text(QString("echo: %1").arg(text));
+        return QtConcurrent::run([text]() -> LLMQore::ToolResult {
+            return LLMQore::ToolResult::text(QString("echo: %1").arg(text));
         });
     }
 };
@@ -483,12 +483,12 @@ public:
             {"properties", QJsonObject{{"steps", QJsonObject{{"type", "integer"}}}}},
         };
     }
-    QFuture<LLMCore::ToolResult> executeAsync(const QJsonObject &input) override
+    QFuture<LLMQore::ToolResult> executeAsync(const QJsonObject &input) override
     {
         const int steps = input.value("steps").toInt(3);
         const QString token = m_server->session()->currentProgressToken();
         Mcp::McpSession *session = m_server->session();
-        return QtConcurrent::run([steps, token, session]() -> LLMCore::ToolResult {
+        return QtConcurrent::run([steps, token, session]() -> LLMQore::ToolResult {
             for (int i = 1; i <= steps; ++i) {
                 QThread::msleep(5);
                 if (!token.isEmpty()) {
@@ -504,7 +504,7 @@ public:
                         Qt::QueuedConnection);
                 }
             }
-            return LLMCore::ToolResult::text(QString("counted %1").arg(steps));
+            return LLMQore::ToolResult::text(QString("counted %1").arg(steps));
         });
     }
 
@@ -557,9 +557,9 @@ TEST_F(McpLoopbackTest, FullHandshakeListAndCallTool)
     ASSERT_EQ(tools.size(), 1);
     EXPECT_EQ(tools.first().name, "echo");
 
-    QFuture<LLMCore::ToolResult> callFuture
+    QFuture<LLMQore::ToolResult> callFuture
         = client.callTool("echo", QJsonObject{{"text", "ping"}});
-    const LLMCore::ToolResult callResult = waitForFuture(callFuture);
+    const LLMQore::ToolResult callResult = waitForFuture(callFuture);
     EXPECT_FALSE(callResult.isError);
     EXPECT_EQ(callResult.asText(), "echo: ping");
 
@@ -593,9 +593,9 @@ TEST_F(McpLoopbackTest, AddMcpClientRegistersToolsInToolsManager)
     EXPECT_EQ(tool->id(), "echo");
 
     // Execute through the BaseTool interface — proves the adapter works end-to-end.
-    QFuture<LLMCore::ToolResult> exec
+    QFuture<LLMQore::ToolResult> exec
         = tool->executeAsync(QJsonObject{{"text", "via-manager"}});
-    const LLMCore::ToolResult result = waitForFuture(exec);
+    const LLMQore::ToolResult result = waitForFuture(exec);
     EXPECT_FALSE(result.isError);
     EXPECT_EQ(result.asText(), "echo: via-manager");
 
@@ -641,10 +641,10 @@ TEST_F(McpLoopbackTest, ToolsChangedNotificationRefreshesTools)
         {
             return QJsonObject{{"type", "object"}};
         }
-        QFuture<LLMCore::ToolResult> executeAsync(const QJsonObject &) override
+        QFuture<LLMQore::ToolResult> executeAsync(const QJsonObject &) override
         {
             return QtConcurrent::run(
-                []() -> LLMCore::ToolResult { return LLMCore::ToolResult::text("upper!"); });
+                []() -> LLMQore::ToolResult { return LLMQore::ToolResult::text("upper!"); });
         }
     };
     server.addTool(new UppercaseTool(&server));
@@ -932,7 +932,7 @@ TEST_F(McpLoopbackTest, ProgressNotificationsDeliveredToCallback)
             steps->append({p, t, m});
         });
 
-    const LLMCore::ToolResult result = waitForFuture(call.future, 8000);
+    const LLMQore::ToolResult result = waitForFuture(call.future, 8000);
     EXPECT_FALSE(result.isError);
     EXPECT_EQ(result.asText(), "counted 3");
 
@@ -967,14 +967,14 @@ TEST_F(McpLoopbackTest, CancelRequestAbortsOutstandingCall)
         {
             return QJsonObject{{"type", "object"}};
         }
-        QFuture<LLMCore::ToolResult> executeAsync(const QJsonObject &) override
+        QFuture<LLMQore::ToolResult> executeAsync(const QJsonObject &) override
         {
-            auto p = std::make_shared<QPromise<LLMCore::ToolResult>>();
+            auto p = std::make_shared<QPromise<LLMQore::ToolResult>>();
             p->start();
             m_held = p;
             return p->future();
         }
-        std::shared_ptr<QPromise<LLMCore::ToolResult>> m_held;
+        std::shared_ptr<QPromise<LLMQore::ToolResult>> m_held;
     };
     auto *slow = new SlowTool(&server);
     server.addTool(slow);
@@ -994,8 +994,8 @@ TEST_F(McpLoopbackTest, CancelRequestAbortsOutstandingCall)
 
     // The future should end with an exception.
     QEventLoop loop;
-    QFutureWatcher<LLMCore::ToolResult> watcher;
-    QObject::connect(&watcher, &QFutureWatcher<LLMCore::ToolResult>::finished, &loop, &QEventLoop::quit);
+    QFutureWatcher<LLMQore::ToolResult> watcher;
+    QObject::connect(&watcher, &QFutureWatcher<LLMQore::ToolResult>::finished, &loop, &QEventLoop::quit);
     watcher.setFuture(call.future);
     QTimer::singleShot(2000, &loop, &QEventLoop::quit);
     loop.exec();
@@ -1013,7 +1013,7 @@ TEST_F(McpLoopbackTest, CancelRequestAbortsOutstandingCall)
     EXPECT_TRUE(threw);
 
     // Release the held promise so nothing leaks after shutdown.
-    slow->m_held->addResult(LLMCore::ToolResult::text("late"));
+    slow->m_held->addResult(LLMQore::ToolResult::text("late"));
     slow->m_held->finish();
 
     delete serverTransport;

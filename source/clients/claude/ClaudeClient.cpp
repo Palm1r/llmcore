@@ -1,18 +1,18 @@
 // Copyright (C) 2026 Petr Mironychev
 // SPDX-License-Identifier: MIT
 
-#include <LLMCore/ClaudeClient.hpp>
+#include <LLMQore/ClaudeClient.hpp>
 
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QUrlQuery>
 
 #include "ClaudeMessage.hpp"
-#include <LLMCore/HttpClient.hpp>
-#include <LLMCore/Log.hpp>
-#include <LLMCore/SSEParser.hpp>
+#include <LLMQore/HttpClient.hpp>
+#include <LLMQore/Log.hpp>
+#include <LLMQore/SSEParser.hpp>
 
-namespace LLMCore {
+namespace LLMQore {
 
 ClaudeClient::ClaudeClient(QObject *parent)
     : ClaudeClient({}, {}, {}, parent)
@@ -294,4 +294,4 @@ void ClaudeClient::processBufferedResponse(const RequestID &id, const QByteArray
     }
 }
 
-} // namespace LLMCore
+} // namespace LLMQore

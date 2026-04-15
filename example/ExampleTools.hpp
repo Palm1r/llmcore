@@ -17,11 +17,11 @@
 #include <QSysInfo>
 #include <QtConcurrent/QtConcurrent>
 
-#include <LLMCore/Tools>
+#include <LLMQore/Tools>
 
 namespace Example {
 
-class DateTimeTool : public LLMCore::BaseTool
+class DateTimeTool : public LLMQore::BaseTool
 {
     Q_OBJECT
 public:
@@ -44,16 +44,16 @@ public:
         };
     }
 
-    QFuture<LLMCore::ToolResult> executeAsync(const QJsonObject &) override
+    QFuture<LLMQore::ToolResult> executeAsync(const QJsonObject &) override
     {
-        return QtConcurrent::run([]() -> LLMCore::ToolResult {
-            return LLMCore::ToolResult::text(
+        return QtConcurrent::run([]() -> LLMQore::ToolResult {
+            return LLMQore::ToolResult::text(
                 QDateTime::currentDateTime().toString(Qt::ISODate));
         });
     }
 };
 
-class CalculatorTool : public LLMCore::BaseTool
+class CalculatorTool : public LLMQore::BaseTool
 {
     Q_OBJECT
 public:
@@ -86,9 +86,9 @@ public:
             {"required", QJsonArray{"a", "b", "operation"}}};
     }
 
-    QFuture<LLMCore::ToolResult> executeAsync(const QJsonObject &input) override
+    QFuture<LLMQore::ToolResult> executeAsync(const QJsonObject &input) override
     {
-        return QtConcurrent::run([input]() -> LLMCore::ToolResult {
+        return QtConcurrent::run([input]() -> LLMQore::ToolResult {
             double a = input.value("a").toDouble();
             double b = input.value("b").toDouble();
             QString op = input.value("operation").toString();
@@ -102,14 +102,14 @@ public:
                 result = a * b;
             else if (op == "divide") {
                 if (b == 0)
-                    return LLMCore::ToolResult::error(QStringLiteral("division by zero"));
+                    return LLMQore::ToolResult::error(QStringLiteral("division by zero"));
                 result = a / b;
             } else {
-                return LLMCore::ToolResult::error(
+                return LLMQore::ToolResult::error(
                     QString("unknown operation '%1'").arg(op));
             }
 
-            return LLMCore::ToolResult::text(QString::number(result, 'g', 10));
+            return LLMQore::ToolResult::text(QString::number(result, 'g', 10));
         });
     }
 };
@@ -119,7 +119,7 @@ public:
 // the chat example shows MCP-sourced and locally-provided tools coexisting
 // without id collisions.
 
-class IPv4Tool : public LLMCore::BaseTool
+class IPv4Tool : public LLMQore::BaseTool
 {
     Q_OBJECT
 public:
@@ -143,9 +143,9 @@ public:
         };
     }
 
-    QFuture<LLMCore::ToolResult> executeAsync(const QJsonObject &) override
+    QFuture<LLMQore::ToolResult> executeAsync(const QJsonObject &) override
     {
-        return QtConcurrent::run([]() -> LLMCore::ToolResult {
+        return QtConcurrent::run([]() -> LLMQore::ToolResult {
             QJsonArray interfaces;
             const auto allIfaces = QNetworkInterface::allInterfaces();
             for (const auto &iface : allIfaces) {
@@ -173,13 +173,13 @@ public:
                     {"addresses", addresses},
                 });
             }
-            return LLMCore::ToolResult::text(QString::fromUtf8(
+            return LLMQore::ToolResult::text(QString::fromUtf8(
                 QJsonDocument(interfaces).toJson(QJsonDocument::Compact)));
         });
     }
 };
 
-class EnvTool : public LLMCore::BaseTool
+class EnvTool : public LLMQore::BaseTool
 {
     Q_OBJECT
 public:
@@ -207,14 +207,14 @@ public:
         };
     }
 
-    QFuture<LLMCore::ToolResult> executeAsync(const QJsonObject &input) override
+    QFuture<LLMQore::ToolResult> executeAsync(const QJsonObject &input) override
     {
-        return QtConcurrent::run([input]() -> LLMCore::ToolResult {
+        return QtConcurrent::run([input]() -> LLMQore::ToolResult {
             const QString name = input.value("name").toString();
             const QByteArray raw = qgetenv(name.toLocal8Bit().constData());
             if (raw.isNull())
-                return LLMCore::ToolResult::text(QStringLiteral("(not set)"));
-            return LLMCore::ToolResult::text(QString::fromLocal8Bit(raw));
+                return LLMQore::ToolResult::text(QStringLiteral("(not set)"));
+            return LLMQore::ToolResult::text(QString::fromLocal8Bit(raw));
         });
     }
 };
@@ -225,7 +225,7 @@ public:
 // through the MCP server demo — you would typically guard it with a
 // workspace sandbox in real use; here the caller is expected to trust the
 // LLM with full disk read access for the demo scenario.
-class ImageReadTool : public LLMCore::BaseTool
+class ImageReadTool : public LLMQore::BaseTool
 {
     Q_OBJECT
 public:
@@ -262,22 +262,22 @@ public:
         };
     }
 
-    QFuture<LLMCore::ToolResult> executeAsync(const QJsonObject &input) override
+    QFuture<LLMQore::ToolResult> executeAsync(const QJsonObject &input) override
     {
-        return QtConcurrent::run([input]() -> LLMCore::ToolResult {
+        return QtConcurrent::run([input]() -> LLMQore::ToolResult {
             const QString path = input.value("path").toString();
             if (path.isEmpty())
-                return LLMCore::ToolResult::error(QStringLiteral("'path' is required"));
+                return LLMQore::ToolResult::error(QStringLiteral("'path' is required"));
 
             const QFileInfo info(path);
             if (!info.isAbsolute())
-                return LLMCore::ToolResult::error(
+                return LLMQore::ToolResult::error(
                     QString("path must be absolute: %1").arg(path));
             if (!info.exists() || !info.isFile())
-                return LLMCore::ToolResult::error(
+                return LLMQore::ToolResult::error(
                     QString("file not found: %1").arg(path));
             if (info.size() > kMaxImageBytes)
-                return LLMCore::ToolResult::error(
+                return LLMQore::ToolResult::error(
                     QString("file too large: %1 bytes (max %2)")
                         .arg(info.size())
                         .arg(kMaxImageBytes));
@@ -286,31 +286,31 @@ public:
             const QMimeType mime = mimeDb.mimeTypeForFile(info);
             const QString mimeName = mime.name();
             if (!mimeName.startsWith(QLatin1String("image/"))) {
-                return LLMCore::ToolResult::error(
+                return LLMQore::ToolResult::error(
                     QString("not an image file (detected MIME: %1)").arg(mimeName));
             }
 
             QFile file(path);
             if (!file.open(QIODevice::ReadOnly)) {
-                return LLMCore::ToolResult::error(
+                return LLMQore::ToolResult::error(
                     QString("cannot open file: %1").arg(file.errorString()));
             }
             const QByteArray bytes = file.readAll();
             file.close();
 
-            LLMCore::ToolResult r;
-            r.content.append(LLMCore::ToolContent::makeText(
+            LLMQore::ToolResult r;
+            r.content.append(LLMQore::ToolContent::makeText(
                 QString("Image loaded: %1 (%2 bytes, %3)")
                     .arg(info.fileName())
                     .arg(bytes.size())
                     .arg(mimeName)));
-            r.content.append(LLMCore::ToolContent::makeImage(bytes, mimeName));
+            r.content.append(LLMQore::ToolContent::makeImage(bytes, mimeName));
             return r;
         });
     }
 };
 
-class SystemInfoTool : public LLMCore::BaseTool
+class SystemInfoTool : public LLMQore::BaseTool
 {
     Q_OBJECT
 public:
@@ -334,15 +334,15 @@ public:
         };
     }
 
-    QFuture<LLMCore::ToolResult> executeAsync(const QJsonObject &) override
+    QFuture<LLMQore::ToolResult> executeAsync(const QJsonObject &) override
     {
-        return QtConcurrent::run([]() -> LLMCore::ToolResult {
+        return QtConcurrent::run([]() -> LLMQore::ToolResult {
             QJsonObject info;
             info["os"] = QSysInfo::prettyProductName();
             info["kernel"] = QSysInfo::kernelVersion();
             info["hostname"] = QSysInfo::machineHostName();
             info["cpu_arch"] = QSysInfo::currentCpuArchitecture();
-            return LLMCore::ToolResult::text(QString::fromUtf8(
+            return LLMQore::ToolResult::text(QString::fromUtf8(
                 QJsonDocument(info).toJson(QJsonDocument::Compact)));
         });
     }

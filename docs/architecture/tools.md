@@ -111,4 +111,4 @@ Tool failures produce results with an error flag set. The model sees the error a
 
 ### Structured content
 
-An optional JSON object can accompany the content list. Used by MCP servers for typed UI data. LLMCore preserves it end-to-end without imposing any schema.
+An optional JSON object can accompany the content list. Used by MCP servers for typed UI data. LLMQore preserves it end-to-end without imposing any schema.

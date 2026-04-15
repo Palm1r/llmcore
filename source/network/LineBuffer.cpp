@@ -1,9 +1,9 @@
 // Copyright (C) 2026 Petr Mironychev
 // SPDX-License-Identifier: MIT
 
-#include <LLMCore/LineBuffer.hpp>
+#include <LLMQore/LineBuffer.hpp>
 
-namespace LLMCore {
+namespace LLMQore {
 
 QStringList LineBuffer::processData(const QByteArray &data)
 {
@@ -30,4 +30,4 @@ bool LineBuffer::hasIncompleteData() const
     return !m_buffer.isEmpty();
 }
 
-} // namespace LLMCore
+} // namespace LLMQore

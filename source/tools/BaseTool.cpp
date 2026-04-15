@@ -1,9 +1,9 @@
 // Copyright (C) 2026 Petr Mironychev
 // SPDX-License-Identifier: MIT
 
-#include <LLMCore/BaseTool.hpp>
+#include <LLMQore/BaseTool.hpp>
 
-namespace LLMCore {
+namespace LLMQore {
 
 BaseTool::BaseTool(QObject *parent)
     : QObject(parent)
@@ -19,4 +19,4 @@ void BaseTool::setEnabled(bool enabled)
     m_enabled = enabled;
 }
 
-} // namespace LLMCore
+} // namespace LLMQore

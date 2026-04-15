@@ -1,9 +1,9 @@
 // Copyright (C) 2026 Petr Mironychev
 // SPDX-License-Identifier: MIT
 
-#include <LLMCore/McpTransport.hpp>
+#include <LLMQore/McpTransport.hpp>
 
-namespace LLMCore::Mcp {
+namespace LLMQore::Mcp {
 
 McpTransport::McpTransport(QObject *parent)
     : QObject(parent)
@@ -17,4 +17,4 @@ void McpTransport::setState(State s)
     emit stateChanged(s);
 }
 
-} // namespace LLMCore::Mcp
+} // namespace LLMQore::Mcp

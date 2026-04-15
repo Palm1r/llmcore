@@ -5,19 +5,19 @@
 ### Minimal example
 
 ```cpp
-#include <LLMCore/Clients>
+#include <LLMQore/Clients>
 
-auto *client = new LLMCore::ClaudeClient(
+auto *client = new LLMQore::ClaudeClient(
     "https://api.anthropic.com", "sk-...", "claude-sonnet-4-20250514", this);
 
-LLMCore::RequestCallbacks cb;
-cb.onChunk = [](const LLMCore::RequestID &, const QString &chunk) {
+LLMQore::RequestCallbacks cb;
+cb.onChunk = [](const LLMQore::RequestID &, const QString &chunk) {
     qDebug() << chunk;
 };
-cb.onCompleted = [](const LLMCore::RequestID &, const QString &full) {
+cb.onCompleted = [](const LLMQore::RequestID &, const QString &full) {
     qDebug() << "Done:" << full;
 };
-cb.onFailed = [](const LLMCore::RequestID &, const QString &err) {
+cb.onFailed = [](const LLMQore::RequestID &, const QString &err) {
     qWarning() << "Error:" << err;
 };
 
@@ -41,15 +41,15 @@ client->sendMessage(payload, cb);
 ### Using signals instead of callbacks
 
 ```cpp
-auto *client = new LLMCore::OpenAIClient(url, apiKey, model, this);
+auto *client = new LLMQore::OpenAIClient(url, apiKey, model, this);
 
-connect(client, &LLMCore::BaseClient::chunkReceived,
-        this, [](const LLMCore::RequestID &, const QString &chunk) {
+connect(client, &LLMQore::BaseClient::chunkReceived,
+        this, [](const LLMQore::RequestID &, const QString &chunk) {
     qDebug() << chunk;
 });
 
-connect(client, &LLMCore::BaseClient::requestCompleted,
-        this, [](const LLMCore::RequestID &, const QString &full) {
+connect(client, &LLMQore::BaseClient::requestCompleted,
+        this, [](const LLMQore::RequestID &, const QString &full) {
     qDebug() << "Done:" << full;
 });
 
@@ -59,8 +59,8 @@ client->ask("Hello!");
 ### Thinking / reasoning blocks
 
 ```cpp
-LLMCore::RequestCallbacks cb;
-cb.onThinkingBlock = [](const LLMCore::RequestID &,
+LLMQore::RequestCallbacks cb;
+cb.onThinkingBlock = [](const LLMQore::RequestID &,
                          const QString &thinking,
                          const QString &signature) {
     qDebug() << "Thinking:" << thinking.left(200) << "...";
@@ -70,7 +70,7 @@ cb.onThinkingBlock = [](const LLMCore::RequestID &,
 ### Cancel a request
 
 ```cpp
-LLMCore::RequestID id = client->ask("Write a long essay...", cb);
+LLMQore::RequestID id = client->ask("Write a long essay...", cb);
 // ...later:
 client->cancelRequest(id);
 ```
@@ -82,10 +82,10 @@ client->cancelRequest(id);
 Subclass `BaseTool` to create a tool that LLM can call:
 
 ```cpp
-#include <LLMCore/BaseTool.hpp>
+#include <LLMQore/BaseTool.hpp>
 #include <QtConcurrent>
 
-class GetWeatherTool : public LLMCore::BaseTool
+class GetWeatherTool : public LLMQore::BaseTool
 {
     Q_OBJECT
 public:
@@ -106,12 +106,12 @@ public:
         };
     }
 
-    QFuture<LLMCore::ToolResult> executeAsync(const QJsonObject &input) override
+    QFuture<LLMQore::ToolResult> executeAsync(const QJsonObject &input) override
     {
-        return QtConcurrent::run([input]() -> LLMCore::ToolResult {
+        return QtConcurrent::run([input]() -> LLMQore::ToolResult {
             QString city = input["city"].toString();
             // ... fetch real weather data ...
-            return LLMCore::ToolResult::text(QString("22°C, sunny in %1").arg(city));
+            return LLMQore::ToolResult::text(QString("22°C, sunny in %1").arg(city));
         });
     }
 };
@@ -141,15 +141,15 @@ Now any MCP client connecting to this server will see and can call `get_weather`
 For tools that integrate with Claude Desktop, Cursor, VS Code, etc.:
 
 ```cpp
-#include <LLMCore/Mcp>
+#include <LLMQore/Mcp>
 
-auto *transport = new LLMCore::McpStdioServerTransport(&app);
+auto *transport = new LLMQore::McpStdioServerTransport(&app);
 
-LLMCore::McpServerConfig cfg;
+LLMQore::McpServerConfig cfg;
 cfg.serverInfo = {"my-server", "1.0.0"};
 cfg.instructions = "My MCP server with custom tools";
 
-auto *server = new LLMCore::McpServer(transport, cfg, &app);
+auto *server = new LLMQore::McpServer(transport, cfg, &app);
 server->addTool(new MyCustomTool(server));
 server->start();
 ```
@@ -159,18 +159,18 @@ server->start();
 For remote or multi-client access:
 
 ```cpp
-#include <LLMCore/Mcp>
+#include <LLMQore/Mcp>
 
-LLMCore::HttpServerConfig httpCfg;
+LLMQore::HttpServerConfig httpCfg;
 httpCfg.port = 8080;
 httpCfg.path = "/mcp";
 
-auto *transport = new LLMCore::McpHttpServerTransport(httpCfg, &app);
+auto *transport = new LLMQore::McpHttpServerTransport(httpCfg, &app);
 
-LLMCore::McpServerConfig cfg;
+LLMQore::McpServerConfig cfg;
 cfg.serverInfo = {"my-server", "1.0.0"};
 
-auto *server = new LLMCore::McpServer(transport, cfg, &app);
+auto *server = new LLMQore::McpServer(transport, cfg, &app);
 server->addTool(new MyCustomTool(server));
 server->start();
 ```
@@ -228,7 +228,7 @@ Config format (compatible with Claude Desktop):
 ### Share one MCP server across multiple LLM providers
 
 ```cpp
-auto *mcpClient = new LLMCore::McpClient(transport, {"my-app", "1.0.0"}, &app);
+auto *mcpClient = new LLMQore::McpClient(transport, {"my-app", "1.0.0"}, &app);
 mcpClient->connectAndInitialize();
 
 claudeClient->tools()->addMcpClient(mcpClient);
@@ -238,24 +238,24 @@ openaiClient->tools()->addMcpClient(mcpClient);
 ### Use the MCP client directly
 
 ```cpp
-auto *transport = new LLMCore::McpStdioClientTransport(
+auto *transport = new LLMQore::McpStdioClientTransport(
     {.program = "my-mcp-server", .arguments = {"--verbose"}}, &app);
-auto *mcpClient = new LLMCore::McpClient(transport, {"my-app", "1.0.0"}, &app);
+auto *mcpClient = new LLMQore::McpClient(transport, {"my-app", "1.0.0"}, &app);
 
 mcpClient->connectAndInitialize().then([mcpClient]() {
     // List available tools
-    mcpClient->listTools().then([](QList<LLMCore::ToolInfo> tools) {
+    mcpClient->listTools().then([](QList<LLMQore::ToolInfo> tools) {
         for (const auto &tool : tools)
             qDebug() << tool.name << "-" << tool.description;
     });
 
     // Call a tool directly
-    mcpClient->callTool("get_datetime", {}).then([](LLMCore::ToolResult r) {
+    mcpClient->callTool("get_datetime", {}).then([](LLMQore::ToolResult r) {
         qDebug() << "Result:" << r.asText();
     });
 
     // List resources
-    mcpClient->listResources().then([](QList<LLMCore::ResourceInfo> resources) {
+    mcpClient->listResources().then([](QList<LLMQore::ResourceInfo> resources) {
         for (const auto &r : resources)
             qDebug() << r.uri << "-" << r.name;
     });

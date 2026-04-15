@@ -1,11 +1,11 @@
 // Copyright (C) 2026 Petr Mironychev
 // SPDX-License-Identifier: MIT
 
-#include <LLMCore/BaseTool.hpp>
-#include <LLMCore/Log.hpp>
-#include <LLMCore/ToolRegistry.hpp>
+#include <LLMQore/BaseTool.hpp>
+#include <LLMQore/Log.hpp>
+#include <LLMQore/ToolRegistry.hpp>
 
-namespace LLMCore {
+namespace LLMQore {
 
 ToolRegistry::ToolRegistry(QObject *parent)
     : QObject(parent)
@@ -77,4 +77,4 @@ QList<BaseTool *> ToolRegistry::registeredTools() const
     return m_tools.values();
 }
 
-} // namespace LLMCore
+} // namespace LLMQore

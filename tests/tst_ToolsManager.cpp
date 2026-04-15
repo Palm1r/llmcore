@@ -9,11 +9,11 @@
 #include <QSignalSpy>
 #include <QtConcurrent/QtConcurrent>
 
-#include <LLMCore/BaseTool.hpp>
-#include <LLMCore/ToolResult.hpp>
-#include <LLMCore/ToolsManager.hpp>
+#include <LLMQore/BaseTool.hpp>
+#include <LLMQore/ToolResult.hpp>
+#include <LLMQore/ToolsManager.hpp>
 
-using namespace LLMCore;
+using namespace LLMQore;
 
 class FakeTool : public BaseTool
 {

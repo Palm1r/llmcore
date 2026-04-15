@@ -63,7 +63,7 @@ flowchart TD
 ## Source layout
 
 ```
-include/LLMCore/
+include/LLMQore/
 ├── BaseClient.hpp               ← provider-stack base
 ├── BaseMessage.hpp              ← streaming parser base
 ├── BaseTool.hpp                 ← tool interface

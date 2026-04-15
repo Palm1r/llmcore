@@ -23,9 +23,9 @@
 #include <QTimer>
 #include <QtDebug>
 
-#include <LLMCore/Mcp>
+#include <LLMQore/Mcp>
 
-using namespace LLMCore::Mcp;
+using namespace LLMQore::Mcp;
 
 namespace {
 
@@ -54,7 +54,7 @@ int main(int argc, char *argv[])
     QCoreApplication::setApplicationName("mcp-http-probe");
 
     QCommandLineParser parser;
-    parser.setApplicationDescription("Smoke-test LLMCore's McpHttpTransport.");
+    parser.setApplicationDescription("Smoke-test LLMQore's McpHttpTransport.");
     parser.addHelpOption();
     QCommandLineOption specOpt(
         "spec",
@@ -149,14 +149,14 @@ int main(int argc, char *argv[])
 
                 qInfo().noquote() << QString("=== calling %1 ===").arg(toolToCall);
                 auto callFuture = client->callTool(toolToCall, QJsonObject{});
-                auto *callWatcher = new QFutureWatcher<LLMCore::ToolResult>(&app);
+                auto *callWatcher = new QFutureWatcher<LLMQore::ToolResult>(&app);
                 QObject::connect(
                     callWatcher,
-                    &QFutureWatcher<LLMCore::ToolResult>::finished,
+                    &QFutureWatcher<LLMQore::ToolResult>::finished,
                     &app,
                     [=]() {
                         try {
-                            const LLMCore::ToolResult r = callWatcher->result();
+                            const LLMQore::ToolResult r = callWatcher->result();
                             qInfo().noquote()
                                 << "  isError:" << r.isError
                                 << "content blocks:" << r.content.size();

@@ -5,7 +5,7 @@
 
 #include "mcp/McpLineFramer.hpp"
 
-using namespace LLMCore::Mcp;
+using namespace LLMQore::Mcp;
 
 TEST(McpLineFramerTest, SingleCompleteLine)
 {

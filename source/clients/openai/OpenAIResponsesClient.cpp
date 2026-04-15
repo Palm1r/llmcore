@@ -1,18 +1,18 @@
 // Copyright (C) 2026 Petr Mironychev
 // SPDX-License-Identifier: MIT
 
-#include <LLMCore/OpenAIResponsesClient.hpp>
+#include <LLMQore/OpenAIResponsesClient.hpp>
 
-#include <LLMCore/HttpClient.hpp>
-#include <LLMCore/SSEParser.hpp>
+#include <LLMQore/HttpClient.hpp>
+#include <LLMQore/SSEParser.hpp>
 
 #include <QJsonArray>
 #include <QJsonDocument>
 
 #include "OpenAIResponsesMessage.hpp"
-#include <LLMCore/Log.hpp>
+#include <LLMQore/Log.hpp>
 
-namespace LLMCore {
+namespace LLMQore {
 
 OpenAIResponsesClient::OpenAIResponsesClient(QObject *parent)
     : OpenAIResponsesClient({}, {}, {}, parent)
@@ -422,4 +422,4 @@ void OpenAIResponsesClient::processBufferedResponse(const RequestID &id, const Q
     }
 }
 
-} // namespace LLMCore
+} // namespace LLMQore

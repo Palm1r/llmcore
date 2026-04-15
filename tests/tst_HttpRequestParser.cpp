@@ -3,9 +3,9 @@
 
 #include <gtest/gtest.h>
 
-#include <LLMCore/HttpRequestParser.hpp>
+#include <LLMQore/HttpRequestParser.hpp>
 
-using namespace LLMCore;
+using namespace LLMQore;
 
 namespace {
 

@@ -7,9 +7,9 @@
 #include <QStringList>
 #include <QUuid>
 
-#include <LLMCore/Log.hpp>
+#include <LLMQore/Log.hpp>
 
-namespace LLMCore {
+namespace LLMQore {
 
 GoogleMessage::GoogleMessage(QObject *parent)
     : BaseMessage(parent)
@@ -287,4 +287,4 @@ void GoogleMessage::updateStateFromFinishReason()
     }
 }
 
-} // namespace LLMCore
+} // namespace LLMQore

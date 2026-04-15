@@ -1,9 +1,9 @@
 // Copyright (C) 2026 Petr Mironychev
 // SPDX-License-Identifier: MIT
 
-#include <LLMCore/HttpResponse.hpp>
+#include <LLMQore/HttpResponse.hpp>
 
-namespace LLMCore {
+namespace LLMQore {
 
 namespace {
 
@@ -40,4 +40,4 @@ QString HttpResponse::contentType() const
     return QString::fromUtf8(value).toLower();
 }
 
-} // namespace LLMCore
+} // namespace LLMQore

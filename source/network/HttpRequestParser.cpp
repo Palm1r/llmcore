@@ -1,11 +1,11 @@
 // Copyright (C) 2026 Petr Mironychev
 // SPDX-License-Identifier: MIT
 
-#include <LLMCore/HttpRequestParser.hpp>
+#include <LLMQore/HttpRequestParser.hpp>
 
 #include <utility>
 
-namespace LLMCore {
+namespace LLMQore {
 
 namespace {
 
@@ -125,4 +125,4 @@ void HttpRequestParser::parseHeaderBlock(int headerEnd)
     }
 }
 
-} // namespace LLMCore
+} // namespace LLMQore

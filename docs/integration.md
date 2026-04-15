@@ -5,26 +5,26 @@
 ```cmake
 include(FetchContent)
 FetchContent_Declare(
-    LLMCore
-    GIT_REPOSITORY https://github.com/palm1r/llmcore.git
-    GIT_TAG v0.1.0
+    LLMQore
+    GIT_REPOSITORY https://github.com/palm1r/llmqore.git
+    GIT_TAG v0.3.0
 )
-FetchContent_MakeAvailable(LLMCore)
+FetchContent_MakeAvailable(LLMQore)
 
-target_link_libraries(YourApp PRIVATE LLMCore::LLMCore)
+target_link_libraries(YourApp PRIVATE LLMQore::LLMQore)
 ```
 
 ## Installed
 
 ```bash
-cmake -B build -DLLMCORE_INSTALL=ON
+cmake -B build -DLLMQORE_INSTALL=ON
 cmake --build build
 cmake --install build --prefix /usr/local
 ```
 
 ```cmake
-find_package(LLMCore REQUIRED)
-target_link_libraries(YourApp PRIVATE LLMCore::LLMCore)
+find_package(LLMQore REQUIRED)
+target_link_libraries(YourApp PRIVATE LLMQore::LLMQore)
 ```
 
 ## Building from source
@@ -37,7 +37,7 @@ cmake --build build
 Tests and examples:
 
 ```bash
-cmake -B build -DLLMCORE_BUILD_TESTS=ON -DLLMCORE_BUILD_EXAMPLES=ON
+cmake -B build -DLLMQORE_BUILD_TESTS=ON -DLLMQORE_BUILD_EXAMPLES=ON
 cmake --build build
 ctest --test-dir build
 ```

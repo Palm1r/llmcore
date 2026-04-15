@@ -13,12 +13,12 @@
 #include <QTimer>
 #include <QtConcurrent/QtConcurrent>
 
-#include <LLMCore/BaseClient.hpp>
-#include <LLMCore/BaseTool.hpp>
-#include <LLMCore/ToolResult.hpp>
-#include <LLMCore/ToolsManager.hpp>
+#include <LLMQore/BaseClient.hpp>
+#include <LLMQore/BaseTool.hpp>
+#include <LLMQore/ToolResult.hpp>
+#include <LLMQore/ToolsManager.hpp>
 
-namespace LLMCore::IntegrationTest {
+namespace LLMQore::IntegrationTest {
 
 // Timeout for network requests (30 seconds)
 constexpr int kRequestTimeoutMs = 30000;
@@ -307,4 +307,4 @@ protected:
     QCoreApplication *m_app = nullptr;
 };
 
-} // namespace LLMCore::IntegrationTest
+} // namespace LLMQore::IntegrationTest

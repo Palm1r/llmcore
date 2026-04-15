@@ -11,16 +11,16 @@
 #include <QFutureWatcher>
 #include <QTimer>
 
-#include <LLMCore/ClaudeClient.hpp>
-#include <LLMCore/McpClient.hpp>
-#include <LLMCore/McpPipeTransport.hpp>
-#include <LLMCore/McpServer.hpp>
-#include <LLMCore/McpTypes.hpp>
-#include <LLMCore/ToolsManager.hpp>
+#include <LLMQore/ClaudeClient.hpp>
+#include <LLMQore/McpClient.hpp>
+#include <LLMQore/McpPipeTransport.hpp>
+#include <LLMQore/McpServer.hpp>
+#include <LLMQore/McpTypes.hpp>
+#include <LLMQore/ToolsManager.hpp>
 
-using namespace LLMCore;
-using namespace LLMCore::Mcp;
-using namespace LLMCore::IntegrationTest;
+using namespace LLMQore;
+using namespace LLMQore::Mcp;
+using namespace LLMQore::IntegrationTest;
 
 namespace {
 
@@ -62,13 +62,13 @@ protected:
         auto [serverTransport, clientTransport] = McpPipeTransport::createPair();
 
         McpServerConfig cfg;
-        cfg.serverInfo = {"llmcore-integration-server", "0.0.1"};
+        cfg.serverInfo = {"llmqore-integration-server", "0.0.1"};
         auto server = std::make_unique<McpServer>(serverTransport, cfg);
         server->addTool(new EchoTool(server.get()));
         server->addTool(new CalculatorTool(server.get()));
 
         auto client = std::make_unique<McpClient>(
-            clientTransport, Implementation{"llmcore-integration-client", "0.0.1"});
+            clientTransport, Implementation{"llmqore-integration-client", "0.0.1"});
 
         server->start();
         waitForFuture(client->connectAndInitialize());

@@ -13,14 +13,14 @@
 #include <QTimer>
 #include <QtConcurrent/QtConcurrent>
 
-#include <LLMCore/BaseTool.hpp>
-#include <LLMCore/McpClient.hpp>
-#include <LLMCore/McpHttpServerTransport.hpp>
-#include <LLMCore/McpHttpTransport.hpp>
-#include <LLMCore/McpServer.hpp>
+#include <LLMQore/BaseTool.hpp>
+#include <LLMQore/McpClient.hpp>
+#include <LLMQore/McpHttpServerTransport.hpp>
+#include <LLMQore/McpHttpTransport.hpp>
+#include <LLMQore/McpServer.hpp>
 
-using namespace LLMCore;
-using namespace LLMCore::Mcp;
+using namespace LLMQore;
+using namespace LLMQore::Mcp;
 
 namespace {
 
@@ -57,11 +57,11 @@ public:
             {"required", QJsonArray{"text"}},
         };
     }
-    QFuture<LLMCore::ToolResult> executeAsync(const QJsonObject &input) override
+    QFuture<LLMQore::ToolResult> executeAsync(const QJsonObject &input) override
     {
         const QString text = input.value("text").toString();
-        return QtConcurrent::run([text]() -> LLMCore::ToolResult {
-            return LLMCore::ToolResult::text(QString("echo: %1").arg(text));
+        return QtConcurrent::run([text]() -> LLMQore::ToolResult {
+            return LLMQore::ToolResult::text(QString("echo: %1").arg(text));
         });
     }
 };
@@ -128,7 +128,7 @@ TEST_F(McpHttpServerTest, HandshakeAndToolCallOverHttp)
     ASSERT_EQ(tools.size(), 1);
     EXPECT_EQ(tools.first().name, "echo");
 
-    const LLMCore::ToolResult result = waitForFuture(
+    const LLMQore::ToolResult result = waitForFuture(
         client.callTool("echo", QJsonObject{{"text", "over-http"}}));
     EXPECT_FALSE(result.isError);
     EXPECT_EQ(result.asText(), "echo: over-http");

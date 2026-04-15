@@ -7,7 +7,7 @@
 int main(int argc, char *argv[])
 {
     QGuiApplication app(argc, argv);
-    app.setApplicationName("LLMCore Chat Example");
+    app.setApplicationName("LLMQore Chat Example");
 
     QQmlApplicationEngine engine;
     QObject::connect(
@@ -17,7 +17,7 @@ int main(int argc, char *argv[])
         []() { QCoreApplication::exit(1); },
         Qt::QueuedConnection);
 
-    engine.loadFromModule("example.LLMCoreChat", "Main");
+    engine.loadFromModule("example.LLMQoreChat", "Main");
 
     return app.exec();
 }

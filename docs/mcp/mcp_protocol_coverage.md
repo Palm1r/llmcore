@@ -10,9 +10,9 @@ authoritative [MCP specification 2025-11-25](https://modelcontextprotocol.io/spe
 - ❌ **Not implemented** — out of scope for the current MVP
 - 🚫 **Will not implement** — not applicable to a client-library (e.g. server-side OAuth issuer)
 
-Declared protocol version: `2025-11-25` (`include/LLMCore/McpTypes.hpp:30`).
+Declared protocol version: `2025-11-25` (`include/LLMQore/McpTypes.hpp:30`).
 Accepted during negotiation: `2025-11-25`, `2025-06-18`, `2025-03-26`, `2024-11-05`
-(`include/LLMCore/McpTypes.hpp:35-40`).
+(`include/LLMQore/McpTypes.hpp:35-40`).
 
 ---
 
@@ -56,7 +56,7 @@ Accepted during negotiation: `2025-11-25`, `2025-06-18`, `2025-03-26`, `2024-11-
 | Response echoes request `id` | ✅ | `McpSession::sendResponse`. |
 | Error envelope `{ code, message, data? }` | ✅ | `McpSession::sendError`. |
 | Notifications (no `id`) | ✅ | `McpSession::sendNotification`. |
-| Standard error codes (-32700, -32600, -32601, -32602, -32603) | ✅ | Declared in `include/LLMCore/McpTypes.hpp`. Unknown methods auto-return `-32601`. |
+| Standard error codes (-32700, -32600, -32601, -32602, -32603) | ✅ | Declared in `include/LLMQore/McpTypes.hpp`. Unknown methods auto-return `-32601`. |
 | MCP-extension error codes (-32002, -32800, -32801) | ✅ | `-32800 RequestCancelled` actively returned by `dispatchRequest` when the handler's future throws `McpCancelledError`. |
 | Server throws `McpRemoteError` → serialised to error envelope | ✅ | `source/mcp/McpSession.cpp`. |
 
@@ -93,7 +93,7 @@ Accepted during negotiation: `2025-11-25`, `2025-06-18`, `2025-03-26`, `2024-11-
 
 ### `icons` (new in 2025-11-25)
 
-✅ `IconInfo` struct in `include/LLMCore/McpTypes.hpp`, round-tripped on
+✅ `IconInfo` struct in `include/LLMQore/McpTypes.hpp`, round-tripped on
 `Implementation`, `ToolInfo`, `ResourceInfo`, `ResourceTemplate`, and `PromptInfo`.
 `McpServer::tools/list` surfaces each tool's `BaseTool::displayName()` as `title`
 when it differs from the id; loading icon binaries into `IconInfo::src` (as a
@@ -115,7 +115,7 @@ when it differs from the id; loading icon binaries into `IconInfo::src` (as a
 | Windows stdin reading without FILE* buffering stall (uses `_read` on fd) | n/a | ✅ |
 | POSIX stdin reading via `::read(fileno(stdin))` | n/a | ✅ |
 | Graceful child process shutdown (kill + wait) | ✅ | n/a |
-| `LLMCORE_MCP_TRACE` env var → append-mode tracefile for debugging | n/a | ✅ |
+| `LLMQORE_MCP_TRACE` env var → append-mode tracefile for debugging | n/a | ✅ |
 
 ### Streamable HTTP (2025-03-26, 2025-06-18, 2025-11-25)
 
@@ -164,7 +164,7 @@ when it differs from the id; loading icon binaries into `IconInfo::src` (as a
 | Server declares `tools.listChanged: true` capability | — | ✅ Unconditional | — |
 | Tool `name`, `description`, `inputSchema` | ✅ `ToolInfo` struct | ✅ | tst_McpTypes round-trip |
 | Tool `annotations` | 🟡 Preserved on `ToolInfo`, not actively read | 🟡 Preserved | |
-| Tool `outputSchema` (2025-06-18+) | ✅ Field on `ToolInfo` (`outputSchema`). `BaseTool::executeAsync` returns `LLMCore::ToolResult` with an optional `structuredContent` payload; server-side serialises it; no schema-driven validation yet. | | |
+| Tool `outputSchema` (2025-06-18+) | ✅ Field on `ToolInfo` (`outputSchema`). `BaseTool::executeAsync` returns `LLMQore::ToolResult` with an optional `structuredContent` payload; server-side serialises it; no schema-driven validation yet. | | |
 | Tool `title` field (2025-11-25) | ✅ `ToolInfo::title`. `McpServer::tools/list` populates it from `BaseTool::displayName()` when it differs from `id`. | ✅ | `tst_McpTypes.ToolInfoRoundTripWithTitleIconsAndMeta` |
 | Tool `icons` (2025-11-25) | ✅ `ToolInfo::icons` round-trips | ✅ | Same test |
 | Tool `_meta` | ✅ Round-tripped on `ToolInfo::meta` | ✅ | Same test |
@@ -177,11 +177,11 @@ when it differs from the id; loading icon binaries into `IconInfo::src` (as a
 | `structuredContent` payload (2025-06-18+) | ✅ `ToolResult::structuredContent` |
 
 **BaseTool adapter pattern** — every `McpRemoteTool` is a drop-in `BaseTool`, so any
-`LLMCore::BaseClient` (Claude, OpenAI, Ollama, Google, LlamaCpp) transparently consumes
+`LLMQore::BaseClient` (Claude, OpenAI, Ollama, Google, LlamaCpp) transparently consumes
 MCP tools via the existing `ToolsManager` multi-turn loop. See
-`include/LLMCore/McpRemoteTool.hpp` and the `McpToolBinder` helper.
+`include/LLMQore/McpRemoteTool.hpp` and the `McpToolBinder` helper.
 
-**ToolResult** (`include/LLMCore/ToolResult.hpp`) is the canonical rich tool output
+**ToolResult** (`include/LLMQore/ToolResult.hpp`) is the canonical rich tool output
 type for the whole library.
 
 ### Resources
@@ -214,7 +214,7 @@ type for the whole library.
 | Prompt messages (role + content block) | ✅ `PromptMessage` struct | ✅ | Same |
 | Prompt `title` / `icons` / `_meta` | ✅ Round-tripped | ✅ | Same |
 
-`BasePromptProvider` lives in `include/LLMCore/BasePromptProvider.hpp`; subclass it,
+`BasePromptProvider` lives in `include/LLMQore/BasePromptProvider.hpp`; subclass it,
 override `listPrompts()` and `getPrompt()`, then register with
 `McpServer::addPromptProvider()`. Report missing-prompt / bad-argument conditions by
 throwing `McpRemoteError(ErrorCode::InvalidParams, ...)` from inside the future.
@@ -247,11 +247,11 @@ so a broken completer never crashes the calling client's UI.
 | `logging/setLevel` request (client → server) | ✅ Handler in `McpServer` stores the level in `McpServer::currentLogLevel()` and emits `logLevelChanged(level)` signal. Default: `"info"`. |
 | `notifications/message` (server → client) | ✅ `McpServer::sendLogMessage(level, logger, data, message)` emits the notification; `McpClient::logMessage(level, logger, data, message)` signal fires on the client side. |
 | `logging` capability advertised during `initialize` | ✅ Controlled by `McpServerConfig::advertiseLogging` (default true). |
-| Standard log levels (debug/info/notice/warning/error/critical/alert/emergency) | ✅ Constants in `LLMCore::Mcp::LogLevel` namespace. |
+| Standard log levels (debug/info/notice/warning/error/critical/alert/emergency) | ✅ Constants in `LLMQore::Mcp::LogLevel` namespace. |
 | Tests | ✅ `tst_McpLoopback.SetLogLevelIsRecordedOnServer`, `LogMessageNotificationFromServerToClient` |
 
 Note: Qt's `QLoggingCategory` system (`llmMcpLog`, enable with
-`QT_LOGGING_RULES="llmcore.mcp*=true"`) remains the primary debug/diagnostic channel
+`QT_LOGGING_RULES="llmqore.mcp*=true"`) remains the primary debug/diagnostic channel
 for library internals; the MCP logging channel is for application-level logs that
 the host wants to expose to the connected client.
 
@@ -261,9 +261,9 @@ the host wants to expose to the connected client.
 
 | Feature | Status | Notes |
 |---|---|---|
-| Roots — `roots/list`, `notifications/roots/list_changed` | ✅ | `BaseRootsProvider` (`include/LLMCore/BaseRootsProvider.hpp`): subclass, override `listRoots()`, emit `listChanged()` when the set changes. Register with `McpClient::setRootsProvider()`. Handler installed by default; returns an empty list when no provider is set. Declares `roots.listChanged: true` capability during `initialize` if a provider is present. Tests: `tst_McpLoopback.RootsListRoundTripsFromServerToClient`. |
-| Sampling — `sampling/createMessage` | ✅ | Full end-to-end. `McpClient::setSamplingClient(BaseClient*, SamplingPayloadBuilder)` wires a live `BaseClient` as the executor for incoming `sampling/createMessage` requests. The library drives `BaseClient::sendMessage()` through the host-supplied payload builder, collects the finalised result via the new `RequestCallbacks::onFinalized` callback (`CompletionInfo{fullText, model, stopReason}`), and wraps it into `CreateMessageResult` automatically. The `sampling` capability is declared during `initialize` when a sampling client is wired. Without it, incoming `sampling/createMessage` requests reply with `MethodNotFound`. Host builder lambdas own all provider-specific JSON serialisation — LLMCore never chases per-provider API evolution. **Tool-calling-inside-sampling (2025-11-25) comes for free** via the existing `ToolsManager` continuation loop: whatever tools (local `BaseTool` + remote `McpRemoteTool` from other servers) are registered on the `BaseClient` are available to the sampling call, and `onFinalized` fires only after the full multi-turn loop converges. `McpServer::createSamplingMessage()` is the server-side initiator, with a capability guard that short-circuits with `McpProtocolError` if the peer never advertised `sampling`. Types (`SamplingMessage`, `ModelHint`, `ModelPreferences`, `CreateMessageParams`, `CreateMessageResult`) round-trip in `tst_McpTypes`; end-to-end happy path, capability guard, and client error propagation are covered in `tst_McpLoopback.Sampling*` using a `FakeSamplingClient` (a minimal `BaseClient` stub with canned completion). |
-| Elicitation — `elicitation/create` (new in 2025-06-18, URL mode added 2025-11-25) | 🟡 | Protocol plumbing complete, symmetric to Sampling: `BaseElicitationProvider` (`include/LLMCore/BaseElicitationProvider.hpp`) is the abstract host-implemented hook; `McpClient::setElicitationProvider()` installs it, declares the `elicitation` capability during `initialize`, and dispatches incoming `elicitation/create` requests (replies with `MethodNotFound` when no provider is set). `McpServer::createElicitation()` is the server-side initiator with the same capability-guarded short-circuit as sampling. Types (`ElicitRequestParams` with `mode`/`url` for 2025-11-25 URL mode, `ElicitResult`, `ElicitationCapability`, `ElicitAction` constants) round-trip in `tst_McpTypes`; end-to-end happy path, capability guard, and provider refusal are covered in `tst_McpLoopback.Elicitation*`. **No UI is bundled** — the host decides whether to render a modal, embed a chat form, open a URL (URL mode), validate user input against `requestedSchema`, and whether to return `accept` / `decline` / `cancel`. See `BaseElicitationProvider.hpp` for the expected shape. |
+| Roots — `roots/list`, `notifications/roots/list_changed` | ✅ | `BaseRootsProvider` (`include/LLMQore/BaseRootsProvider.hpp`): subclass, override `listRoots()`, emit `listChanged()` when the set changes. Register with `McpClient::setRootsProvider()`. Handler installed by default; returns an empty list when no provider is set. Declares `roots.listChanged: true` capability during `initialize` if a provider is present. Tests: `tst_McpLoopback.RootsListRoundTripsFromServerToClient`. |
+| Sampling — `sampling/createMessage` | ✅ | Full end-to-end. `McpClient::setSamplingClient(BaseClient*, SamplingPayloadBuilder)` wires a live `BaseClient` as the executor for incoming `sampling/createMessage` requests. The library drives `BaseClient::sendMessage()` through the host-supplied payload builder, collects the finalised result via the new `RequestCallbacks::onFinalized` callback (`CompletionInfo{fullText, model, stopReason}`), and wraps it into `CreateMessageResult` automatically. The `sampling` capability is declared during `initialize` when a sampling client is wired. Without it, incoming `sampling/createMessage` requests reply with `MethodNotFound`. Host builder lambdas own all provider-specific JSON serialisation — LLMQore never chases per-provider API evolution. **Tool-calling-inside-sampling (2025-11-25) comes for free** via the existing `ToolsManager` continuation loop: whatever tools (local `BaseTool` + remote `McpRemoteTool` from other servers) are registered on the `BaseClient` are available to the sampling call, and `onFinalized` fires only after the full multi-turn loop converges. `McpServer::createSamplingMessage()` is the server-side initiator, with a capability guard that short-circuits with `McpProtocolError` if the peer never advertised `sampling`. Types (`SamplingMessage`, `ModelHint`, `ModelPreferences`, `CreateMessageParams`, `CreateMessageResult`) round-trip in `tst_McpTypes`; end-to-end happy path, capability guard, and client error propagation are covered in `tst_McpLoopback.Sampling*` using a `FakeSamplingClient` (a minimal `BaseClient` stub with canned completion). |
+| Elicitation — `elicitation/create` (new in 2025-06-18, URL mode added 2025-11-25) | 🟡 | Protocol plumbing complete, symmetric to Sampling: `BaseElicitationProvider` (`include/LLMQore/BaseElicitationProvider.hpp`) is the abstract host-implemented hook; `McpClient::setElicitationProvider()` installs it, declares the `elicitation` capability during `initialize`, and dispatches incoming `elicitation/create` requests (replies with `MethodNotFound` when no provider is set). `McpServer::createElicitation()` is the server-side initiator with the same capability-guarded short-circuit as sampling. Types (`ElicitRequestParams` with `mode`/`url` for 2025-11-25 URL mode, `ElicitResult`, `ElicitationCapability`, `ElicitAction` constants) round-trip in `tst_McpTypes`; end-to-end happy path, capability guard, and provider refusal are covered in `tst_McpLoopback.Elicitation*`. **No UI is bundled** — the host decides whether to render a modal, embed a chat form, open a URL (URL mode), validate user input against `requestedSchema`, and whether to return `accept` / `decline` / `cancel`. See `BaseElicitationProvider.hpp` for the expected shape. |
 | Tool calling inside sampling (`tools`/`toolChoice` params, new in 2025-11-25) | 🟡 | **Execution side done**: the `BaseClient` + `ToolsManager` loop runs tools transparently during a sampled call (see Sampling row above). **Parameter side not plumbed**: the `tools` / `toolChoice` fields a server can send in `sampling/createMessage` are parked in `CreateMessageParams::metadata` verbatim and must be lifted into the provider payload by the host's `SamplingPayloadBuilder` lambda. Follow-up: surface them as typed fields on `CreateMessageParams`. |
 
 ---

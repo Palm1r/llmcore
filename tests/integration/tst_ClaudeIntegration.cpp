@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: MIT
 
 #include "IntegrationTestHelpers.hpp"
-#include <LLMCore/ClaudeClient.hpp>
+#include <LLMQore/ClaudeClient.hpp>
 
-using namespace LLMCore;
-using namespace LLMCore::IntegrationTest;
+using namespace LLMQore;
+using namespace LLMQore::IntegrationTest;
 
 class ClaudeIntegrationTest : public ProviderTestBase
 {

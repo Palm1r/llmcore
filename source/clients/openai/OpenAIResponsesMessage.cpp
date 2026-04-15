@@ -3,11 +3,11 @@
 
 #include "OpenAIResponsesMessage.hpp"
 
-#include <LLMCore/Log.hpp>
+#include <LLMQore/Log.hpp>
 
 #include <QJsonArray>
 
-namespace LLMCore {
+namespace LLMQore {
 
 OpenAIResponsesMessage::OpenAIResponsesMessage(QObject *parent)
     : BaseMessage(parent)
@@ -239,4 +239,4 @@ void OpenAIResponsesMessage::startNewContinuation()
     m_status.clear();
 }
 
-} // namespace LLMCore
+} // namespace LLMQore

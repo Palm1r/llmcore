@@ -1,17 +1,17 @@
 // Copyright (C) 2026 Petr Mironychev
 // SPDX-License-Identifier: MIT
 
-#include <LLMCore/LlamaCppClient.hpp>
+#include <LLMQore/LlamaCppClient.hpp>
 
 #include <QJsonArray>
 #include <QJsonDocument>
 
 #include "clients/openai/OpenAIMessage.hpp"
-#include <LLMCore/HttpClient.hpp>
-#include <LLMCore/Log.hpp>
-#include <LLMCore/SSEParser.hpp>
+#include <LLMQore/HttpClient.hpp>
+#include <LLMQore/Log.hpp>
+#include <LLMQore/SSEParser.hpp>
 
-namespace LLMCore {
+namespace LLMQore {
 
 LlamaCppClient::LlamaCppClient(QObject *parent)
     : LlamaCppClient({}, {}, {}, parent)
@@ -390,4 +390,4 @@ void LlamaCppClient::processBufferedResponse(const RequestID &id, const QByteArr
     }
 }
 
-} // namespace LLMCore
+} // namespace LLMQore

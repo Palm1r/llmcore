@@ -10,7 +10,7 @@
 #include <QQmlEngine>
 #include <QString>
 
-#include <LLMCore/Core>
+#include <LLMQore/Core>
 
 #include "MessageModel.hpp"
 #include <QtQmlIntegration>
@@ -65,7 +65,7 @@ private:
     void cancelPendingFetch();
 
     MessageModel m_messages;
-    LLMCore::BaseClient *m_client = nullptr;
+    LLMQore::BaseClient *m_client = nullptr;
     QPointer<QFutureWatcher<QList<QString>>> m_modelWatcher;
     QJsonArray m_history;
     QStringList m_modelList;
@@ -74,5 +74,5 @@ private:
     QString m_status = "Select a provider to start.";
     QStringList m_toolNames;
     QString m_currentProvider;
-    LLMCore::RequestID m_currentRequest;
+    LLMQore::RequestID m_currentRequest;
 };

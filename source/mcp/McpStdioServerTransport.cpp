@@ -1,9 +1,9 @@
 // Copyright (C) 2026 Petr Mironychev
 // SPDX-License-Identifier: MIT
 
-#include <LLMCore/McpStdioServerTransport.hpp>
+#include <LLMQore/McpStdioServerTransport.hpp>
 
-#include <LLMCore/Log.hpp>
+#include <LLMQore/Log.hpp>
 
 #include "McpLineFramer.hpp"
 
@@ -25,7 +25,7 @@
 #include <unistd.h>
 #endif
 
-namespace LLMCore::Mcp {
+namespace LLMQore::Mcp {
 
 namespace {
 
@@ -63,7 +63,7 @@ public:
 private:
     StdioTrace()
     {
-        const QByteArray path = qgetenv("LLMCORE_MCP_TRACE");
+        const QByteArray path = qgetenv("LLMQORE_MCP_TRACE");
         if (path.isEmpty())
             return;
         m_file.setFileName(QString::fromLocal8Bit(path));
@@ -234,4 +234,4 @@ void McpStdioServerTransport::send(const QJsonObject &message)
     std::fflush(stdout);
 }
 
-} // namespace LLMCore::Mcp
+} // namespace LLMQore::Mcp

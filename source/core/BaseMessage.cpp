@@ -1,9 +1,9 @@
 // Copyright (C) 2026 Petr Mironychev
 // SPDX-License-Identifier: MIT
 
-#include <LLMCore/BaseMessage.hpp>
+#include <LLMQore/BaseMessage.hpp>
 
-namespace LLMCore {
+namespace LLMQore {
 
 BaseMessage::BaseMessage(QObject *parent)
     : QObject(parent)
@@ -54,4 +54,4 @@ TextContent *BaseMessage::getOrCreateTextContent()
     return addCurrentContent<TextContent>();
 }
 
-} // namespace LLMCore
+} // namespace LLMQore

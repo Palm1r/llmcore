@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: MIT
 
 #include "ToolHandler.hpp"
-#include <LLMCore/ToolExceptions.hpp>
+#include <LLMQore/ToolExceptions.hpp>
 
 #include <QtConcurrent>
 
-#include <LLMCore/Log.hpp>
+#include <LLMQore/Log.hpp>
 
-namespace LLMCore {
+namespace LLMQore {
 
 ToolHandler::ToolHandler(QObject *parent)
     : QObject(parent)
@@ -120,4 +120,4 @@ void ToolHandler::onToolExecutionFinished(const QString &toolId)
     delete execution;
 }
 
-} // namespace LLMCore
+} // namespace LLMQore

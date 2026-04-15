@@ -1,0 +1,129 @@
+// Copyright (C) 2026 Petr Mironychev
+// SPDX-License-Identifier: MIT
+
+#pragma once
+
+#include <functional>
+
+#include <QHash>
+#include <QJsonArray>
+#include <QJsonObject>
+#include <QProcessEnvironment>
+#include <QString>
+#include <QStringList>
+#include <QUrl>
+
+#include <LLMQore/LLMQore_global.h>
+#include <LLMQore/ToolRegistry.hpp>
+#include <LLMQore/ToolResult.hpp>
+#include <LLMQore/ToolSchemaFormat.hpp>
+
+namespace LLMQore::Mcp {
+class McpClient;
+struct ToolInfo;
+}
+
+namespace LLMQore {
+
+struct LLMQORE_EXPORT McpServerEntry
+{
+    QString name;
+
+    // stdio
+    QString command;
+    QStringList arguments;
+    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    QString workingDirectory;
+
+    // http (if set, stdio fields are ignored)
+    QUrl url;
+    QHash<QString, QString> headers;
+    QString httpSpec; // "2024-11-05" for legacy SSE, empty for latest
+};
+
+}
+
+namespace LLMQore {
+
+class ToolHandler;
+
+struct PendingTool
+{
+    QString id;
+    QString name;
+    QJsonObject input;
+    ToolResult result;
+    QString resultText;
+    bool complete = false;
+};
+
+struct ToolQueue
+{
+    QList<PendingTool> queue;
+    QHash<QString, PendingTool> completed;
+    bool isExecuting = false;
+};
+
+class LLMQORE_EXPORT ToolsManager : public ToolRegistry
+{
+    Q_OBJECT
+
+public:
+    explicit ToolsManager(ToolSchemaFormat format, QObject *parent = nullptr);
+
+    void addMcpServer(const McpServerEntry &entry);
+    void loadMcpServers(const QJsonObject &config);
+    void addMcpClient(Mcp::McpClient *client);
+    void removeMcpClient(Mcp::McpClient *client);
+    void removeAllTools();
+
+    QJsonArray getToolsDefinitions() const;
+    QString displayName(const QString &toolName) const;
+
+    void executeToolCall(
+        const QString &requestId,
+        const QString &toolId,
+        const QString &toolName,
+        const QJsonObject &input);
+    void cleanupRequest(const QString &requestId);
+
+    void setToolExecutionDelay(int delayMs);
+    int toolExecutionDelay() const;
+
+signals:
+    void toolExecutionStarted(
+        const QString &requestId, const QString &toolId, const QString &toolName);
+    void toolExecutionResult(
+        const QString &requestId,
+        const QString &toolId,
+        const QString &toolName,
+        const QString &result);
+    void toolExecutionComplete(
+        const QString &requestId, const QHash<QString, ToolResult> &toolResults);
+
+private slots:
+    void onToolCompleted(
+        const QString &requestId, const QString &toolId, const ToolResult &result);
+    void onToolErrored(
+        const QString &requestId, const QString &toolId, const QString &errorText);
+
+private:
+    void initConnections();
+    void executeNextTool(const QString &requestId);
+    void finalizePendingTool(
+        const QString &requestId, const QString &toolId, const ToolResult &rich, bool success);
+    QHash<QString, ToolResult> getToolResults(const QString &requestId) const;
+    QJsonArray buildToolsDefinitions() const;
+    QJsonObject wrapDefinition(const BaseTool *tool) const;
+
+    ToolHandler *m_toolHandler;
+    ToolSchemaFormat m_format;
+    QHash<QString, ToolQueue> m_toolQueues;
+    int m_toolExecutionDelayMs = 0;
+
+    void registerMcpTools(Mcp::McpClient *client);
+
+    QHash<Mcp::McpClient *, QStringList> m_mcpClientTools;
+};
+
+} // namespace LLMQore

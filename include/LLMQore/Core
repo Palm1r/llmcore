@@ -1,0 +1,9 @@
+// Copyright (C) 2026 Petr Mironychev
+// SPDX-License-Identifier: MIT
+
+#pragma once
+
+#include <LLMQore/BaseClient.hpp>
+#include <LLMQore/BaseMessage.hpp>
+#include <LLMQore/ContentBlocks.hpp>
+#include <LLMQore/Log.hpp>

@@ -6,7 +6,7 @@
 #include <QByteArray>
 #include <QByteArrayList>
 
-namespace LLMCore::Mcp {
+namespace LLMQore::Mcp {
 
 class McpLineFramer
 {
@@ -46,4 +46,4 @@ private:
     QByteArray m_buffer;
 };
 
-} // namespace LLMCore::Mcp
+} // namespace LLMQore::Mcp

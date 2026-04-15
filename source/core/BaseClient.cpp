@@ -1,22 +1,22 @@
 // Copyright (C) 2026 Petr Mironychev
 // SPDX-License-Identifier: MIT
 
-#include <LLMCore/BaseClient.hpp>
+#include <LLMQore/BaseClient.hpp>
 
 #include <QJsonDocument>
 #include <QPointer>
 #include <QUuid>
 
-#include <LLMCore/HttpClient.hpp>
-#include <LLMCore/HttpStream.hpp>
-#include <LLMCore/HttpTransportError.hpp>
-#include <LLMCore/Log.hpp>
-#include <LLMCore/ToolsManager.hpp>
+#include <LLMQore/HttpClient.hpp>
+#include <LLMQore/HttpStream.hpp>
+#include <LLMQore/HttpTransportError.hpp>
+#include <LLMQore/Log.hpp>
+#include <LLMQore/ToolsManager.hpp>
 
-namespace LLMCore {
+namespace LLMQore {
 
 BaseClient::BaseClient(QObject *parent)
-    : LLMCore::BaseClient({}, {}, {}, parent)
+    : LLMQore::BaseClient({}, {}, {}, parent)
 {}
 
 BaseClient::BaseClient(
@@ -425,7 +425,7 @@ void BaseClient::handleToolContinuation(
     auto *message = messageForRequest(id);
     auto it = m_requests.find(id);
     if (!message || it == m_requests.end() || it->url.isEmpty()) {
-        qCWarning(llmCoreLog).noquote()
+        qCWarning(llmQoreLog).noquote()
             << QString("Missing data for continuation request %1").arg(id);
         cleanupFullRequest(id);
         failRequest(id, "Missing data for tool continuation");
@@ -433,7 +433,7 @@ void BaseClient::handleToolContinuation(
     }
 
     if (!checkContinuationLimit(id)) {
-        qCWarning(llmCoreLog).noquote()
+        qCWarning(llmQoreLog).noquote()
             << QString("Tool continuation limit reached for request %1").arg(id);
         cleanupFullRequest(id);
         failRequest(id, "Tool continuation limit reached");
@@ -559,4 +559,4 @@ void BaseClient::cleanupRequest(const RequestID &id)
     m_requests.erase(it);
 }
 
-} // namespace LLMCore
+} // namespace LLMQore

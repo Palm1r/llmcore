@@ -7,9 +7,9 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 
-#include <LLMCore/ToolResult.hpp>
+#include <LLMQore/ToolResult.hpp>
 
-using namespace LLMCore;
+using namespace LLMQore;
 
 // ---------- ToolResult convenience factories ----------
 

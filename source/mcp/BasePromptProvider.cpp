@@ -1,11 +1,11 @@
 // Copyright (C) 2026 Petr Mironychev
 // SPDX-License-Identifier: MIT
 
-#include <LLMCore/BasePromptProvider.hpp>
+#include <LLMQore/BasePromptProvider.hpp>
 
 #include <QPromise>
 
-namespace LLMCore::Mcp {
+namespace LLMQore::Mcp {
 
 QFuture<CompletionResult> BasePromptProvider::completeArgument(
     const QString & /*promptName*/,
@@ -20,4 +20,4 @@ QFuture<CompletionResult> BasePromptProvider::completeArgument(
     return promise->future();
 }
 
-} // namespace LLMCore::Mcp
+} // namespace LLMQore::Mcp

@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: MIT
 
 #include "IntegrationTestHelpers.hpp"
-#include <LLMCore/OpenAIResponsesClient.hpp>
-#include <LLMCore/ToolResult.hpp>
-#include <LLMCore/ToolsManager.hpp>
+#include <LLMQore/OpenAIResponsesClient.hpp>
+#include <LLMQore/ToolResult.hpp>
+#include <LLMQore/ToolsManager.hpp>
 
-using namespace LLMCore;
-using namespace LLMCore::IntegrationTest;
+using namespace LLMQore;
+using namespace LLMQore::IntegrationTest;
 
 class OpenAIResponsesIntegrationTest : public ProviderTestBase
 {

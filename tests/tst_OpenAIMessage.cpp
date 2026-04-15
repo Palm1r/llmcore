@@ -8,7 +8,7 @@
 
 #include "clients/openai/OpenAIMessage.hpp"
 
-using namespace LLMCore;
+using namespace LLMQore;
 
 TEST(OpenAIMessage, InitialState)
 {

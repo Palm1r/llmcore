@@ -1,6 +1,6 @@
 # MCP Bridge
 
-A standalone CLI tool that aggregates multiple MCP servers — stdio or HTTP/SSE — and re-exposes them either behind a single HTTP endpoint **or** as one stdio server. Built on top of LLMCore.
+A standalone CLI tool that aggregates multiple MCP servers — stdio or HTTP/SSE — and re-exposes them either behind a single HTTP endpoint **or** as one stdio server. Built on top of LLMQore.
 
 ## What it does
 
@@ -28,7 +28,7 @@ MCP servers in the ecosystem come in two flavours: stdio (child processes) and H
 
 ### Prebuilt binaries
 
-Download from [GitHub Releases](https://github.com/Palm1r/llmcore/releases):
+Download from [GitHub Releases](https://github.com/Palm1r/llmqore/releases):
 
 - `mcp-bridge-linux-x86_64.tar.gz`
 - `mcp-bridge-macos-universal.tar.gz` (x86_64 + arm64)
@@ -38,10 +38,10 @@ Each archive contains the `mcp-bridge` binary together with the Qt runtime it ne
 
 ### Build from source
 
-The bridge is built as part of the llmcore CMake project:
+The bridge is built as part of the llmqore CMake project:
 
 ```bash
-cmake -B build -DLLMCORE_BUILD_MCP_BRIDGE=ON
+cmake -B build -DLLMQORE_BUILD_MCP_BRIDGE=ON
 cmake --build build --target mcp-bridge
 ```
 
@@ -156,7 +156,7 @@ Tools from all upstream servers appear as a flat list in either mode. Tool names
 - **Auto-reconnect** — on `McpClient::disconnected` the upstream's tools are de-registered and `connectAndInitialize` + `tools/list` are retried with exponential backoff (1s → 30s). On success the tools are registered again.
 - **Graceful shutdown** — on `Ctrl+C` (SIGINT) the bridge stops the serving transport, cancels pending reconnects, and sends MCP `shutdown` to each upstream (which terminates stdio child processes).
 - **Tool changes** — each upstream's `notifications/tools/list_changed` triggers a re-sync: old tools are removed, the fresh list is fetched and re-registered.
-- **Logs on stderr** — in stdio mode stdout is reserved for MCP frames; all bridge logs (`llmcore.mcp`, qInfo/qWarning) go to stderr.
+- **Logs on stderr** — in stdio mode stdout is reserved for MCP frames; all bridge logs (`llmqore.mcp`, qInfo/qWarning) go to stderr.
 
 ## Current limitations
 
@@ -166,5 +166,5 @@ Tools from all upstream servers appear as a flat list in either mode. Tool names
 
 ## See also
 
-- [Integration](integration.md) — using llmcore from your own CMake project
-- [MCP Protocol Coverage](mcp/mcp_protocol_coverage.md) — what llmcore's MCP implementation supports
+- [Integration](integration.md) — using llmqore from your own CMake project
+- [MCP Protocol Coverage](mcp/mcp_protocol_coverage.md) — what llmqore's MCP implementation supports

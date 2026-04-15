@@ -11,7 +11,7 @@ FetchContent_MakeAvailable(googletest)
 
 enable_testing()
 
-add_executable(LLMCoreUnitTests
+add_executable(LLMQoreUnitTests
     main.cpp
     tst_ContentBlocks.cpp
     tst_LineBuffer.cpp
@@ -33,26 +33,26 @@ add_executable(LLMCoreUnitTests
     tst_HttpRequestParser.cpp
 )
 
-set_target_properties(LLMCoreUnitTests PROPERTIES
+set_target_properties(LLMQoreUnitTests PROPERTIES
     AUTOMOC ON
     CXX_STANDARD 20
     CXX_STANDARD_REQUIRED ON
 )
 
-target_include_directories(LLMCoreUnitTests PRIVATE
+target_include_directories(LLMQoreUnitTests PRIVATE
     ${PROJECT_SOURCE_DIR}/source
 )
 
-target_link_libraries(LLMCoreUnitTests PRIVATE
-    LLMCore::LLMCore
+target_link_libraries(LLMQoreUnitTests PRIVATE
+    LLMQore::LLMQore
     Qt6::Test
     Qt6::Concurrent
     GTest::gtest
 )
 
-add_test(NAME LLMCoreUnitTests COMMAND LLMCoreUnitTests)
+add_test(NAME LLMQoreUnitTests COMMAND LLMQoreUnitTests)
 
-option(LLMCORE_BUILD_INTEGRATION_TESTS "Build LLMCore integration tests (require API keys)" OFF)
-if(LLMCORE_BUILD_INTEGRATION_TESTS)
+option(LLMQORE_BUILD_INTEGRATION_TESTS "Build LLMQore integration tests (require API keys)" OFF)
+if(LLMQORE_BUILD_INTEGRATION_TESTS)
     add_subdirectory(integration)
 endif()

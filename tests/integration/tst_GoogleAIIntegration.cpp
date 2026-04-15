@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: MIT
 
 #include "IntegrationTestHelpers.hpp"
-#include <LLMCore/GoogleAIClient.hpp>
+#include <LLMQore/GoogleAIClient.hpp>
 
-using namespace LLMCore;
-using namespace LLMCore::IntegrationTest;
+using namespace LLMQore;
+using namespace LLMQore::IntegrationTest;
 
 class GoogleAIIntegrationTest : public ProviderTestBase
 {

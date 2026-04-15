@@ -1,17 +1,17 @@
 // Copyright (C) 2026 Petr Mironychev
 // SPDX-License-Identifier: MIT
 
-#include <LLMCore/OllamaClient.hpp>
+#include <LLMQore/OllamaClient.hpp>
 
 #include <QJsonArray>
 #include <QJsonDocument>
 
 #include "OllamaMessage.hpp"
-#include <LLMCore/HttpClient.hpp>
-#include <LLMCore/LineBuffer.hpp>
-#include <LLMCore/Log.hpp>
+#include <LLMQore/HttpClient.hpp>
+#include <LLMQore/LineBuffer.hpp>
+#include <LLMQore/Log.hpp>
 
-namespace LLMCore {
+namespace LLMQore {
 
 OllamaClient::OllamaClient(QObject *parent)
     : OllamaClient({}, {}, {}, parent)
@@ -296,4 +296,4 @@ void OllamaClient::processBufferedResponse(const RequestID &id, const QByteArray
     processStreamData(id, response);
 }
 
-} // namespace LLMCore
+} // namespace LLMQore

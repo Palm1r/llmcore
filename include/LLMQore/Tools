@@ -1,0 +1,9 @@
+// Copyright (C) 2026 Petr Mironychev
+// SPDX-License-Identifier: MIT
+
+#pragma once
+
+#include <LLMQore/BaseTool.hpp>
+#include <LLMQore/ToolExceptions.hpp>
+#include <LLMQore/ToolResult.hpp>
+#include <LLMQore/ToolsManager.hpp>

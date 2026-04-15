@@ -8,7 +8,7 @@
 
 #include "clients/claude/ClaudeMessage.hpp"
 
-using namespace LLMCore;
+using namespace LLMQore;
 
 TEST(ClaudeMessage, InitialState)
 {

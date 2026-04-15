@@ -2,16 +2,16 @@
 // SPDX-License-Identifier: MIT
 
 #include "ToolHandler.hpp"
-#include <LLMCore/Log.hpp>
-#include <LLMCore/McpClient.hpp>
-#include <LLMCore/McpHttpTransport.hpp>
-#include <LLMCore/McpRemoteTool.hpp>
-#include <LLMCore/McpStdioTransport.hpp>
-#include <LLMCore/ToolsManager.hpp>
-#include <LLMCore/Version.hpp>
+#include <LLMQore/Log.hpp>
+#include <LLMQore/McpClient.hpp>
+#include <LLMQore/McpHttpTransport.hpp>
+#include <LLMQore/McpRemoteTool.hpp>
+#include <LLMQore/McpStdioTransport.hpp>
+#include <LLMQore/ToolsManager.hpp>
+#include <LLMQore/Version.hpp>
 #include <QTimer>
 
-namespace LLMCore {
+namespace LLMQore {
 
 ToolsManager::ToolsManager(ToolSchemaFormat format, QObject *parent)
     : ToolRegistry(parent)
@@ -58,7 +58,7 @@ void ToolsManager::addMcpServer(const McpServerEntry &entry)
     }
 
     auto *client = new Mcp::McpClient(
-        transport, Mcp::Implementation{entry.name, QStringLiteral(LLMCORE_VERSION_STRING)}, this);
+        transport, Mcp::Implementation{entry.name, QStringLiteral(LLMQORE_VERSION_STRING)}, this);
 
     client->connectAndInitialize().then(this, [this, client](const Mcp::InitializeResult &) {
         addMcpClient(client);
@@ -409,4 +409,4 @@ int ToolsManager::toolExecutionDelay() const
     return m_toolExecutionDelayMs;
 }
 
-} // namespace LLMCore
+} // namespace LLMQore
