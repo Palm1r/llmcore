@@ -1,11 +1,11 @@
 // Copyright (C) 2026 Petr Mironychev
 // SPDX-License-Identifier: MIT
 
-#include <LLMCore/McpHttpServerTransport.hpp>
+#include <LLMQore/McpHttpServerTransport.hpp>
 
-#include <LLMCore/HttpRequestParser.hpp>
-#include <LLMCore/Log.hpp>
-#include <LLMCore/SSEParser.hpp>
+#include <LLMQore/HttpRequestParser.hpp>
+#include <LLMQore/Log.hpp>
+#include <LLMQore/SSEParser.hpp>
 
 #include <QHash>
 #include <QJsonDocument>
@@ -18,7 +18,7 @@
 #include <QTimer>
 #include <QUuid>
 
-namespace LLMCore::Mcp {
+namespace LLMQore::Mcp {
 
 namespace {
 
@@ -475,4 +475,4 @@ QString McpHttpServerTransport::sessionId() const
     return m_impl->sessionId;
 }
 
-} // namespace LLMCore::Mcp
+} // namespace LLMQore::Mcp

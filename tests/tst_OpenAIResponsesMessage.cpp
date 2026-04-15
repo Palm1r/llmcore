@@ -9,7 +9,7 @@
 
 #include "clients/openai/OpenAIResponsesMessage.hpp"
 
-using namespace LLMCore;
+using namespace LLMQore;
 
 TEST(OpenAIResponsesMessage, InitialState)
 {

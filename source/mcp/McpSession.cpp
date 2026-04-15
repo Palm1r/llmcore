@@ -1,16 +1,16 @@
 // Copyright (C) 2026 Petr Mironychev
 // SPDX-License-Identifier: MIT
 
-#include <LLMCore/McpSession.hpp>
+#include <LLMQore/McpSession.hpp>
 
-#include <LLMCore/Log.hpp>
-#include <LLMCore/McpExceptions.hpp>
-#include <LLMCore/McpTypes.hpp>
+#include <LLMQore/Log.hpp>
+#include <LLMQore/McpExceptions.hpp>
+#include <LLMQore/McpTypes.hpp>
 
 #include <QFutureWatcher>
 #include <QTimer>
 
-namespace LLMCore::Mcp {
+namespace LLMQore::Mcp {
 
 namespace {
 
@@ -533,4 +533,4 @@ void McpSession::onTransportClosed()
     abortPending(QStringLiteral("Transport closed"));
 }
 
-} // namespace LLMCore::Mcp
+} // namespace LLMQore::Mcp

@@ -4,7 +4,7 @@
 import QtQuick
 import QtQuick.Controls.Fusion
 import QtQuick.Layouts
-import example.LLMCoreChat
+import example.LLMQoreChat
 
 import "qml"
 
@@ -22,7 +22,7 @@ ApplicationWindow {
     width: 800
     height: 600
     visible: true
-    title: "LLMCore Chat"
+    title: "LLMQore Chat"
 
     // -- Nord palette ---------------------------------------------------------
 

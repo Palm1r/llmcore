@@ -1,19 +1,19 @@
 // Copyright (C) 2026 Petr Mironychev
 // SPDX-License-Identifier: MIT
 
-#include <LLMCore/ToolResult.hpp>
+#include <LLMQore/ToolResult.hpp>
 
 #include <QJsonValue>
 #include <QMetaType>
 #include <QStringList>
 
-namespace LLMCore {
+namespace LLMQore {
 
 namespace {
 const int _toolResultMetaType = []() {
-    qRegisterMetaType<LLMCore::ToolContent>("LLMCore::ToolContent");
-    qRegisterMetaType<LLMCore::ToolResult>("LLMCore::ToolResult");
-    qRegisterMetaType<LLMCoreToolResultHash>("LLMCoreToolResultHash");
+    qRegisterMetaType<LLMQore::ToolContent>("LLMQore::ToolContent");
+    qRegisterMetaType<LLMQore::ToolResult>("LLMQore::ToolResult");
+    qRegisterMetaType<LLMQoreToolResultHash>("LLMQoreToolResultHash");
     return 0;
 }();
 } // namespace
@@ -242,4 +242,4 @@ ToolResult ToolResult::fromJson(const QJsonObject &obj)
     return r;
 }
 
-} // namespace LLMCore
+} // namespace LLMQore

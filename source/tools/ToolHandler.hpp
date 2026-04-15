@@ -9,14 +9,14 @@
 #include <QObject>
 #include <QString>
 
-#include <LLMCore/LLMCore_global.h>
+#include <LLMQore/LLMQore_global.h>
 
-#include <LLMCore/BaseTool.hpp>
-#include <LLMCore/ToolResult.hpp>
+#include <LLMQore/BaseTool.hpp>
+#include <LLMQore/ToolResult.hpp>
 
-namespace LLMCore {
+namespace LLMQore {
 
-class LLMCORE_EXPORT ToolHandler : public QObject
+class LLMQORE_EXPORT ToolHandler : public QObject
 {
     Q_OBJECT
 
@@ -30,7 +30,7 @@ public:
 
 signals:
     void toolCompleted(
-        const QString &requestId, const QString &toolId, const LLMCore::ToolResult &result);
+        const QString &requestId, const QString &toolId, const LLMQore::ToolResult &result);
     void toolFailed(const QString &requestId, const QString &toolId, const QString &error);
 
 private:
@@ -47,4 +47,4 @@ private:
     void onToolExecutionFinished(const QString &toolId);
 };
 
-} // namespace LLMCore
+} // namespace LLMQore

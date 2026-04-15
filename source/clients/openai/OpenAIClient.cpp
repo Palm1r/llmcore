@@ -1,17 +1,17 @@
 // Copyright (C) 2026 Petr Mironychev
 // SPDX-License-Identifier: MIT
 
-#include <LLMCore/OpenAIClient.hpp>
+#include <LLMQore/OpenAIClient.hpp>
 
 #include <QJsonArray>
 #include <QJsonDocument>
 
 #include "OpenAIMessage.hpp"
-#include <LLMCore/HttpClient.hpp>
-#include <LLMCore/Log.hpp>
-#include <LLMCore/SSEParser.hpp>
+#include <LLMQore/HttpClient.hpp>
+#include <LLMQore/Log.hpp>
+#include <LLMQore/SSEParser.hpp>
 
-namespace LLMCore {
+namespace LLMQore {
 
 OpenAIClient::OpenAIClient(QObject *parent)
     : OpenAIClient({}, {}, {}, parent)
@@ -269,4 +269,4 @@ void OpenAIClient::processBufferedResponse(const RequestID &id, const QByteArray
     }
 }
 
-} // namespace LLMCore
+} // namespace LLMQore

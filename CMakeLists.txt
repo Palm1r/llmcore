@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(LLMCore
-    VERSION 0.2.1
+project(LLMQore
+    VERSION 0.3.0
     LANGUAGES CXX
     DESCRIPTION "Qt/C++ library for LLM provider integration"
 )
@@ -9,16 +9,16 @@ project(LLMCore
 find_package(Qt6 REQUIRED COMPONENTS Core Network Concurrent)
 
 configure_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/LLMCore/Version.hpp.in
-    ${CMAKE_CURRENT_BINARY_DIR}/include/LLMCore/Version.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/LLMQore/Version.hpp.in
+    ${CMAKE_CURRENT_BINARY_DIR}/include/LLMQore/Version.hpp
     @ONLY
 )
 
-add_library(LLMCore)
+add_library(LLMQore)
 
-add_library(LLMCore::LLMCore ALIAS LLMCore)
+add_library(LLMQore::LLMQore ALIAS LLMQore)
 
-set_target_properties(LLMCore PROPERTIES
+set_target_properties(LLMQore PROPERTIES
     AUTOMOC ON
     CXX_STANDARD 20
     CXX_STANDARD_REQUIRED ON
@@ -30,7 +30,7 @@ set_target_properties(LLMCore PROPERTIES
 
 add_subdirectory(source)
 
-target_include_directories(LLMCore
+target_include_directories(LLMQore
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/include>
@@ -39,7 +39,7 @@ target_include_directories(LLMCore
         ${CMAKE_CURRENT_SOURCE_DIR}/source
 )
 
-target_link_libraries(LLMCore
+target_link_libraries(LLMQore
     PUBLIC
         Qt6::Core
         Qt6::Network
@@ -47,77 +47,77 @@ target_link_libraries(LLMCore
         Qt6::Concurrent
 )
 
-target_compile_definitions(LLMCore PRIVATE LLMCORE_LIBRARY)
+target_compile_definitions(LLMQore PRIVATE LLMQORE_LIBRARY)
 
 if(NOT BUILD_SHARED_LIBS)
-    target_compile_definitions(LLMCore PUBLIC LLMCORE_STATIC_LIB)
+    target_compile_definitions(LLMQore PUBLIC LLMQORE_STATIC_LIB)
 endif()
 
-target_compile_options(LLMCore PRIVATE
+target_compile_options(LLMQore PRIVATE
     $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-Wall -Wextra -Wpedantic>
     $<$<CXX_COMPILER_ID:MSVC>:/W4>
 )
 
 # --- Installation ---
-option(LLMCORE_INSTALL "Generate install targets" ${PROJECT_IS_TOP_LEVEL})
+option(LLMQORE_INSTALL "Generate install targets" ${PROJECT_IS_TOP_LEVEL})
 
-if(LLMCORE_INSTALL)
+if(LLMQORE_INSTALL)
     include(GNUInstallDirs)
     include(CMakePackageConfigHelpers)
 
-    install(TARGETS LLMCore
-        EXPORT LLMCoreTargets
+    install(TARGETS LLMQore
+        EXPORT LLMQoreTargets
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     )
 
-    install(DIRECTORY include/LLMCore
+    install(DIRECTORY include/LLMQore
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
         PATTERN "*.in" EXCLUDE
     )
 
-    install(FILES ${CMAKE_CURRENT_BINARY_DIR}/include/LLMCore/Version.hpp
-        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/LLMCore
+    install(FILES ${CMAKE_CURRENT_BINARY_DIR}/include/LLMQore/Version.hpp
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/LLMQore
     )
 
-    install(EXPORT LLMCoreTargets
-        FILE LLMCoreTargets.cmake
-        NAMESPACE LLMCore::
-        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/LLMCore
+    install(EXPORT LLMQoreTargets
+        FILE LLMQoreTargets.cmake
+        NAMESPACE LLMQore::
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/LLMQore
     )
 
     configure_package_config_file(
-        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/LLMCoreConfig.cmake.in
-        ${CMAKE_CURRENT_BINARY_DIR}/LLMCoreConfig.cmake
-        INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/LLMCore
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/LLMQoreConfig.cmake.in
+        ${CMAKE_CURRENT_BINARY_DIR}/LLMQoreConfig.cmake
+        INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/LLMQore
     )
 
     write_basic_package_version_file(
-        ${CMAKE_CURRENT_BINARY_DIR}/LLMCoreConfigVersion.cmake
+        ${CMAKE_CURRENT_BINARY_DIR}/LLMQoreConfigVersion.cmake
         VERSION ${PROJECT_VERSION}
         COMPATIBILITY SameMajorVersion
     )
 
     install(FILES
-        ${CMAKE_CURRENT_BINARY_DIR}/LLMCoreConfig.cmake
-        ${CMAKE_CURRENT_BINARY_DIR}/LLMCoreConfigVersion.cmake
-        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/LLMCore
+        ${CMAKE_CURRENT_BINARY_DIR}/LLMQoreConfig.cmake
+        ${CMAKE_CURRENT_BINARY_DIR}/LLMQoreConfigVersion.cmake
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/LLMQore
     )
 endif()
 
-option(LLMCORE_BUILD_TESTS "Build LLMCore tests" ${PROJECT_IS_TOP_LEVEL})
-if(LLMCORE_BUILD_TESTS)
+option(LLMQORE_BUILD_TESTS "Build LLMQore tests" ${PROJECT_IS_TOP_LEVEL})
+if(LLMQORE_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
 endif()
 
-option(LLMCORE_BUILD_EXAMPLES "Build LLMCore examples" ${PROJECT_IS_TOP_LEVEL})
-if(LLMCORE_BUILD_EXAMPLES)
+option(LLMQORE_BUILD_EXAMPLES "Build LLMQore examples" ${PROJECT_IS_TOP_LEVEL})
+if(LLMQORE_BUILD_EXAMPLES)
     add_subdirectory(example)
 endif()
 
-option(LLMCORE_BUILD_MCP_BRIDGE "Build MCP Bridge" ${PROJECT_IS_TOP_LEVEL})
-if(LLMCORE_BUILD_MCP_BRIDGE)
+option(LLMQORE_BUILD_MCP_BRIDGE "Build MCP Bridge" ${PROJECT_IS_TOP_LEVEL})
+if(LLMQORE_BUILD_MCP_BRIDGE)
     add_subdirectory(mcp-bridge)
 endif()

@@ -1,11 +1,11 @@
 // Copyright (C) 2026 Petr Mironychev
 // SPDX-License-Identifier: MIT
 
-#include <LLMCore/BaseResourceProvider.hpp>
+#include <LLMQore/BaseResourceProvider.hpp>
 
 #include <QPromise>
 
-namespace LLMCore::Mcp {
+namespace LLMQore::Mcp {
 
 BaseResourceProvider::BaseResourceProvider(QObject *parent)
     : QObject(parent)
@@ -33,4 +33,4 @@ QFuture<CompletionResult> BaseResourceProvider::completeArgument(
     return promise->future();
 }
 
-} // namespace LLMCore::Mcp
+} // namespace LLMQore::Mcp

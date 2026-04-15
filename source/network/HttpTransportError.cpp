@@ -1,11 +1,11 @@
 // Copyright (C) 2026 Petr Mironychev
 // SPDX-License-Identifier: MIT
 
-#include <LLMCore/HttpTransportError.hpp>
+#include <LLMQore/HttpTransportError.hpp>
 
 #include <utility>
 
-namespace LLMCore {
+namespace LLMQore {
 
 HttpTransportError::HttpTransportError(QString message, QNetworkReply::NetworkError code)
     : m_message(std::move(message))
@@ -13,4 +13,4 @@ HttpTransportError::HttpTransportError(QString message, QNetworkReply::NetworkEr
     , m_code(code)
 {}
 
-} // namespace LLMCore
+} // namespace LLMQore

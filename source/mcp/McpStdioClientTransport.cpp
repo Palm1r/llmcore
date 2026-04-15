@@ -1,16 +1,16 @@
 // Copyright (C) 2026 Petr Mironychev
 // SPDX-License-Identifier: MIT
 
-#include <LLMCore/McpStdioTransport.hpp>
+#include <LLMQore/McpStdioTransport.hpp>
 
-#include <LLMCore/Log.hpp>
+#include <LLMQore/Log.hpp>
 
 #include "McpLineFramer.hpp"
 
 #include <QFileInfo>
 #include <QJsonDocument>
 
-namespace LLMCore::Mcp {
+namespace LLMQore::Mcp {
 
 struct McpStdioClientTransport::Impl
 {
@@ -183,4 +183,4 @@ void McpStdioClientTransport::onProcessFinished(int exitCode, QProcess::ExitStat
     emit closed();
 }
 
-} // namespace LLMCore::Mcp
+} // namespace LLMQore::Mcp

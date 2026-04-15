@@ -9,7 +9,7 @@
 //
 //   {
 //     "mcpServers": {
-//       "llmcore-host": {
+//       "llmqore-host": {
 //         "command": "C:/path/to/example-mcp-server.exe"
 //       }
 //     }
@@ -25,11 +25,11 @@
 
 #include <QCoreApplication>
 
-#include <LLMCore/Mcp>
+#include <LLMQore/Mcp>
 
 #include "../ExampleTools.hpp"
 
-using namespace LLMCore::Mcp;
+using namespace LLMQore::Mcp;
 
 int main(int argc, char *argv[])
 {
@@ -38,10 +38,10 @@ int main(int argc, char *argv[])
     auto *transport = new McpStdioServerTransport(&app);
 
     McpServerConfig cfg;
-    cfg.serverInfo = {"llmcore-host", "0.1.0"};
+    cfg.serverInfo = {"llmqore-host", "0.1.0"};
     cfg.instructions
         = "Example MCP server exposing host-inspection tools (IPv4, environment "
-          "variables, image file reader) via llmcore.";
+          "variables, image file reader) via llmqore.";
 
     auto *server = new McpServer(transport, cfg, &app);
     server->addTool(new Example::IPv4Tool(server));

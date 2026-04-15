@@ -54,7 +54,7 @@ Errors reach the caller through three paths:
 ## Checklist: adding a new provider
 
 1. Create a new folder under `source/clients/` with the client and message implementation files.
-2. Add a public header under `include/LLMCore/`.
+2. Add a public header under `include/LLMQore/`.
 3. Add a tool schema format enumerator if the provider's tool definition shape differs from existing ones, and teach `ToolsManager` to produce it.
 4. Implement the provider subclass contract: message sending, model listing, request preparation, stream/buffered parsing, message bookkeeping, continuation building, and optionally error parsing.
 5. Add unit tests covering constructor sanity, payload shape, and any provider-specific quirks.

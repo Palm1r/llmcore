@@ -1,9 +1,9 @@
 // Copyright (C) 2026 Petr Mironychev
 // SPDX-License-Identifier: MIT
 
-#include <LLMCore/McpPipeTransport.hpp>
+#include <LLMQore/McpPipeTransport.hpp>
 
-namespace LLMCore::Mcp {
+namespace LLMQore::Mcp {
 
 McpPipeTransport::McpPipeTransport(QObject *parent)
     : McpTransport(parent)
@@ -60,4 +60,4 @@ void McpPipeTransport::deliver(const QJsonObject &message)
     emit messageReceived(message);
 }
 
-} // namespace LLMCore::Mcp
+} // namespace LLMQore::Mcp

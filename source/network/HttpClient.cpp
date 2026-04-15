@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Petr Mironychev
 // SPDX-License-Identifier: MIT
 
-#include <LLMCore/HttpClient.hpp>
+#include <LLMQore/HttpClient.hpp>
 
 #include <memory>
 
@@ -12,10 +12,10 @@
 #include <QPointer>
 #include <QPromise>
 
-#include <LLMCore/HttpStream.hpp>
-#include <LLMCore/Log.hpp>
+#include <LLMQore/HttpStream.hpp>
+#include <LLMQore/Log.hpp>
 
-namespace LLMCore {
+namespace LLMQore {
 
 namespace {
 
@@ -145,4 +145,4 @@ int HttpClient::transferTimeoutMs() const noexcept
     return m_impl->transferTimeoutMs;
 }
 
-} // namespace LLMCore
+} // namespace LLMQore

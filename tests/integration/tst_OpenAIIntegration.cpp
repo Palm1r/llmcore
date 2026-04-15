@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: MIT
 
 #include "IntegrationTestHelpers.hpp"
-#include <LLMCore/OpenAIClient.hpp>
+#include <LLMQore/OpenAIClient.hpp>
 
-using namespace LLMCore;
-using namespace LLMCore::IntegrationTest;
+using namespace LLMQore;
+using namespace LLMQore::IntegrationTest;
 
 class OpenAIIntegrationTest : public ProviderTestBase
 {

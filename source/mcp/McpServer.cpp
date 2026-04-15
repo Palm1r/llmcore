@@ -1,17 +1,17 @@
 // Copyright (C) 2026 Petr Mironychev
 // SPDX-License-Identifier: MIT
 
-#include <LLMCore/McpServer.hpp>
+#include <LLMQore/McpServer.hpp>
 
-#include <LLMCore/BasePromptProvider.hpp>
-#include <LLMCore/BaseResourceProvider.hpp>
-#include <LLMCore/BaseTool.hpp>
-#include <LLMCore/Log.hpp>
-#include <LLMCore/McpExceptions.hpp>
-#include <LLMCore/McpSession.hpp>
-#include <LLMCore/McpTransport.hpp>
-#include <LLMCore/ToolResult.hpp>
-#include <LLMCore/ToolRegistry.hpp>
+#include <LLMQore/BasePromptProvider.hpp>
+#include <LLMQore/BaseResourceProvider.hpp>
+#include <LLMQore/BaseTool.hpp>
+#include <LLMQore/Log.hpp>
+#include <LLMQore/McpExceptions.hpp>
+#include <LLMQore/McpSession.hpp>
+#include <LLMQore/McpTransport.hpp>
+#include <LLMQore/ToolResult.hpp>
+#include <LLMQore/ToolRegistry.hpp>
 
 #include <QFuture>
 #include <QJsonArray>
@@ -19,7 +19,7 @@
 
 #include <optional>
 
-namespace LLMCore::Mcp {
+namespace LLMQore::Mcp {
 
 namespace {
 
@@ -210,7 +210,7 @@ void McpServer::installHandlers()
         QStringLiteral("tools/list"),
         [this](const QJsonObject &) -> QFuture<QJsonValue> {
             QJsonArray arr;
-            for (LLMCore::BaseTool *tool : collectTools()) {
+            for (LLMQore::BaseTool *tool : collectTools()) {
                 if (!tool || !tool->isEnabled())
                     continue;
                 ToolInfo info;
@@ -233,7 +233,7 @@ void McpServer::installHandlers()
 
             emit toolCallReceived(name);
 
-            LLMCore::BaseTool *tool = findTool(name);
+            LLMQore::BaseTool *tool = findTool(name);
             if (!tool) {
                 return makeErrorFuture(McpRemoteError(
                     ErrorCode::MethodNotFound, QString("Tool not found: %1").arg(name)));
@@ -241,12 +241,12 @@ void McpServer::installHandlers()
 
             return tool->executeAsync(args)
                 .then(this,
-                      [](const LLMCore::ToolResult &result) {
+                      [](const LLMQore::ToolResult &result) {
                           return QJsonValue(result.toJson());
                       })
                 .onFailed(this, [](const std::exception &e) {
                     return QJsonValue(
-                        LLMCore::ToolResult::error(QString::fromUtf8(e.what())).toJson());
+                        LLMQore::ToolResult::error(QString::fromUtf8(e.what())).toJson());
                 });
         });
 
@@ -426,7 +426,7 @@ void McpServer::installHandlers()
         [](const QJsonObject &) -> QFuture<QJsonValue> { return makeReadyFuture(QJsonObject{}); });
 }
 
-void McpServer::setToolRegistry(LLMCore::ToolRegistry *registry)
+void McpServer::setToolRegistry(LLMQore::ToolRegistry *registry)
 {
     if (m_toolRegistry) {
         disconnect(m_toolRegistry, nullptr, this, nullptr);
@@ -434,7 +434,7 @@ void McpServer::setToolRegistry(LLMCore::ToolRegistry *registry)
     m_toolRegistry = registry;
 }
 
-void McpServer::addTool(LLMCore::BaseTool *tool)
+void McpServer::addTool(LLMQore::BaseTool *tool)
 {
     if (!tool)
         return;
@@ -581,9 +581,9 @@ void McpServer::stop()
     m_initialized = false;
 }
 
-QList<LLMCore::BaseTool *> McpServer::collectTools() const
+QList<LLMQore::BaseTool *> McpServer::collectTools() const
 {
-    QList<LLMCore::BaseTool *> tools;
+    QList<LLMQore::BaseTool *> tools;
     if (m_toolRegistry)
         tools = m_toolRegistry->registeredTools();
     for (const auto &t : m_standaloneTools) {
@@ -593,7 +593,7 @@ QList<LLMCore::BaseTool *> McpServer::collectTools() const
     return tools;
 }
 
-LLMCore::BaseTool *McpServer::findTool(const QString &name) const
+LLMQore::BaseTool *McpServer::findTool(const QString &name) const
 {
     if (m_toolRegistry) {
         if (auto *t = m_toolRegistry->tool(name))
@@ -605,4 +605,4 @@ LLMCore::BaseTool *McpServer::findTool(const QString &name) const
     return nullptr;
 }
 
-} // namespace LLMCore::Mcp
+} // namespace LLMQore::Mcp

@@ -1,20 +1,20 @@
 // Copyright (C) 2026 Petr Mironychev
 // SPDX-License-Identifier: MIT
 
-#include <LLMCore/McpClient.hpp>
+#include <LLMQore/McpClient.hpp>
 
-#include <LLMCore/BaseClient.hpp>
-#include <LLMCore/BaseElicitationProvider.hpp>
-#include <LLMCore/BaseRootsProvider.hpp>
-#include <LLMCore/Log.hpp>
-#include <LLMCore/McpExceptions.hpp>
-#include <LLMCore/McpSession.hpp>
-#include <LLMCore/McpTransport.hpp>
+#include <LLMQore/BaseClient.hpp>
+#include <LLMQore/BaseElicitationProvider.hpp>
+#include <LLMQore/BaseRootsProvider.hpp>
+#include <LLMQore/Log.hpp>
+#include <LLMQore/McpExceptions.hpp>
+#include <LLMQore/McpSession.hpp>
+#include <LLMQore/McpTransport.hpp>
 
 #include <QJsonArray>
 #include <QPromise>
 
-namespace LLMCore::Mcp {
+namespace LLMQore::Mcp {
 
 namespace {
 
@@ -136,10 +136,10 @@ void McpClient::installHandlers()
             auto promise = std::make_shared<QPromise<QJsonValue>>();
             promise->start();
 
-            LLMCore::RequestCallbacks cbs;
+            LLMQore::RequestCallbacks cbs;
             cbs.onFinalized = [promise](
-                                  const LLMCore::RequestID &,
-                                  const LLMCore::CompletionInfo &info) {
+                                  const LLMQore::RequestID &,
+                                  const LLMQore::CompletionInfo &info) {
                 CreateMessageResult r;
                 r.role = QStringLiteral("assistant");
                 r.content = QJsonObject{
@@ -152,7 +152,7 @@ void McpClient::installHandlers()
                 promise->finish();
             };
             cbs.onFailed = [promise](
-                               const LLMCore::RequestID &, const QString &err) {
+                               const LLMQore::RequestID &, const QString &err) {
                 promise->setException(std::make_exception_ptr(
                     McpRemoteError(ErrorCode::InternalError, err)));
                 promise->finish();
@@ -276,14 +276,14 @@ QFuture<QList<ToolInfo>> McpClient::listTools()
         });
 }
 
-QFuture<LLMCore::ToolResult> McpClient::callTool(
+QFuture<LLMQore::ToolResult> McpClient::callTool(
     const QString &name, const QJsonObject &arguments)
 {
     return sendInitialized(
                QStringLiteral("tools/call"),
                QJsonObject{{"name", name}, {"arguments", arguments}})
         .then(this, [](const QJsonValue &result) {
-            return LLMCore::ToolResult::fromJson(result.toObject());
+            return LLMQore::ToolResult::fromJson(result.toObject());
         });
 }
 
@@ -293,7 +293,7 @@ McpClient::CancellableToolCall McpClient::callToolWithProgress(
     CancellableToolCall out;
 
     if (!m_initialized) {
-        auto p = std::make_shared<QPromise<LLMCore::ToolResult>>();
+        auto p = std::make_shared<QPromise<LLMQore::ToolResult>>();
         p->start();
         p->setException(std::make_exception_ptr(
             McpProtocolError(QStringLiteral("Client not initialized"))));
@@ -317,7 +317,7 @@ McpClient::CancellableToolCall McpClient::callToolWithProgress(
     }
 
     out.future = cancellable.future.then(this, [](const QJsonValue &result) {
-        return LLMCore::ToolResult::fromJson(result.toObject());
+        return LLMQore::ToolResult::fromJson(result.toObject());
     });
     return out;
 }
@@ -421,7 +421,7 @@ QFuture<CompletionResult> McpClient::complete(
 }
 
 void McpClient::setSamplingClient(
-    LLMCore::BaseClient *client, SamplingPayloadBuilder builder)
+    LLMQore::BaseClient *client, SamplingPayloadBuilder builder)
 {
     m_samplingClient = client;
     m_samplingBuilder = std::move(builder);
@@ -454,4 +454,4 @@ void McpClient::shutdown()
     m_initialized = false;
 }
 
-} // namespace LLMCore::Mcp
+} // namespace LLMQore::Mcp

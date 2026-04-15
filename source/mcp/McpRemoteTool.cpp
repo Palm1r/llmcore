@@ -1,17 +1,17 @@
 // Copyright (C) 2026 Petr Mironychev
 // SPDX-License-Identifier: MIT
 
-#include <LLMCore/McpRemoteTool.hpp>
+#include <LLMQore/McpRemoteTool.hpp>
 
-#include <LLMCore/McpClient.hpp>
-#include <LLMCore/McpExceptions.hpp>
+#include <LLMQore/McpClient.hpp>
+#include <LLMQore/McpExceptions.hpp>
 
 #include <QPromise>
 
-namespace LLMCore::Mcp {
+namespace LLMQore::Mcp {
 
 McpRemoteTool::McpRemoteTool(McpClient *client, ToolInfo info, QObject *parent)
-    : LLMCore::BaseTool(parent)
+    : LLMQore::BaseTool(parent)
     , m_client(client)
     , m_info(std::move(info))
 {}
@@ -36,12 +36,12 @@ QJsonObject McpRemoteTool::parametersSchema() const
     return m_info.inputSchema;
 }
 
-QFuture<LLMCore::ToolResult> McpRemoteTool::executeAsync(const QJsonObject &input)
+QFuture<LLMQore::ToolResult> McpRemoteTool::executeAsync(const QJsonObject &input)
 {
     if (!m_client) {
-        QPromise<LLMCore::ToolResult> p;
+        QPromise<LLMQore::ToolResult> p;
         p.start();
-        p.addResult(LLMCore::ToolResult::error(
+        p.addResult(LLMQore::ToolResult::error(
             QStringLiteral("MCP client is not available")));
         p.finish();
         return p.future();
@@ -49,11 +49,11 @@ QFuture<LLMCore::ToolResult> McpRemoteTool::executeAsync(const QJsonObject &inpu
 
     return m_client->callTool(m_info.name, input)
         .onFailed(this, [](const McpException &e) {
-            return LLMCore::ToolResult::error(e.message());
+            return LLMQore::ToolResult::error(e.message());
         })
         .onFailed(this, [](const std::exception &e) {
-            return LLMCore::ToolResult::error(QString::fromUtf8(e.what()));
+            return LLMQore::ToolResult::error(QString::fromUtf8(e.what()));
         });
 }
 
-} // namespace LLMCore::Mcp
+} // namespace LLMQore::Mcp

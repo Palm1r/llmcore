@@ -1,18 +1,18 @@
 // Copyright (C) 2026 Petr Mironychev
 // SPDX-License-Identifier: MIT
 
-#include <LLMCore/GoogleAIClient.hpp>
+#include <LLMQore/GoogleAIClient.hpp>
 
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QUrlQuery>
 
 #include "GoogleMessage.hpp"
-#include <LLMCore/HttpClient.hpp>
-#include <LLMCore/Log.hpp>
-#include <LLMCore/SSEParser.hpp>
+#include <LLMQore/HttpClient.hpp>
+#include <LLMQore/Log.hpp>
+#include <LLMQore/SSEParser.hpp>
 
-namespace LLMCore {
+namespace LLMQore {
 
 GoogleAIClient::GoogleAIClient(QObject *parent)
     : GoogleAIClient({}, {}, {}, parent)
@@ -323,4 +323,4 @@ void GoogleAIClient::processBufferedResponse(const RequestID &id, const QByteArr
     processStreamChunk(id, response);
 }
 
-} // namespace LLMCore
+} // namespace LLMQore

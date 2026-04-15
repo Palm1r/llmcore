@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: MIT
 
 #include "OllamaMessage.hpp"
-#include <LLMCore/Log.hpp>
+#include <LLMQore/Log.hpp>
 
 #include <QDateTime>
 #include <QJsonArray>
 #include <QJsonDocument>
 
-namespace LLMCore {
+namespace LLMQore {
 
 OllamaMessage::OllamaMessage(QObject *parent)
     : BaseMessage(parent)
@@ -314,4 +314,4 @@ ThinkingContent *OllamaMessage::getOrCreateThinkingContent()
     return m_currentThinkingContent;
 }
 
-} // namespace LLMCore
+} // namespace LLMQore

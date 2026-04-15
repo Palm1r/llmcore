@@ -5,14 +5,14 @@
 
 #include <QCoreApplication>
 
-#include <LLMCore/ClaudeClient.hpp>
-#include <LLMCore/GoogleAIClient.hpp>
-#include <LLMCore/LlamaCppClient.hpp>
-#include <LLMCore/OllamaClient.hpp>
-#include <LLMCore/OpenAIClient.hpp>
-#include <LLMCore/OpenAIResponsesClient.hpp>
+#include <LLMQore/ClaudeClient.hpp>
+#include <LLMQore/GoogleAIClient.hpp>
+#include <LLMQore/LlamaCppClient.hpp>
+#include <LLMQore/OllamaClient.hpp>
+#include <LLMQore/OpenAIClient.hpp>
+#include <LLMQore/OpenAIResponsesClient.hpp>
 
-using namespace LLMCore;
+using namespace LLMQore;
 
 TEST(ClaudeClientConstructor, Basic)
 {

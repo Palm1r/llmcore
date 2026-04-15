@@ -3,12 +3,12 @@
 
 #include "OpenAIMessage.hpp"
 
-#include <LLMCore/Log.hpp>
+#include <LLMQore/Log.hpp>
 
 #include <QJsonArray>
 #include <QJsonDocument>
 
-namespace LLMCore {
+namespace LLMQore {
 
 OpenAIMessage::OpenAIMessage(QObject *parent)
     : BaseMessage(parent)
@@ -147,4 +147,4 @@ void OpenAIMessage::updateStateFromFinishReason()
     }
 }
 
-} // namespace LLMCore
+} // namespace LLMQore

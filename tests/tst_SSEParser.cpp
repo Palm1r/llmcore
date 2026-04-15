@@ -3,9 +3,9 @@
 
 #include <gtest/gtest.h>
 
-#include <LLMCore/SSEParser.hpp>
+#include <LLMQore/SSEParser.hpp>
 
-using namespace LLMCore;
+using namespace LLMQore;
 
 TEST(SSEParser, InitialStateIsEmpty)
 {

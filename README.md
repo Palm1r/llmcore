@@ -1,14 +1,14 @@
-# LLMCore
+# LLMQore
 
-[![Build and Test](https://github.com/Palm1r/llmcore/actions/workflows/build_and_test.yml/badge.svg?branch=main)](https://github.com/Palm1r/llmcore/actions/workflows/build_and_test.yml)
-![GitHub Tag](https://img.shields.io/github/v/tag/Palm1r/llmcore)
+[![Build and Test](https://github.com/Palm1r/llmqore/actions/workflows/build_and_test.yml/badge.svg?branch=main)](https://github.com/Palm1r/llmqore/actions/workflows/build_and_test.yml)
+![GitHub Tag](https://img.shields.io/github/v/tag/Palm1r/llmqore)
 
 Qt/C++ library for working with LLM providers and MCP servers. Streaming chat, tool calling, and a full MCP 2025-11-25 client/server — all in one library.
 
 **LLM clients** — unified streaming API across six providers:
 
 ```cpp
-auto *client = new LLMCore::ClaudeClient(url, apiKey, model, this);
+auto *client = new LLMQore::ClaudeClient(url, apiKey, model, this);
 client->ask("What is Qt?", cb);
 ```
 
@@ -16,12 +16,12 @@ client->ask("What is Qt?", cb);
 
 ```cpp
 // stdio (stdin/stdout, e.g. for Claude Desktop)
-auto *transport = new LLMCore::McpStdioServerTransport(&app);
+auto *transport = new LLMQore::McpStdioServerTransport(&app);
 
 // or Streamable HTTP
-auto *transport = new LLMCore::McpHttpServerTransport({.port = 8080, .path = "/mcp"}, &app);
+auto *transport = new LLMQore::McpHttpServerTransport({.port = 8080, .path = "/mcp"}, &app);
 
-auto *server = new LLMCore::McpServer(transport, cfg, &app);
+auto *server = new LLMQore::McpServer(transport, cfg, &app);
 server->addTool(new MyTool(server));
 server->start();
 ```
@@ -55,7 +55,7 @@ See [Quick Start](docs/quick-start.md) for complete examples.
 
 ## MCP Bridge
 
-A standalone CLI tool built on llmcore that aggregates multiple MCP servers (stdio or SSE) and re-exposes them either behind a single HTTP/SSE endpoint or as one stdio server — useful when the upstreams and the client disagree on transport.
+A standalone CLI tool built on llmqore that aggregates multiple MCP servers (stdio or SSE) and re-exposes them either behind a single HTTP/SSE endpoint or as one stdio server — useful when the upstreams and the client disagree on transport.
 
 ```bash
 mcp-bridge bridge.json              # HTTP endpoint
@@ -76,7 +76,7 @@ Config uses the familiar `mcpServers` schema:
 }
 ```
 
-Prebuilt binaries for Linux/macOS/Windows (with Qt runtime bundled) are published to [GitHub Releases](https://github.com/Palm1r/llmcore/releases). See [MCP Bridge docs](docs/mcp-bridge.md) for full usage, config reference, and build instructions.
+Prebuilt binaries for Linux/macOS/Windows (with Qt runtime bundled) are published to [GitHub Releases](https://github.com/Palm1r/llmqore/releases). See [MCP Bridge docs](docs/mcp-bridge.md) for full usage, config reference, and build instructions.
 
 ## Supported Providers
 
@@ -115,7 +115,7 @@ See [MCP Protocol Coverage](docs/mcp/mcp_protocol_coverage.md) for the full spec
 
 ## Support
 
-- **Report Issues**: [open an issue](https://github.com/Palm1r/llmcore/issues) on GitHub
+- **Report Issues**: [open an issue](https://github.com/Palm1r/llmqore/issues) on GitHub
 - **Contribute**: pull requests with bug fixes or new features are welcome
 - **Spread the Word**: star the repository and share with fellow developers
 - **Financial Support**:

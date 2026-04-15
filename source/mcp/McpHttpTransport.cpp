@@ -1,14 +1,14 @@
 // Copyright (C) 2026 Petr Mironychev
 // SPDX-License-Identifier: MIT
 
-#include <LLMCore/McpHttpTransport.hpp>
+#include <LLMQore/McpHttpTransport.hpp>
 
-#include <LLMCore/HttpClient.hpp>
-#include <LLMCore/HttpResponse.hpp>
-#include <LLMCore/HttpStream.hpp>
-#include <LLMCore/HttpTransportError.hpp>
-#include <LLMCore/Log.hpp>
-#include <LLMCore/SSEParser.hpp>
+#include <LLMQore/HttpClient.hpp>
+#include <LLMQore/HttpResponse.hpp>
+#include <LLMQore/HttpStream.hpp>
+#include <LLMQore/HttpTransportError.hpp>
+#include <LLMQore/Log.hpp>
+#include <LLMQore/SSEParser.hpp>
 
 #include <QByteArray>
 #include <QByteArrayList>
@@ -17,21 +17,21 @@
 #include <QList>
 #include <QNetworkRequest>
 
-namespace LLMCore::Mcp {
+namespace LLMQore::Mcp {
 
 struct McpHttpTransport::Impl
 {
     McpHttpTransport *q = nullptr;
     HttpTransportConfig config;
 
-    LLMCore::HttpClient *http = nullptr;
+    LLMQore::HttpClient *http = nullptr;
     bool ownsHttp = false;
 
     bool open = false;
 
     QString sessionId;
 
-    LLMCore::HttpStream *sseStream = nullptr;
+    LLMQore::HttpStream *sseStream = nullptr;
     SSEParser sseParser;
     QUrl v2024PostEndpoint;
     QList<QJsonObject> pendingSends;
@@ -218,7 +218,7 @@ struct McpHttpTransport::Impl
 };
 
 McpHttpTransport::McpHttpTransport(
-    HttpTransportConfig config, LLMCore::HttpClient *httpClient, QObject *parent)
+    HttpTransportConfig config, LLMQore::HttpClient *httpClient, QObject *parent)
     : McpTransport(parent)
     , m_impl(std::make_unique<Impl>())
 {
@@ -229,7 +229,7 @@ McpHttpTransport::McpHttpTransport(
         m_impl->http = httpClient;
         m_impl->ownsHttp = false;
     } else {
-        m_impl->http = new LLMCore::HttpClient(this);
+        m_impl->http = new LLMQore::HttpClient(this);
         m_impl->ownsHttp = true;
     }
     m_impl->http->setTransferTimeout(m_impl->config.requestTimeoutMs);
@@ -307,4 +307,4 @@ const HttpTransportConfig &McpHttpTransport::config() const
     return m_impl->config;
 }
 
-} // namespace LLMCore::Mcp
+} // namespace LLMQore::Mcp

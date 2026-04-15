@@ -20,12 +20,12 @@
 #include <QTimer>
 #include <QUrl>
 
-#include <LLMCore/HttpClient.hpp>
-#include <LLMCore/HttpResponse.hpp>
-#include <LLMCore/HttpStream.hpp>
-#include <LLMCore/HttpTransportError.hpp>
+#include <LLMQore/HttpClient.hpp>
+#include <LLMQore/HttpResponse.hpp>
+#include <LLMQore/HttpStream.hpp>
+#include <LLMQore/HttpTransportError.hpp>
 
-using namespace LLMCore;
+using namespace LLMQore;
 
 namespace {
 

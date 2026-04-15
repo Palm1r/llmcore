@@ -1,11 +1,11 @@
 // Copyright (C) 2026 Petr Mironychev
 // SPDX-License-Identifier: MIT
 
-#include <LLMCore/SSEParser.hpp>
+#include <LLMQore/SSEParser.hpp>
 
-#include <LLMCore/Log.hpp>
+#include <LLMQore/Log.hpp>
 
-namespace LLMCore {
+namespace LLMQore {
 
 QList<SSEEvent> SSEParser::append(const QByteArray &chunk)
 {
@@ -135,4 +135,4 @@ QByteArray SSEParser::format(
     return out;
 }
 
-} // namespace LLMCore
+} // namespace LLMQore

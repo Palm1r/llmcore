@@ -6,9 +6,9 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 
-#include <LLMCore/ContentBlocks.hpp>
+#include <LLMQore/ContentBlocks.hpp>
 
-using namespace LLMCore;
+using namespace LLMQore;
 
 TEST(TextContent, Type)
 {

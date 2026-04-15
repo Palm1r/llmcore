@@ -1,4 +1,4 @@
-# LLMCore architecture
+# LLMQore architecture
 
 Two parallel stacks that meet in `ToolRegistry` / `ToolsManager`:
 

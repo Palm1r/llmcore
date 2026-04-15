@@ -9,11 +9,11 @@
 #include <QtConcurrent/QtConcurrent>
 
 #include "tools/ToolHandler.hpp"
-#include <LLMCore/BaseTool.hpp>
-#include <LLMCore/ToolExceptions.hpp>
-#include <LLMCore/ToolResult.hpp>
+#include <LLMQore/BaseTool.hpp>
+#include <LLMQore/ToolExceptions.hpp>
+#include <LLMQore/ToolResult.hpp>
 
-using namespace LLMCore;
+using namespace LLMQore;
 
 class SuccessTool : public BaseTool
 {

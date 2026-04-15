@@ -3,12 +3,12 @@
 
 #pragma once
 
-#include <LLMCore/BaseMessage.hpp>
-#include <LLMCore/ToolResult.hpp>
+#include <LLMQore/BaseMessage.hpp>
+#include <LLMQore/ToolResult.hpp>
 
-namespace LLMCore {
+namespace LLMQore {
 
-class LLMCORE_EXPORT OllamaMessage : public BaseMessage
+class LLMQORE_EXPORT OllamaMessage : public BaseMessage
 {
     Q_OBJECT
 public:
@@ -37,4 +37,4 @@ private:
     ThinkingContent *getOrCreateThinkingContent();
 };
 
-} // namespace LLMCore
+} // namespace LLMQore

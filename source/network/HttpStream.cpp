@@ -1,14 +1,14 @@
 // Copyright (C) 2026 Petr Mironychev
 // SPDX-License-Identifier: MIT
 
-#include <LLMCore/HttpStream.hpp>
+#include <LLMQore/HttpStream.hpp>
 
-#include <LLMCore/Log.hpp>
+#include <LLMQore/Log.hpp>
 
 #include <QNetworkReply>
 #include <QPointer>
 
-namespace LLMCore {
+namespace LLMQore {
 
 namespace {
 
@@ -147,4 +147,4 @@ void HttpStream::abort()
     }
 }
 
-} // namespace LLMCore
+} // namespace LLMQore

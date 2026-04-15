@@ -6,7 +6,7 @@
 #include <QCoreApplication>
 #include <QTimer>
 
-using namespace LLMCore::Mcp;
+using namespace LLMQore::Mcp;
 
 namespace {
 constexpr int kInitialBackoffMs = 1000;

@@ -3,9 +3,9 @@
 
 #include <gtest/gtest.h>
 
-#include <LLMCore/LineBuffer.hpp>
+#include <LLMQore/LineBuffer.hpp>
 
-using namespace LLMCore;
+using namespace LLMQore;
 
 TEST(LineBuffer, InitialState)
 {

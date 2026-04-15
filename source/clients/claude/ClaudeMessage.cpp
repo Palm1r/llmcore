@@ -6,9 +6,9 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 
-#include <LLMCore/Log.hpp>
+#include <LLMQore/Log.hpp>
 
-namespace LLMCore {
+namespace LLMQore {
 
 ClaudeMessage::ClaudeMessage(QObject *parent)
     : BaseMessage(parent)
@@ -302,4 +302,4 @@ void ClaudeMessage::updateStateFromStopReason()
     }
 }
 
-} // namespace LLMCore
+} // namespace LLMQore

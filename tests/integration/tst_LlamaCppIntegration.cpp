@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: MIT
 
 #include "IntegrationTestHelpers.hpp"
-#include <LLMCore/LlamaCppClient.hpp>
+#include <LLMQore/LlamaCppClient.hpp>
 
-using namespace LLMCore;
-using namespace LLMCore::IntegrationTest;
+using namespace LLMQore;
+using namespace LLMQore::IntegrationTest;
 
 class LlamaCppIntegrationTest : public ProviderTestBase
 {

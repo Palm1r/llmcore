@@ -3,12 +3,12 @@
 
 #pragma once
 
-#include <LLMCore/BaseMessage.hpp>
-#include <LLMCore/ToolResult.hpp>
+#include <LLMQore/BaseMessage.hpp>
+#include <LLMQore/ToolResult.hpp>
 
-namespace LLMCore {
+namespace LLMQore {
 
-class LLMCORE_EXPORT GoogleMessage : public BaseMessage
+class LLMQORE_EXPORT GoogleMessage : public BaseMessage
 {
     Q_OBJECT
 public:
@@ -39,4 +39,4 @@ private:
     QString m_finishReason;
 };
 
-} // namespace LLMCore
+} // namespace LLMQore

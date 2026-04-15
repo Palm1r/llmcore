@@ -8,7 +8,7 @@
 
 #include "clients/google/GoogleMessage.hpp"
 
-using namespace LLMCore;
+using namespace LLMQore;
 
 TEST(GoogleMessage, InitialState)
 {

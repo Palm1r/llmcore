@@ -1,0 +1,10 @@
+// Copyright (C) 2026 Petr Mironychev
+// SPDX-License-Identifier: MIT
+
+#pragma once
+
+#include "LLMQore_global.h"
+
+#include <LLMQore/Core>
+#include <LLMQore/Clients>
+#include <LLMQore/Tools>

@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: MIT
 
 #include "IntegrationTestHelpers.hpp"
-#include <LLMCore/OllamaClient.hpp>
+#include <LLMQore/OllamaClient.hpp>
 
 #include <QTcpSocket>
 
-using namespace LLMCore;
-using namespace LLMCore::IntegrationTest;
+using namespace LLMQore;
+using namespace LLMQore::IntegrationTest;
 
 constexpr int kOllamaTimeoutMs = 120000;
 

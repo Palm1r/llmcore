@@ -1,9 +1,9 @@
 // Copyright (C) 2026 Petr Mironychev
 // SPDX-License-Identifier: MIT
 
-#include <LLMCore/McpTypes.hpp>
+#include <LLMQore/McpTypes.hpp>
 
-namespace LLMCore::Mcp {
+namespace LLMQore::Mcp {
 
 namespace {
 
@@ -731,4 +731,4 @@ ElicitResult ElicitResult::fromJson(const QJsonObject &obj)
     return r;
 }
 
-} // namespace LLMCore::Mcp
+} // namespace LLMQore::Mcp

@@ -8,7 +8,7 @@
 
 #include "clients/ollama/OllamaMessage.hpp"
 
-using namespace LLMCore;
+using namespace LLMQore;
 
 TEST(OllamaMessage, InitialState)
 {

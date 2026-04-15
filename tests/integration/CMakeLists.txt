@@ -1,6 +1,6 @@
 find_package(Qt6 REQUIRED COMPONENTS Test Concurrent)
 
-add_executable(LLMCoreIntegrationTests
+add_executable(LLMQoreIntegrationTests
     IntegrationTestTools.cpp
     tst_ClaudeIntegration.cpp
     tst_ClaudeMcpIntegration.cpp
@@ -11,18 +11,18 @@ add_executable(LLMCoreIntegrationTests
     tst_LlamaCppIntegration.cpp
 )
 
-set_target_properties(LLMCoreIntegrationTests PROPERTIES
+set_target_properties(LLMQoreIntegrationTests PROPERTIES
     AUTOMOC ON
     CXX_STANDARD 20
     CXX_STANDARD_REQUIRED ON
 )
 
-target_include_directories(LLMCoreIntegrationTests PRIVATE
+target_include_directories(LLMQoreIntegrationTests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-target_link_libraries(LLMCoreIntegrationTests PRIVATE
-    LLMCore::LLMCore
+target_link_libraries(LLMQoreIntegrationTests PRIVATE
+    LLMQore::LLMQore
     Qt6::Test
     Qt6::Concurrent
     GTest::gtest_main
@@ -30,8 +30,8 @@ target_link_libraries(LLMCoreIntegrationTests PRIVATE
 
 # Integration tests are NOT added to CTest by default — run manually
 # or use: ctest -R Integration
-add_test(NAME LLMCoreIntegrationTests COMMAND LLMCoreIntegrationTests)
-set_tests_properties(LLMCoreIntegrationTests PROPERTIES
+add_test(NAME LLMQoreIntegrationTests COMMAND LLMQoreIntegrationTests)
+set_tests_properties(LLMQoreIntegrationTests PROPERTIES
     LABELS "integration"
     TIMEOUT 300
 )

@@ -1,0 +1,11 @@
+// Copyright (C) 2026 Petr Mironychev
+// SPDX-License-Identifier: MIT
+
+#pragma once
+
+#include <LLMQore/ClaudeClient.hpp>
+#include <LLMQore/OpenAIClient.hpp>
+#include <LLMQore/OpenAIResponsesClient.hpp>
+#include <LLMQore/OllamaClient.hpp>
+#include <LLMQore/GoogleAIClient.hpp>
+#include <LLMQore/LlamaCppClient.hpp>

@@ -13,8 +13,8 @@
 #include <QUrl>
 #include <QtDebug>
 
-#include <LLMCore/Clients>
-#include <LLMCore/Tools>
+#include <LLMQore/Clients>
+#include <LLMQore/Tools>
 
 ChatController::ChatController(QObject *parent)
     : QObject(parent)
@@ -51,32 +51,32 @@ void ChatController::send(const QString &text, const QString &model)
     if (!toolsDefs.isEmpty())
         payload["tools"] = toolsDefs;
 
-    LLMCore::RequestCallbacks callbacks;
+    LLMQore::RequestCallbacks callbacks;
 
-    callbacks.onChunk = [this](const LLMCore::RequestID &, const QString &chunk) {
+    callbacks.onChunk = [this](const LLMQore::RequestID &, const QString &chunk) {
         m_messages.appendOrCreate("assistant", chunk);
     };
 
     callbacks.onToolStarted =
-        [this](const LLMCore::RequestID &, const QString &, const QString &toolName) {
+        [this](const LLMQore::RequestID &, const QString &, const QString &toolName) {
             setStatus(QString("Tool: %1 ...").arg(toolName));
         };
 
     callbacks.onToolResult = [this](
-                                 const LLMCore::RequestID &,
+                                 const LLMQore::RequestID &,
                                  const QString &,
                                  const QString &toolName,
                                  const QString &result) {
         m_messages.append("tool", QString("[%1]: %2").arg(toolName, result));
     };
 
-    callbacks.onCompleted = [this](const LLMCore::RequestID &, const QString &fullText) {
+    callbacks.onCompleted = [this](const LLMQore::RequestID &, const QString &fullText) {
         m_history.append(QJsonObject{{"role", "assistant"}, {"content", fullText}});
         setBusy(false);
         setStatus("Ready");
     };
 
-    callbacks.onFailed = [this](const LLMCore::RequestID &, const QString &error) {
+    callbacks.onFailed = [this](const LLMQore::RequestID &, const QString &error) {
         m_messages.append("error", error);
         setBusy(false);
         setStatus("Request failed");
@@ -134,22 +134,22 @@ void ChatController::createClient(const QString &provider, const QString &url, c
     }
 
     if (provider == "Claude")
-        m_client = new LLMCore::ClaudeClient(url, apiKey, QString(), this);
+        m_client = new LLMQore::ClaudeClient(url, apiKey, QString(), this);
     else if (provider == "OpenAI")
-        m_client = new LLMCore::OpenAIClient(url, apiKey, QString(), this);
+        m_client = new LLMQore::OpenAIClient(url, apiKey, QString(), this);
     else if (provider == "Ollama")
-        m_client = new LLMCore::OllamaClient(url, apiKey, QString(), this);
+        m_client = new LLMQore::OllamaClient(url, apiKey, QString(), this);
     else if (provider == "Google AI")
-        m_client = new LLMCore::GoogleAIClient(url, apiKey, QString(), this);
+        m_client = new LLMQore::GoogleAIClient(url, apiKey, QString(), this);
     else if (provider == "LlamaCpp")
-        m_client = new LLMCore::LlamaCppClient(url, apiKey, QString(), this);
+        m_client = new LLMQore::LlamaCppClient(url, apiKey, QString(), this);
 
     if (!m_client)
         return;
 
     registerTools();
 
-    connect(m_client->tools(), &LLMCore::ToolRegistry::toolsChanged,
+    connect(m_client->tools(), &LLMQore::ToolRegistry::toolsChanged,
             this, &ChatController::refreshToolListUi);
 }
 
@@ -196,8 +196,8 @@ void ChatController::registerTools()
     tools->addTool(new Example::CalculatorTool);
     tools->addTool(new Example::SystemInfoTool);
 
-    // MCP servers: from LLMCORE_MCP_CONFIG env var, or hardcoded fallback.
-    const QString mcpConfigPath = QString::fromLocal8Bit(qgetenv("LLMCORE_MCP_CONFIG"));
+    // MCP servers: from LLMQORE_MCP_CONFIG env var, or hardcoded fallback.
+    const QString mcpConfigPath = QString::fromLocal8Bit(qgetenv("LLMQORE_MCP_CONFIG"));
     if (!mcpConfigPath.isEmpty()) {
         loadMcpConfig(mcpConfigPath);
     } else {

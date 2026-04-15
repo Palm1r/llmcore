@@ -8,7 +8,7 @@ qt_add_executable(mcp-bridge
 
 target_link_libraries(mcp-bridge
     PRIVATE
-    LLMCore::LLMCore
+    LLMQore::LLMQore
     Qt6::Core
     Qt6::Network
     Qt6::Concurrent

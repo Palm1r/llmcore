@@ -29,7 +29,7 @@ qt_add_executable(example-chat
 )
 
 qt_add_qml_module(example-chat
-    URI example.LLMCoreChat
+    URI example.LLMQoreChat
     VERSION 1.0
     QML_FILES
         Main.qml
@@ -42,7 +42,7 @@ qt_add_qml_module(example-chat
 
 target_link_libraries(example-chat
     PRIVATE
-    LLMCore::LLMCore
+    LLMQore::LLMQore
     Qt6::Core
     Qt6::Network
     Qt6::Concurrent
@@ -73,7 +73,7 @@ qt_add_executable(example-mcp-server
 )
 target_link_libraries(example-mcp-server
     PRIVATE
-    LLMCore::LLMCore
+    LLMQore::LLMQore
     Qt6::Core
     Qt6::Network
     Qt6::Concurrent
@@ -99,7 +99,7 @@ qt_add_executable(example-mcp-http-probe
 )
 target_link_libraries(example-mcp-http-probe
     PRIVATE
-    LLMCore::LLMCore
+    LLMQore::LLMQore
     Qt6::Core
     Qt6::Network
 )

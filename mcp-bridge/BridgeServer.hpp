@@ -6,7 +6,7 @@
 #include <QList>
 #include <QObject>
 
-#include <LLMCore/Mcp>
+#include <LLMQore/Mcp>
 
 #include "BridgeConfig.hpp"
 
@@ -31,15 +31,15 @@ private:
     struct Upstream
     {
         QString name;
-        LLMCore::Mcp::McpTransport *transport = nullptr;
-        LLMCore::Mcp::McpClient *client = nullptr;
-        QList<LLMCore::Mcp::McpRemoteTool *> tools;
+        LLMQore::Mcp::McpTransport *transport = nullptr;
+        LLMQore::Mcp::McpClient *client = nullptr;
+        QList<LLMQore::Mcp::McpRemoteTool *> tools;
         bool reconnectPending = false;
         int backoffMs = 1000;
     };
 
     void connectUpstream(int index);
-    void registerTools(int index, const QList<LLMCore::Mcp::ToolInfo> &tools);
+    void registerTools(int index, const QList<LLMQore::Mcp::ToolInfo> &tools);
     void clearTools(int index);
     void resyncTools(int index);
     void scheduleReconnect(int index);
@@ -47,9 +47,9 @@ private:
     void checkAllReady();
 
     BridgeConfig m_config;
-    LLMCore::Mcp::McpTransport *m_serverTransport = nullptr;
-    LLMCore::Mcp::McpHttpServerTransport *m_httpTransport = nullptr;
-    LLMCore::Mcp::McpServer *m_server = nullptr;
+    LLMQore::Mcp::McpTransport *m_serverTransport = nullptr;
+    LLMQore::Mcp::McpHttpServerTransport *m_httpTransport = nullptr;
+    LLMQore::Mcp::McpServer *m_server = nullptr;
     QList<Upstream> m_upstreams;
     int m_pendingInits = 0;
     int m_completedInits = 0;
