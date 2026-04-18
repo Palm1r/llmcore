@@ -5,7 +5,7 @@
 
 Qt/C++ library for working with cloud and local LLM providers, create MCP servers and clients, download and using library MCP Bridge.
 
-**LLM clients** — unified streaming API across six providers:
+**LLM clients** — unified streaming API across all providers:
 
 ```cpp
 auto *client = new LLMQore::ClaudeClient(url, apiKey, model, this);
@@ -87,6 +87,7 @@ Prebuilt binaries for Linux/macOS/Windows (with Qt runtime bundled) are publishe
 | OpenAI (Responses API) | `OpenAIResponsesClient` | ✓ | ✓ | ✓ |
 | Ollama | `OllamaClient` | ✓ | ✓ | ✓ |
 | Google AI | `GoogleAIClient` | ✓ | ✓ | ✓ |
+| Mistral | `MistralClient` | ✓ | ✓ | — |
 | llama.cpp | `LlamaCppClient` | ✓ | ✓ | ✓ |
 
 ## MCP (Model Context Protocol)

@@ -8,6 +8,7 @@
 | OpenAI Chat Completions | `OpenAIClient` | `OpenAIMessage` | SSE | Bearer token |
 | OpenAI Responses | `OpenAIResponsesClient` | `OpenAIResponsesMessage` | SSE | Bearer token |
 | Google AI (Gemini) | `GoogleAIClient` | `GoogleMessage` | SSE (query param) | API key in query string |
+| Mistral | `MistralClient` | reuses `OpenAIMessage` | SSE | Bearer token |
 | Ollama | `OllamaClient` | `OllamaMessage` | JSON-lines (`LineBuffer`) | Bearer token (optional) |
 | llama.cpp | `LlamaCppClient` | reuses `OpenAIMessage` | SSE | Bearer token (optional) |
 
@@ -29,10 +30,14 @@ The newer OpenAI Responses API with a different payload shape and its own event 
 
 Streams via SSE with the API key passed as a query parameter. The message parser reads from the candidates/parts structure, handling text, function calls, and safety blocks. Tool results are rich -- function responses carry structured data and images are sent as inline data. The error parser handles Google's error object format with code, message, and status fields. Google has the most varied set of finish reasons, including safety and content-policy categories.
 
+## Mistral (`source/clients/mistral/`)
+
+OpenAI-compatible -- subclasses `OpenAIClient`, reuses `OpenAIMessage` and the OpenAI tool schema format. Defaults to `/chat/completions`; pass `/fim/completions` as the `endpoint` argument to `sendMessage` to target the Codestral fill-in-the-middle endpoint. Bearer-token auth. Works with the standard OpenAI error envelope handling from the base class.
+
 ## Ollama (`source/clients/ollama/`)
 
-Uses JSON-lines framing instead of SSE, processed through `LineBuffer`. Each line is a complete JSON object with a done flag. Supports both chat and generate endpoints depending on payload shape. Tool results are text-only. Auth is optional. Streaming is enabled by default; buffered mode disables it in the payload.
+Uses JSON-lines framing instead of SSE, processed through `LineBuffer`. Each line is a complete JSON object with a done flag. Defaults to `/api/chat`; pass `/api/generate` as the `endpoint` argument to `sendMessage` when building a prompt-based generation payload. Tool results are text-only. Auth is optional. Streaming is enabled by default; buffered mode disables it in the payload.
 
 ## llama.cpp (`source/clients/llamacpp/`)
 
-Talks to a local `llama-server` instance. OpenAI-compatible -- reuses `OpenAIMessage` and the OpenAI tool schema format. Adds support for a fill-in-the-middle endpoint alongside the standard chat completions endpoint, switching between them based on payload inspection. Also exposes diagnostic endpoints for health and server properties.
+Talks to a local `llama-server` instance. OpenAI-compatible -- reuses `OpenAIMessage` and the OpenAI tool schema format. Defaults to `/v1/chat/completions`; pass `/infill` as the `endpoint` argument to `sendMessage` to target the fill-in-the-middle endpoint. Also exposes diagnostic endpoints for health and server properties.

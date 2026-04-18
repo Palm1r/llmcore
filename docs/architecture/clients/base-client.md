@@ -29,14 +29,21 @@ Each provider must supply implementations for several categories of functionalit
 ### Typical sendMessage pattern
 
 ```cpp
-RequestID FooClient::sendMessage(const QJsonObject &payload, RequestMode mode)
+RequestID FooClient::sendMessage(
+    const QJsonObject &payload, const QString &endpoint, RequestMode mode)
 {
     const RequestID id = createRequest();
+    const QString resolved = endpoint.isEmpty() ? QStringLiteral("/chat") : endpoint;
     m_messages.insert(id, new FooMessage(/*...*/));
-    sendRequest(id, QUrl(m_url + "/chat"), payload, mode);
+    sendRequest(id, QUrl(m_url + resolved), payload, mode);
     return id;
 }
 ```
+
+`endpoint` lets the caller pick a non-default path on providers that
+expose more than one (e.g. Mistral's `/fim/completions`). Passing an
+empty string selects the provider default, so single-endpoint clients
+can ignore the argument beyond the empty-check shown above.
 
 Consumers subscribe to `BaseClient` signals (`chunkReceived`,
 `requestCompleted`, `requestFinalized`, `requestFailed`, `toolStarted`,

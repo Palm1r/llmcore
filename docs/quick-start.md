@@ -56,6 +56,30 @@ payload["messages"] = QJsonArray{
 client->sendMessage(payload);
 ```
 
+### Non-default endpoints
+
+Clients that expose more than one inference endpoint accept a path
+suffix as the second argument to `sendMessage`. An empty string (the
+default) selects the provider's default endpoint. Example: Mistral's
+Codestral FIM endpoint.
+
+```cpp
+auto *mistral = new LLMQore::MistralClient(
+    "https://api.mistral.ai/v1", "...", "codestral-latest", this);
+
+QJsonObject payload;
+payload["model"] = "codestral-latest";
+payload["prompt"] = "def fib(n):\n    ";
+payload["suffix"] = "\n\nprint(fib(10))\n";
+
+mistral->sendMessage(payload, "/fim/completions");
+```
+
+Other paths that accept an explicit endpoint override: `OllamaClient`
+(`/api/generate` for prompt-based generation, default `/api/chat`) and
+`LlamaCppClient` (`/infill` for fill-in-the-middle, default
+`/v1/chat/completions`).
+
 ### Rich completion metadata
 
 `requestFinalized` fires alongside `requestCompleted` with a
