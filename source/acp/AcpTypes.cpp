@@ -554,6 +554,7 @@ PromptResult PromptResult::fromJson(const QJsonObject &obj)
 {
     PromptResult r;
     r.stopReason = obj.value("stopReason").toString(StopReason::EndTurn);
+    r.usage = obj.value("usage").toObject();
     return r;
 }
 

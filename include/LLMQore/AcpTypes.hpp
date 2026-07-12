@@ -298,6 +298,8 @@ struct LLMQORE_EXPORT PromptParams
 struct LLMQORE_EXPORT PromptResult
 {
     QString stopReason = QString::fromLatin1(StopReason::EndTurn);
+    // Token usage of the finished turn, agent-defined shape, passed raw.
+    QJsonObject usage;
 
     QJsonObject toJson() const;
     static PromptResult fromJson(const QJsonObject &obj);
@@ -388,6 +390,7 @@ inline constexpr const char *Plan               = "plan";
 inline constexpr const char *AvailableCommandsUpdate = "available_commands_update";
 inline constexpr const char *CurrentModeUpdate  = "current_mode_update";
 inline constexpr const char *UsageUpdate        = "usage_update";
+inline constexpr const char *SessionInfoUpdate  = "session_info_update";
 } // namespace SessionUpdateKind
 
 // Tagged union over `sessionUpdate`. Only the fields relevant to the active
