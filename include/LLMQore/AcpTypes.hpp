@@ -160,17 +160,36 @@ struct LLMQORE_EXPORT InitializeResult
     static InitializeResult fromJson(const QJsonObject &obj);
 };
 
-// --- MCP servers passed to the agent in session/new (stdio form) ---
+// --- MCP servers passed to the agent in session/new ---
 
+// Tagged union over `type`:
+//   "" or "stdio" -> command + args + env (serialized without a `type` key
+//                    for compatibility with agents predating the union form)
+//   "http"|"sse"  -> url + headers (gate on the agent's mcpCapabilities)
 struct LLMQORE_EXPORT McpServer
 {
+    QString type;
     QString name;
     QString command;
     QStringList args;
     QList<EnvVariable> env;
+    QString url;
+    QList<EnvVariable> headers;
+
+    bool isStdio() const { return type.isEmpty() || type == QLatin1String("stdio"); }
 
     QJsonObject toJson() const;
     static McpServer fromJson(const QJsonObject &obj);
+
+    static McpServer stdio(
+        const QString &name,
+        const QString &command,
+        const QStringList &args = {},
+        const QList<EnvVariable> &env = {});
+    static McpServer http(
+        const QString &name, const QString &url, const QList<EnvVariable> &headers = {});
+    static McpServer sse(
+        const QString &name, const QString &url, const QList<EnvVariable> &headers = {});
 };
 
 // --- Session modes ---

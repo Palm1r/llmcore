@@ -241,21 +241,71 @@ InitializeResult InitializeResult::fromJson(const QJsonObject &obj)
 
 QJsonObject McpServer::toJson() const
 {
+    if (isStdio()) {
+        return QJsonObject{
+            {"name", name},
+            {"command", command},
+            {"args", stringListToJson(args)},
+            {"env", envToJson(env)},
+        };
+    }
     return QJsonObject{
+        {"type", type},
         {"name", name},
-        {"command", command},
-        {"args", stringListToJson(args)},
-        {"env", envToJson(env)},
+        {"url", url},
+        {"headers", envToJson(headers)},
     };
 }
 
 McpServer McpServer::fromJson(const QJsonObject &obj)
 {
     McpServer s;
+    s.type = obj.value("type").toString();
     s.name = obj.value("name").toString();
-    s.command = obj.value("command").toString();
-    s.args = stringListFromJson(obj.value("args").toArray());
-    s.env = envFromJson(obj.value("env").toArray());
+    if (s.isStdio()) {
+        s.command = obj.value("command").toString();
+        s.args = stringListFromJson(obj.value("args").toArray());
+        s.env = envFromJson(obj.value("env").toArray());
+    } else {
+        s.url = obj.value("url").toString();
+        s.headers = envFromJson(obj.value("headers").toArray());
+    }
+    return s;
+}
+
+McpServer McpServer::stdio(
+    const QString &name,
+    const QString &command,
+    const QStringList &args,
+    const QList<EnvVariable> &env)
+{
+    McpServer s;
+    s.name = name;
+    s.command = command;
+    s.args = args;
+    s.env = env;
+    return s;
+}
+
+McpServer McpServer::http(
+    const QString &name, const QString &url, const QList<EnvVariable> &headers)
+{
+    McpServer s;
+    s.type = QStringLiteral("http");
+    s.name = name;
+    s.url = url;
+    s.headers = headers;
+    return s;
+}
+
+McpServer McpServer::sse(
+    const QString &name, const QString &url, const QList<EnvVariable> &headers)
+{
+    McpServer s;
+    s.type = QStringLiteral("sse");
+    s.name = name;
+    s.url = url;
+    s.headers = headers;
     return s;
 }
 
