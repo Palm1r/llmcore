@@ -56,9 +56,14 @@ AcpAgentConfig AcpAgentConfig::fromJson(const QJsonObject &obj)
     c.command = obj.value("command").toString();
     for (const QJsonValue &v : obj.value("args").toArray())
         c.args.append(v.toString());
-    const QJsonObject e = obj.value("env").toObject();
-    for (auto it = e.constBegin(); it != e.constEnd(); ++it)
-        c.env.append(EnvVariable{it.key(), it.value().toString()});
+    const QJsonValue envValue = obj.value("env");
+    if (envValue.isArray()) {
+        c.env = envFromJson(envValue.toArray());
+    } else {
+        const QJsonObject e = envValue.toObject();
+        for (auto it = e.constBegin(); it != e.constEnd(); ++it)
+            c.env.append(EnvVariable{it.key(), it.value().toString()});
+    }
     c.cwd = obj.value("cwd").toString();
     if (obj.contains("startupTimeoutMs"))
         c.startupTimeoutMs = obj.value("startupTimeoutMs").toInt(c.startupTimeoutMs);
