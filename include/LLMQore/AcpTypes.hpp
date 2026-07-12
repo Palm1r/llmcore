@@ -297,7 +297,7 @@ struct LLMQORE_EXPORT PromptParams
 
 struct LLMQORE_EXPORT PromptResult
 {
-    QString stopReason = StopReason::EndTurn;
+    QString stopReason = QString::fromLatin1(StopReason::EndTurn);
 
     QJsonObject toJson() const;
     static PromptResult fromJson(const QJsonObject &obj);
