@@ -94,6 +94,8 @@ signals:
     void modeChanged(const QString &sessionId, const QString &modeId);
     // Token-usage report (usage_update); payload shape is agent-defined, passed raw.
     void usageUpdated(const QString &sessionId, const QJsonObject &usage);
+    // Session metadata report (session_info_update), e.g. an agent-suggested title.
+    void sessionInfoUpdated(const QString &sessionId, const QString &title);
 
     void promptFinished(const QString &sessionId, const QString &stopReason);
 

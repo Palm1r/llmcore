@@ -7,9 +7,25 @@
 #include <LLMQore/RpcExceptions.hpp>
 
 #include <QFutureWatcher>
+#include <QJsonDocument>
 #include <QTimer>
 
 namespace LLMQore::Rpc {
+
+namespace {
+
+void logWire(const char *direction, const QJsonObject &message)
+{
+    if (!llmRpcWireLog().isDebugEnabled())
+        return;
+    QByteArray json = QJsonDocument(message).toJson(QJsonDocument::Compact);
+    constexpr int kMaxWireLogBytes = 8192;
+    if (json.size() > kMaxWireLogBytes)
+        json = json.left(kMaxWireLogBytes) + "... (truncated)";
+    qCDebug(llmRpcWireLog).noquote() << direction << QString::fromUtf8(json);
+}
+
+} // namespace
 
 namespace {
 
@@ -164,6 +180,7 @@ JsonRpcSession::CancellableRequest JsonRpcSession::sendRequestImpl(
                .arg(id,
                     method,
                     trackProgressToken ? QStringLiteral(" (cancellable)") : QString());
+    logWire("-->", message);
     m_transport->send(message);
 
     out.future = promise->future();
@@ -222,6 +239,7 @@ void JsonRpcSession::sendNotification(const QString &method, const QJsonObject &
         message.insert("params", params);
 
     qCDebug(llmRpcLog).noquote() << QString("--> notify method=%1").arg(method);
+    logWire("-->", message);
     m_transport->send(message);
 }
 
@@ -292,6 +310,7 @@ void JsonRpcSession::abortPending(const QString &reason)
 
 void JsonRpcSession::onMessageReceived(const QJsonObject &message)
 {
+    logWire("<--", message);
     const QString jsonrpc = message.value("jsonrpc").toString();
     if (jsonrpc != QLatin1String("2.0")) {
         qCWarning(llmRpcLog).noquote()
@@ -500,6 +519,7 @@ void JsonRpcSession::sendResponse(const QJsonValue &id, const QJsonValue &result
         {"id", id},
         {"result", result},
     };
+    logWire("-->", msg);
     m_transport->send(msg);
 }
 
@@ -519,6 +539,7 @@ void JsonRpcSession::sendError(
         {"id", id},
         {"error", err},
     };
+    logWire("-->", msg);
     m_transport->send(msg);
 }
 
