@@ -305,14 +305,19 @@ void ToolsManager::executeNextTool(const QString &requestId)
 
 QJsonArray ToolsManager::getToolsDefinitions() const
 {
-    return buildToolsDefinitions();
+    return buildToolsDefinitions(m_format);
 }
 
-QJsonObject ToolsManager::wrapDefinition(const BaseTool *tool) const
+QJsonArray ToolsManager::getToolsDefinitions(ToolSchemaFormat format) const
+{
+    return buildToolsDefinitions(format);
+}
+
+QJsonObject ToolsManager::wrapDefinition(const BaseTool *tool, ToolSchemaFormat format) const
 {
     QJsonObject schema = tool->parametersSchema();
 
-    switch (m_format) {
+    switch (format) {
     case ToolSchemaFormat::OpenAI:
     case ToolSchemaFormat::Ollama: {
         QJsonObject function;
@@ -353,7 +358,7 @@ QJsonObject ToolsManager::wrapDefinition(const BaseTool *tool) const
     return {};
 }
 
-QJsonArray ToolsManager::buildToolsDefinitions() const
+QJsonArray ToolsManager::buildToolsDefinitions(ToolSchemaFormat format) const
 {
     QJsonArray toolsArray;
 
@@ -363,10 +368,10 @@ QJsonArray ToolsManager::buildToolsDefinitions() const
             continue;
         }
 
-        toolsArray.append(wrapDefinition(t));
+        toolsArray.append(wrapDefinition(t, format));
     }
 
-    if (m_format == ToolSchemaFormat::Google && !toolsArray.isEmpty()) {
+    if (format == ToolSchemaFormat::Google && !toolsArray.isEmpty()) {
         QJsonArray functionDeclarations;
         for (const auto &item : toolsArray)
             functionDeclarations.append(item);

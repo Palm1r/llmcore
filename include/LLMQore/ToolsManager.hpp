@@ -78,6 +78,7 @@ public:
     void removeAllTools();
 
     QJsonArray getToolsDefinitions() const;
+    QJsonArray getToolsDefinitions(ToolSchemaFormat format) const;
     QString displayName(const QString &toolName) const;
 
     void executeToolCall(
@@ -116,8 +117,8 @@ private:
     void finalizePendingTool(
         const QString &requestId, const QString &toolId, const ToolResult &rich, bool success);
     QHash<QString, ToolResult> getToolResults(const QString &requestId) const;
-    QJsonArray buildToolsDefinitions() const;
-    QJsonObject wrapDefinition(const BaseTool *tool) const;
+    QJsonArray buildToolsDefinitions(ToolSchemaFormat format) const;
+    QJsonObject wrapDefinition(const BaseTool *tool, ToolSchemaFormat format) const;
 
     ToolHandler *m_toolHandler;
     ToolSchemaFormat m_format;

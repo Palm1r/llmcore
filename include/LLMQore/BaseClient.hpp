@@ -13,6 +13,7 @@
 #include <QMetaType>
 #include <QNetworkRequest>
 #include <QObject>
+#include <QPointer>
 #include <QString>
 #include <QUrl>
 
@@ -116,8 +117,9 @@ public:
     void setModel(const QString &model);
 
     ToolsManager *tools();
+    void setToolsManager(ToolsManager *manager);
     bool hasTools() const noexcept;
-    
+
     ToolLoopRunner *toolLoop();
 
     int maxToolContinuations() const;
@@ -202,6 +204,19 @@ protected:
     QString m_apiKey;
     QString m_model;
 
+private slots:
+    void relayToolStarted(
+        const QString &requestId,
+        const QString &toolId,
+        const QString &toolName,
+        const QJsonObject &arguments);
+    void relayToolResult(
+        const QString &requestId,
+        const QString &toolId,
+        const QString &toolName,
+        const QString &result);
+    void relayToolsCompleted(const QString &requestId, const QHash<QString, ToolResult> &toolResults);
+
 private:
     void cleanupRequest(const RequestID &id);
     void startHttpRequest(
@@ -209,9 +224,12 @@ private:
         const QNetworkRequest &request,
         const QJsonObject &payload,
         RequestMode mode);
+    void wireToolsManager(ToolsManager *manager);
+    ToolsManager *effectiveToolsManager() const;
 
     HttpClient *m_httpClient;
     ToolsManager *m_toolsManager = nullptr;
+    QPointer<ToolsManager> m_externalToolsManager;
     ToolLoopRunner *m_toolLoop = nullptr;
     QHash<RequestID, ActiveRequest> m_requests;
 };

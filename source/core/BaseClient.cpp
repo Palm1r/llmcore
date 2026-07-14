@@ -101,27 +101,80 @@ void BaseClient::setTransferTimeout(int milliseconds)
 
 ToolsManager *BaseClient::tools()
 {
+    if (m_externalToolsManager)
+        return m_externalToolsManager;
+
     if (!m_toolsManager) {
         m_toolsManager = new ToolsManager(toolSchemaFormat(), this);
-
-        connect(
-            m_toolsManager, &ToolsManager::toolExecutionStarted,
-            this, &BaseClient::toolStarted);
-        connect(
-            m_toolsManager, &ToolsManager::toolExecutionResult,
-            this, &BaseClient::toolResultReady);
-        connect(
-            m_toolsManager,
-            &ToolsManager::toolExecutionComplete,
-            toolLoop(),
-            &ToolLoopRunner::handleToolsCompleted);
+        wireToolsManager(m_toolsManager);
     }
     return m_toolsManager;
 }
 
+void BaseClient::setToolsManager(ToolsManager *manager)
+{
+    m_externalToolsManager = manager;
+    if (manager)
+        wireToolsManager(manager);
+}
+
+// A manager may be wired to several clients over its lifetime; the relay
+// slots filter by request ownership, so stale wiring stays harmless and
+// in-flight tool loops keep receiving their completions after a swap.
+void BaseClient::wireToolsManager(ToolsManager *manager)
+{
+    connect(
+        manager,
+        &ToolsManager::toolExecutionStarted,
+        this,
+        &BaseClient::relayToolStarted,
+        Qt::UniqueConnection);
+    connect(
+        manager,
+        &ToolsManager::toolExecutionResult,
+        this,
+        &BaseClient::relayToolResult,
+        Qt::UniqueConnection);
+    connect(
+        manager,
+        &ToolsManager::toolExecutionComplete,
+        this,
+        &BaseClient::relayToolsCompleted,
+        Qt::UniqueConnection);
+}
+
+void BaseClient::relayToolStarted(
+    const QString &requestId,
+    const QString &toolId,
+    const QString &toolName,
+    const QJsonObject &arguments)
+{
+    if (hasRequest(requestId))
+        emit toolStarted(requestId, toolId, toolName, arguments);
+}
+
+void BaseClient::relayToolResult(
+    const QString &requestId, const QString &toolId, const QString &toolName, const QString &result)
+{
+    if (hasRequest(requestId))
+        emit toolResultReady(requestId, toolId, toolName, result);
+}
+
+void BaseClient::relayToolsCompleted(
+    const QString &requestId, const QHash<QString, ToolResult> &toolResults)
+{
+    if (hasRequest(requestId))
+        toolLoop()->handleToolsCompleted(requestId, toolResults);
+}
+
+ToolsManager *BaseClient::effectiveToolsManager() const
+{
+    return m_externalToolsManager ? m_externalToolsManager.data() : m_toolsManager;
+}
+
 bool BaseClient::hasTools() const noexcept
 {
-    return m_toolsManager != nullptr;
+    return m_externalToolsManager != nullptr || m_toolsManager != nullptr;
 }
 
 int BaseClient::maxToolContinuations() const
@@ -526,8 +579,8 @@ void BaseClient::cleanupFullRequest(const RequestID &id)
         it->mode = RequestMode::Streaming;
     }
 
-    if (m_toolsManager)
-        m_toolsManager->cleanupRequest(id);
+    if (ToolsManager *manager = effectiveToolsManager())
+        manager->cleanupRequest(id);
 }
 
 void BaseClient::notifyPendingThinkingBlocks(const RequestID &id)
