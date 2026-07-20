@@ -5,6 +5,7 @@
 
 #include <functional>
 
+#include <QFuture>
 #include <QHash>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -90,6 +91,14 @@ public:
     void setToolExecutionDelay(int delayMs);
     int toolExecutionDelay() const;
 
+    using ExecutionGate = std::function<QFuture<bool>(
+        const QString &requestId,
+        const QString &toolId,
+        const QString &toolName,
+        const QJsonObject &input)>;
+
+    void setExecutionGate(ExecutionGate gate);
+
 signals:
     void toolExecutionStarted(
         const QString &requestId,
@@ -122,6 +131,7 @@ private:
     ToolHandler *m_toolHandler;
     ToolSchemaFormat m_format;
     QHash<QString, ToolQueue> m_toolQueues;
+    ExecutionGate m_executionGate;
     int m_toolExecutionDelayMs = 0;
 
     void registerMcpTools(Mcp::McpClient *client);

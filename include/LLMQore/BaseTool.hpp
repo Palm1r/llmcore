@@ -13,6 +13,8 @@
 
 namespace LLMQore {
 
+enum class ToolSafety { ReadOnly, Mutating };
+
 class LLMQORE_EXPORT BaseTool : public QObject
 {
     Q_OBJECT
@@ -24,6 +26,8 @@ public:
     virtual QString displayName() const = 0;
     virtual QString description() const = 0;
     virtual QJsonObject parametersSchema() const = 0;
+
+    virtual ToolSafety safety() const { return ToolSafety::Mutating; }
 
     virtual QFuture<ToolResult> executeAsync(const QJsonObject &input = QJsonObject()) = 0;
 

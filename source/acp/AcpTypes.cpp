@@ -742,8 +742,14 @@ SessionUpdate SessionUpdate::fromJson(const QJsonObject &obj)
         u.content = ContentBlock::fromJson(obj.value("content").toObject());
     if (obj.contains("toolCall") && obj.value("toolCall").isObject())
         u.toolCall = ToolCall::fromJson(obj.value("toolCall").toObject());
+    else if (u.sessionUpdate == QLatin1String(SessionUpdateKind::ToolCall)
+             || u.sessionUpdate == QLatin1String(SessionUpdateKind::ToolCallUpdate))
+        u.toolCall = ToolCall::fromJson(obj);
+
     if (obj.contains("plan") && obj.value("plan").isObject())
         u.plan = Plan::fromJson(obj.value("plan").toObject());
+    else if (u.sessionUpdate == QLatin1String(SessionUpdateKind::Plan))
+        u.plan = Plan::fromJson(obj);
     for (const QJsonValue &v : obj.value("availableCommands").toArray())
         u.availableCommands.append(AvailableCommand::fromJson(v.toObject()));
     u.currentModeId = obj.value("currentModeId").toString();
@@ -806,9 +812,6 @@ RequestPermissionParams RequestPermissionParams::fromJson(const QJsonObject &obj
 }
 
 // --- RequestPermissionResult ---
-//
-// Wire shape: { "outcome": { "outcome": "selected", "optionId": "..." } }
-//          or { "outcome": { "outcome": "cancelled" } }
 
 QJsonObject RequestPermissionResult::toJson() const
 {

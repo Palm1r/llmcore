@@ -254,6 +254,11 @@ void ToolsManager::executeToolCall(
     }
 }
 
+void ToolsManager::setExecutionGate(ExecutionGate gate)
+{
+    m_executionGate = std::move(gate);
+}
+
 void ToolsManager::executeNextTool(const QString &requestId)
 {
     if (!m_toolQueues.contains(requestId)) {
@@ -286,6 +291,44 @@ void ToolsManager::executeNextTool(const QString &requestId)
             << QString("Executing tool %1 (ID: %2) for request %3 (%4 remaining)")
                    .arg(pendingTool.name, pendingTool.id, requestId)
                    .arg(queue.queue.size());
+
+        if (m_executionGate) {
+            const QString gatedId = pendingTool.id;
+            const QString gatedName = pendingTool.name;
+            const QJsonObject gatedInput = pendingTool.input;
+
+            LLMQore::futureThen(
+                this,
+                m_executionGate(requestId, gatedId, gatedName, gatedInput),
+                [this, requestId, gatedId, gatedName, gatedInput](bool allowed) {
+                    if (!allowed) {
+                        qCDebug(llmToolsLog).noquote()
+                            << QString("Tool %1 was declined before execution").arg(gatedName);
+                        finalizePendingTool(
+                            requestId,
+                            gatedId,
+                            ToolResult::error(
+                                QStringLiteral("The user declined to run %1").arg(gatedName)),
+                            /*success*/ false);
+                        return;
+                    }
+
+                    BaseTool *gatedInstance = m_tools.value(gatedName);
+                    if (!gatedInstance) {
+                        finalizePendingTool(
+                            requestId,
+                            gatedId,
+                            ToolResult::error(
+                                QStringLiteral("Tool not found: %1").arg(gatedName)),
+                            /*success*/ false);
+                        return;
+                    }
+
+                    emit toolExecutionStarted(requestId, gatedId, gatedName, gatedInput);
+                    m_toolHandler->executeToolAsync(requestId, gatedId, gatedInstance, gatedInput);
+                });
+            return;
+        }
 
         emit toolExecutionStarted(
             requestId, pendingTool.id, pendingTool.name, pendingTool.input);
