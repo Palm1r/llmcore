@@ -43,7 +43,7 @@ void OllamaMessage::handleToolCall(const QJsonObject &toolCall)
     QString name = function["name"].toString();
     QJsonObject arguments = function["arguments"].toObject();
 
-    QString toolId = QString("call_%1_%2").arg(name).arg(QDateTime::currentMSecsSinceEpoch());
+    QString toolId = makeToolCallId(name);
 
     if (!m_contentAddedToTextBlock && !m_accumulatedContent.trimmed().isEmpty()) {
         qCDebug(llmOllamaLog).noquote()
@@ -168,7 +168,7 @@ bool OllamaMessage::tryParseToolCall()
         return false;
     }
 
-    QString toolId = QString("call_%1_%2").arg(name).arg(QDateTime::currentMSecsSinceEpoch());
+    QString toolId = makeToolCallId(name);
 
     for (auto *block : m_currentBlocks) {
         if (dynamic_cast<TextContent *>(block))
@@ -187,6 +187,14 @@ bool OllamaMessage::tryParseToolCall()
                    QString::fromUtf8(QJsonDocument(arguments).toJson(QJsonDocument::Compact)));
 
     return true;
+}
+
+QString OllamaMessage::makeToolCallId(const QString &name)
+{
+    return QString("call_%1_%2_%3")
+        .arg(name)
+        .arg(QDateTime::currentMSecsSinceEpoch())
+        .arg(m_toolCallSequence++);
 }
 
 QString OllamaMessage::stripMarkdownCodeFence(const QString &content) const

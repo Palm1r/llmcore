@@ -85,6 +85,46 @@ TEST(OllamaMessage, HandleToolCall_MultipleStructured)
     EXPECT_EQ(msg.getCurrentToolUseContent().size(), 2);
 }
 
+TEST(OllamaMessage, HandleToolCall_SameToolTwiceGetsDistinctIds)
+{
+    OllamaMessage msg;
+
+    QJsonObject toolCall1{
+        {"function",
+         QJsonObject{{"name", "read_file"}, {"arguments", QJsonObject{{"path", "/a"}}}}}};
+    QJsonObject toolCall2{
+        {"function",
+         QJsonObject{{"name", "read_file"}, {"arguments", QJsonObject{{"path", "/b"}}}}}};
+
+    msg.handleToolCall(toolCall1);
+    msg.handleToolCall(toolCall2);
+
+    auto tools = msg.getCurrentToolUseContent();
+    ASSERT_EQ(tools.size(), 2);
+    EXPECT_TRUE(tools[0]->id().startsWith("call_read_file_"));
+    EXPECT_TRUE(tools[1]->id().startsWith("call_read_file_"));
+    EXPECT_NE(tools[0]->id(), tools[1]->id());
+    EXPECT_EQ(tools[0]->input()["path"].toString(), "/a");
+    EXPECT_EQ(tools[1]->input()["path"].toString(), "/b");
+}
+
+TEST(OllamaMessage, ToolCallIds_DistinctAcrossContinuations)
+{
+    OllamaMessage msg;
+    QJsonObject toolCall{
+        {"function", QJsonObject{{"name", "tool"}, {"arguments", QJsonObject{}}}}};
+
+    msg.handleToolCall(toolCall);
+    msg.handleDone(true);
+    QString firstId = msg.getCurrentToolUseContent()[0]->id();
+
+    msg.startNewContinuation();
+    msg.handleToolCall(toolCall);
+
+    ASSERT_EQ(msg.getCurrentToolUseContent().size(), 1);
+    EXPECT_NE(msg.getCurrentToolUseContent()[0]->id(), firstId);
+}
+
 TEST(OllamaMessage, HandleDone_ParsesToolCallFromContent)
 {
     OllamaMessage msg;

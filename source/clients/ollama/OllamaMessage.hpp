@@ -32,7 +32,9 @@ private:
     QString m_accumulatedContent;
     bool m_contentAddedToTextBlock = false;
     ThinkingContent *m_currentThinkingContent = nullptr;
+    quint64 m_toolCallSequence = 0;
 
+    QString makeToolCallId(const QString &name);
     void updateStateFromDone();
     bool tryParseToolCall();
     bool isLikelyToolCallJson(const QString &content) const;
