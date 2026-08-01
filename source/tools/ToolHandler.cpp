@@ -43,14 +43,15 @@ QFuture<ToolResult> ToolHandler::executeToolAsync(
     execution->toolName = tool->id();
     execution->watcher = new QFutureWatcher<ToolResult>(this);
 
-    connect(execution->watcher, &QFutureWatcher<ToolResult>::finished, this, [this, toolId]() {
-        onToolExecutionFinished(toolId);
+    const ExecutionKey key{requestId, toolId};
+    connect(execution->watcher, &QFutureWatcher<ToolResult>::finished, this, [this, key]() {
+        onToolExecutionFinished(key);
     });
 
     qCDebug(llmToolsLog).noquote()
         << QString("Starting tool execution: %1 (ID: %2)").arg(tool->id(), toolId);
 
-    m_activeExecutions.insert(toolId, execution);
+    m_activeExecutions.insert(key, execution);
 
     QJsonObject enrichedInput = input;
     if (!requestId.isEmpty()
@@ -87,14 +88,14 @@ void ToolHandler::cleanupRequest(const QString &requestId)
     }
 }
 
-void ToolHandler::onToolExecutionFinished(const QString &toolId)
+void ToolHandler::onToolExecutionFinished(const ExecutionKey &key)
 {
     assertOwningThread(this);
-    if (!m_activeExecutions.contains(toolId)) {
+    if (!m_activeExecutions.contains(key)) {
         return;
     }
 
-    auto *execution = m_activeExecutions.take(toolId);
+    auto *execution = m_activeExecutions.take(key);
 
     try {
         ToolResult result = execution->watcher->result();

@@ -5,7 +5,7 @@
 #include <LLMQore/FutureUtils.hpp>
 #include <LLMQore/Log.hpp>
 #include <LLMQore/McpClient.hpp>
-#include <LLMQore/McpHttpTransport.hpp>
+#include <LLMQore/McpProvisioning.hpp>
 #include <LLMQore/McpRemoteTool.hpp>
 #include <LLMQore/RpcStdioTransport.hpp>
 #include <LLMQore/ToolsManager.hpp>
@@ -37,27 +37,19 @@ void ToolsManager::removeAllTools()
 
 void ToolsManager::addMcpServer(const McpServerEntry &entry)
 {
-    Rpc::Transport *transport = nullptr;
+    Mcp::ServerEndpoint endpoint;
+    endpoint.name = entry.name;
+    endpoint.url = entry.url;
+    endpoint.headers = entry.headers;
+    endpoint.httpSpec = entry.httpSpec;
+    endpoint.command = entry.command;
+    endpoint.arguments = entry.arguments;
+    endpoint.env = entry.env;
+    endpoint.workingDirectory = entry.workingDirectory;
 
-    if (entry.url.isValid()) {
-        Mcp::HttpTransportConfig cfg;
-        cfg.endpoint = entry.url;
-        cfg.headers = entry.headers;
-        if (entry.httpSpec == QLatin1String("2024-11-05"))
-            cfg.spec = Mcp::McpHttpSpec::V2024_11_05;
-        transport = new Mcp::McpHttpTransport(cfg, nullptr, this);
-    } else if (!entry.command.isEmpty()) {
-        Rpc::StdioLaunchConfig cfg;
-        cfg.program = entry.command;
-        cfg.arguments = entry.arguments;
-        cfg.environment = entry.env;
-        cfg.workingDirectory = entry.workingDirectory;
-        transport = new Rpc::StdioClientTransport(cfg, this);
-    } else {
-        qCWarning(llmToolsLog).noquote()
-            << QString("McpServerEntry '%1': no command or url specified").arg(entry.name);
+    Rpc::Transport *transport = Mcp::makeTransport(endpoint, this);
+    if (!transport)
         return;
-    }
 
     auto *client = new Mcp::McpClient(
         transport, Mcp::Implementation{entry.name, QStringLiteral(LLMQORE_VERSION_STRING)}, this);
@@ -171,11 +163,11 @@ void ToolsManager::executeToolCall(
     qCDebug(llmToolsLog).noquote()
         << QString("Queueing tool %1 (ID: %2) for request %3").arg(toolName, toolId, requestId);
 
-    if (!m_toolQueues.contains(requestId)) {
-        m_toolQueues[requestId] = ToolQueue();
+    if (!m_toolRounds.contains(requestId)) {
+        m_toolRounds[requestId] = ToolRound();
     }
 
-    auto &queue = m_toolQueues[requestId];
+    auto &queue = m_toolRounds[requestId];
 
     for (const auto &tool : queue.queue) {
         if (tool.id == toolId) {
@@ -212,11 +204,11 @@ void ToolsManager::setExecutionGate(ExecutionGate gate)
 
 void ToolsManager::executeNextTool(const QString &requestId)
 {
-    if (!m_toolQueues.contains(requestId)) {
+    if (!m_toolRounds.contains(requestId)) {
         return;
     }
 
-    auto &queue = m_toolQueues[requestId];
+    auto &queue = m_toolRounds[requestId];
 
     while (!queue.queue.isEmpty()) {
         PendingTool pendingTool = queue.queue.takeFirst();
@@ -243,7 +235,7 @@ void ToolsManager::executeNextTool(const QString &requestId)
                    .arg(pendingTool.name, pendingTool.id, requestId)
                    .arg(queue.queue.size());
 
-        if (m_executionGate) {
+        if (m_executionGate && toolInstance->safety() == ToolSafety::Mutating) {
             const QString gatedId = pendingTool.id;
             const QString gatedName = pendingTool.name;
             const QJsonObject gatedInput = pendingTool.input;
@@ -291,10 +283,18 @@ void ToolsManager::executeNextTool(const QString &requestId)
     }
 
     qCDebug(llmToolsLog).noquote()
-        << QString("All tools complete for request %1, emitting results").arg(requestId);
-    QHash<QString, ToolResult> results = getToolResults(requestId);
-    emit toolExecutionComplete(requestId, results);
+        << QString("All tools complete for request %1 (round %2), emitting results")
+               .arg(requestId)
+               .arg(queue.index);
+
+    const QHash<QString, ToolResult> results = getToolResults(requestId);
+
+    // Close the round before emitting: the handler may abort and drop the
+    // request, and nothing below may touch `queue` afterwards.
+    queue.beginNextRound();
     queue.isExecuting = false;
+
+    emit toolExecutionComplete(requestId, results);
 }
 
 QJsonArray ToolsManager::getToolsDefinitions() const
@@ -320,9 +320,9 @@ QJsonArray ToolsManager::buildToolsDefinitions() const
 
 void ToolsManager::cleanupRequest(const QString &requestId)
 {
-    if (m_toolQueues.contains(requestId)) {
+    if (m_toolRounds.contains(requestId)) {
         m_toolHandler->cleanupRequest(requestId);
-        m_toolQueues.remove(requestId);
+        m_toolRounds.remove(requestId);
     }
 }
 
@@ -342,10 +342,10 @@ void ToolsManager::onToolErrored(
 void ToolsManager::finalizePendingTool(
     const QString &requestId, const QString &toolId, const ToolResult &rich, bool success)
 {
-    if (!m_toolQueues.contains(requestId))
+    if (!m_toolRounds.contains(requestId))
         return;
 
-    auto &queue = m_toolQueues[requestId];
+    auto &queue = m_toolRounds[requestId];
     if (!queue.completed.contains(toolId))
         return;
 
@@ -375,8 +375,8 @@ QHash<QString, ToolResult> ToolsManager::getToolResults(const QString &requestId
 {
     QHash<QString, ToolResult> results;
 
-    if (m_toolQueues.contains(requestId)) {
-        const auto &queue = m_toolQueues[requestId];
+    if (m_toolRounds.contains(requestId)) {
+        const auto &queue = m_toolRounds[requestId];
         for (auto it = queue.completed.begin(); it != queue.completed.end(); ++it) {
             if (it.value().complete)
                 results[it.key()] = it.value().result;

@@ -33,7 +33,6 @@ namespace LLMQore {
 
 class HttpStreamHandle;
 class HttpTransport;
-class ToolLoopRunner;
 class ToolsManager;
 
 using RequestID = QString;
@@ -115,16 +114,15 @@ public:
 
     ToolsManager *tools();
     bool hasTools() const noexcept;
-    
-    ToolLoopRunner *toolLoop();
+
+    static constexpr int kDefaultMaxToolRounds = 10;
 
     int maxToolContinuations() const;
     void setMaxToolContinuations(int limit);
 
-    virtual void continueRequest(const RequestID &id, const QJsonObject &payload);
-    void abortRequest(const RequestID &id, const QString &error);
-    QJsonObject buildReplayContinuation(
-        const RequestID &id, const QHash<QString, ToolResult> &toolResults);
+    // Rounds of the agent loop this request has completed. Zero once the
+    // request is finished, failed or cancelled.
+    [[nodiscard]] int toolRounds(const RequestID &id) const;
 
     int transferTimeoutMs() const;
     void setTransferTimeout(int milliseconds);
@@ -260,6 +258,15 @@ protected:
     QString m_model;
 
 private:
+    // The agent loop. Driven by ToolsManager::toolExecutionComplete; not part
+    // of the surface a caller drives.
+    void handleToolsCompleted(
+        const RequestID &id, const QHash<QString, ToolResult> &toolResults);
+    void continueRequest(const RequestID &id, const QJsonObject &payload);
+    void abortRequest(const RequestID &id, const QString &error);
+    [[nodiscard]] QJsonObject buildReplayContinuation(
+        const RequestID &id, const QHash<QString, ToolResult> &toolResults);
+
     void cleanupRequest(const RequestID &id);
     void startHttpRequest(
         const RequestID &id,

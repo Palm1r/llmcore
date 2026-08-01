@@ -493,6 +493,7 @@ public:
     using ClaudeClient::ClaudeClient;
     using BaseClient::accumulateUsage;
     using BaseClient::currentUsage;
+    using BaseClient::finalizeTurn;
     using BaseClient::totalUsage;
 };
 
@@ -541,7 +542,8 @@ TEST(TokenUsageAccumulation, TotalUsageReflectsBothAccumulatedAndCurrent)
     turn1.completionTokens = 40;
     turn1.cachedPromptTokens = 100;
     client.accumulateUsage(id, turn1);
-    client.continueRequest(id, QJsonObject{{"messages", QJsonArray{}}});
+    // What a continuation does to usage: fold the finished turn into the total.
+    client.finalizeTurn(id);
 
     EXPECT_EQ(client.totalUsage(id)->promptTokens, 500);
     EXPECT_FALSE(client.currentUsage(id).has_value());

@@ -15,7 +15,6 @@
 #include <LLMQore/HttpTransport.hpp>
 #include <LLMQore/HttpTransportError.hpp>
 #include <LLMQore/Log.hpp>
-#include <LLMQore/ToolLoopRunner.hpp>
 #include <LLMQore/ToolsManager.hpp>
 
 namespace LLMQore {
@@ -53,6 +52,7 @@ struct ActiveRequest
     QString stopReason = {};
     std::optional<TokenUsage> usage = {};
     std::optional<TokenUsage> turnUsage = {};
+    int toolRounds = 0;
 
     QPointer<BaseMessage> message;
 };
@@ -65,7 +65,7 @@ struct BaseClient::Impl
     AuthScheme authScheme;
     QHash<QString, QString> headers;
     ToolsManager *toolsManager = nullptr;
-    ToolLoopRunner *toolLoop = nullptr;
+    int maxToolRounds = BaseClient::kDefaultMaxToolRounds;
     QHash<RequestID, ActiveRequest> requests;
 };
 
@@ -245,8 +245,8 @@ ToolsManager *BaseClient::tools()
         connect(
             m_impl->toolsManager,
             &ToolsManager::toolExecutionComplete,
-            toolLoop(),
-            &ToolLoopRunner::handleToolsCompleted);
+            this,
+            &BaseClient::handleToolsCompleted);
     }
     return m_impl->toolsManager;
 }
@@ -258,21 +258,43 @@ bool BaseClient::hasTools() const noexcept
 
 int BaseClient::maxToolContinuations() const
 {
-    return m_impl->toolLoop ? m_impl->toolLoop->maxRounds() : ToolLoopRunner::kDefaultMaxRounds;
+    return m_impl->maxToolRounds;
 }
 
 void BaseClient::setMaxToolContinuations(int limit)
 {
-    toolLoop()->setMaxRounds(limit);
+    m_impl->maxToolRounds = limit > 0 ? limit : 1;
 }
 
-ToolLoopRunner *BaseClient::toolLoop()
+int BaseClient::toolRounds(const RequestID &id) const
 {
-    Q_ASSERT_X(thread() == QThread::currentThread(), Q_FUNC_INFO,
-               "BaseClient::toolLoop called from non-owning thread");
-    if (!m_impl->toolLoop)
-        m_impl->toolLoop = new ToolLoopRunner(this);
-    return m_impl->toolLoop;
+    auto it = m_impl->requests.constFind(id);
+    return it == m_impl->requests.constEnd() ? 0 : it->toolRounds;
+}
+
+void BaseClient::handleToolsCompleted(
+    const RequestID &id, const QHash<QString, ToolResult> &toolResults)
+{
+    auto it = m_impl->requests.find(id);
+    if (it == m_impl->requests.end())
+        return;
+
+    if (++it->toolRounds > m_impl->maxToolRounds) {
+        qCWarning(llmQoreLog).noquote()
+            << QString("Tool continuation limit reached for request %1").arg(id);
+        abortRequest(id, QStringLiteral("Tool continuation limit reached"));
+        return;
+    }
+
+    const QJsonObject payload = buildReplayContinuation(id, toolResults);
+    if (payload.isEmpty()) {
+        qCWarning(llmQoreLog).noquote()
+            << QString("Missing data for continuation request %1").arg(id);
+        abortRequest(id, QStringLiteral("Missing data for tool continuation"));
+        return;
+    }
+
+    continueRequest(id, payload);
 }
 
 RequestID BaseClient::createRequest()

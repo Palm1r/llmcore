@@ -7,6 +7,7 @@
 #include <QTimer>
 
 #include <LLMQore/FutureUtils.hpp>
+#include <LLMQore/McpProvisioning.hpp>
 
 using namespace LLMQore;
 using namespace LLMQore::Mcp;
@@ -15,18 +16,6 @@ namespace {
 constexpr int kInitialBackoffMs = 1000;
 constexpr int kMaxBackoffMs = 30000;
 
-McpHttpSpec parseHttpSpec(const QString &spec)
-{
-    if (spec.isEmpty())
-        return McpHttpSpec::Latest;
-    if (spec == QLatin1String("2024-11-05"))
-        return McpHttpSpec::V2024_11_05;
-    if (spec == QLatin1String("2025-03-26") || spec == QLatin1String("2025-06-18")
-        || spec == QLatin1String("2025-11-25") || spec == QLatin1String("latest"))
-        return McpHttpSpec::V2025_03_26;
-    qWarning().noquote() << "Unknown httpSpec" << spec << "— falling back to latest.";
-    return McpHttpSpec::Latest;
-}
 } // namespace
 
 namespace McpBridge {
@@ -56,21 +45,21 @@ BridgeServer::BridgeServer(const BridgeConfig &config, QObject *parent)
 void BridgeServer::start()
 {
     for (const UpstreamEntry &entry : m_config.upstreams) {
-        Rpc::Transport *transport = nullptr;
-
+        ServerEndpoint endpoint;
+        endpoint.name = entry.name;
         if (entry.type == UpstreamType::Sse) {
-            HttpTransportConfig httpCfg;
-            httpCfg.endpoint = entry.url;
-            httpCfg.spec = parseHttpSpec(entry.httpSpec);
-            httpCfg.headers = entry.headers;
-            transport = new McpHttpTransport(httpCfg, nullptr, this);
+            endpoint.url = entry.url;
+            endpoint.headers = entry.headers;
+            endpoint.httpSpec = entry.httpSpec;
         } else {
-            Rpc::StdioLaunchConfig launchCfg;
-            launchCfg.program = entry.command;
-            launchCfg.arguments = entry.args;
-            launchCfg.environment = entry.env;
-            transport = new Rpc::StdioClientTransport(launchCfg, this);
+            endpoint.command = entry.command;
+            endpoint.arguments = entry.args;
+            endpoint.env = entry.env;
         }
+
+        Rpc::Transport *transport = makeTransport(endpoint, this);
+        if (!transport)
+            continue;
 
         auto *client = new McpClient(
             transport,

@@ -7,6 +7,7 @@
 #include <QHash>
 #include <QJsonObject>
 #include <QObject>
+#include <QPair>
 #include <QString>
 
 #include <LLMQore/LLMQore_global.h>
@@ -42,9 +43,13 @@ private:
         QFutureWatcher<ToolResult> *watcher;
     };
 
-    QHash<QString, ToolExecution *> m_activeExecutions;
+    // Keyed by request as well as tool: two concurrent requests routinely carry
+    // the same provider-minted id (`toolu_1`), and a bare toolId collides.
+    using ExecutionKey = QPair<QString, QString>;
 
-    void onToolExecutionFinished(const QString &toolId);
+    QHash<ExecutionKey, ToolExecution *> m_activeExecutions;
+
+    void onToolExecutionFinished(const ExecutionKey &key);
 };
 
 } // namespace LLMQore

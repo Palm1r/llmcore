@@ -6,8 +6,6 @@ target_sources(LLMQore PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/core/Log.cpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/BaseClient.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/core/BaseClient.cpp
-    ${PROJECT_SOURCE_DIR}/include/LLMQore/ToolLoopRunner.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/core/ToolLoopRunner.cpp
 
     ${PROJECT_SOURCE_DIR}/include/LLMQore/HttpResponse.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/network/HttpResponse.cpp
@@ -90,6 +88,7 @@ target_sources(LLMQore PRIVATE
     ${PROJECT_SOURCE_DIR}/include/LLMQore/McpRemoteTool.hpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/McpStdioServerTransport.hpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/McpHttpTransport.hpp
+    ${PROJECT_SOURCE_DIR}/include/LLMQore/McpProvisioning.hpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/BaseResourceProvider.hpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/BasePromptProvider.hpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/BaseRootsProvider.hpp
@@ -101,6 +100,7 @@ target_sources(LLMQore PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/mcp/McpRemoteTool.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/mcp/McpStdioServerTransport.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/mcp/McpHttpTransport.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/mcp/McpProvisioning.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/mcp/McpHttpServerTransport.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/mcp/BaseResourceProvider.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/mcp/BasePromptProvider.cpp

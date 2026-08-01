@@ -3,7 +3,7 @@
 ## Thread contract (read this first)
 
 All LLMQore client objects (`BaseClient` and subclasses, `ToolsManager`,
-`ToolRegistry`, `ToolHandler`, `ToolLoopRunner`, `McpClient`) live on the
+`ToolRegistry`, `ToolHandler`, `McpClient`) live on the
 thread of the `QObject` parent passed to their constructor. All public methods must be
 called from that thread; all signals are emitted on that thread.
 
@@ -206,9 +206,8 @@ client->ask("What's the weather in Berlin?");
 ### Tool-call rounds
 
 When the model calls a tool, the client executes it and automatically sends
-a continuation request with the result. This loop is driven by
-`ToolLoopRunner` (`client->toolLoop()`) and is bounded per request — 10
-rounds by default:
+a continuation request with the result. The loop is the client's own, and is
+bounded per request — 10 rounds by default:
 
 ```cpp
 client->setMaxToolContinuations(5);

@@ -6,6 +6,7 @@
 #include <QCoreApplication>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QPromise>
 #include <QSignalSpy>
 #include <QtConcurrent/QtConcurrent>
 
@@ -327,7 +328,6 @@ TEST_F(ToolsManagerTest, BaseTool_EnableDisable)
     EXPECT_TRUE(tool.isEnabled());
 }
 
-#include "tst_ToolsManager.moc"
 
 // --- structuredContent used to be dropped by every continuation builder ---
 
@@ -382,3 +382,105 @@ TEST(ToolResultText, HasOnlyTextIsFalseWhenABlockIsBinary)
     EXPECT_TRUE(ToolResult::text("a").hasOnlyText());
     EXPECT_TRUE(ToolResult::empty().hasOnlyText());
 }
+
+// --- ExecutionGate: declared and wired, but had no coverage ---
+
+class SafetyTool : public FakeTool
+{
+    Q_OBJECT
+public:
+    SafetyTool(const QString &id, ToolSafety safety, QObject *parent = nullptr)
+        : FakeTool(id, id, parent)
+        , m_safety(safety)
+    {}
+
+    ToolSafety safety() const override { return m_safety; }
+
+private:
+    ToolSafety m_safety;
+};
+
+namespace {
+
+QFuture<bool> answer(bool value)
+{
+    QPromise<bool> promise;
+    QFuture<bool> future = promise.future();
+    promise.start();
+    promise.addResult(value);
+    promise.finish();
+    return future;
+}
+
+void pumpEvents(int rounds = 20)
+{
+    for (int i = 0; i < rounds; ++i)
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
+}
+
+} // namespace
+
+TEST_F(ToolsManagerTest, ExecutionGateDeclinesAMutatingTool)
+{
+    ToolsManager mgr(OpenAIMessage::toolDialect());
+    mgr.addTool(new SafetyTool("writer", ToolSafety::Mutating));
+
+    QStringList asked;
+    mgr.setExecutionGate([&asked](const QString &, const QString &, const QString &name,
+                                  const QJsonObject &) {
+        asked << name;
+        return answer(false);
+    });
+
+    QSignalSpy complete(&mgr, &ToolsManager::toolExecutionComplete);
+    mgr.executeToolCall("req", "call_1", "writer", QJsonObject{});
+    pumpEvents();
+
+    ASSERT_EQ(asked, QStringList{"writer"});
+    ASSERT_EQ(complete.count(), 1);
+
+    const auto results = complete.first().at(1).value<LLMQoreToolResultHash>();
+    ASSERT_TRUE(results.contains("call_1"));
+    EXPECT_TRUE(results["call_1"].asText().contains("declined"));
+}
+
+TEST_F(ToolsManagerTest, ExecutionGateAllowsAMutatingTool)
+{
+    ToolsManager mgr(OpenAIMessage::toolDialect());
+    mgr.addTool(new SafetyTool("writer", ToolSafety::Mutating));
+
+    mgr.setExecutionGate([](const QString &, const QString &, const QString &,
+                            const QJsonObject &) { return answer(true); });
+
+    QSignalSpy complete(&mgr, &ToolsManager::toolExecutionComplete);
+    mgr.executeToolCall("req", "call_1", "writer", QJsonObject{});
+    pumpEvents();
+
+    ASSERT_EQ(complete.count(), 1);
+    const auto results = complete.first().at(1).value<LLMQoreToolResultHash>();
+    EXPECT_EQ(results["call_1"].asText(), QStringLiteral("fake result"));
+}
+
+TEST_F(ToolsManagerTest, ExecutionGateIsNotConsultedForAReadOnlyTool)
+{
+    ToolsManager mgr(OpenAIMessage::toolDialect());
+    mgr.addTool(new SafetyTool("reader", ToolSafety::ReadOnly));
+
+    bool asked = false;
+    mgr.setExecutionGate([&asked](const QString &, const QString &, const QString &,
+                                  const QJsonObject &) {
+        asked = true;
+        return answer(false);
+    });
+
+    QSignalSpy complete(&mgr, &ToolsManager::toolExecutionComplete);
+    mgr.executeToolCall("req", "call_1", "reader", QJsonObject{});
+    pumpEvents();
+
+    EXPECT_FALSE(asked) << "a read-only tool has nothing for the user to approve";
+    ASSERT_EQ(complete.count(), 1);
+    EXPECT_EQ(complete.first().at(1).value<LLMQoreToolResultHash>()["call_1"].asText(),
+              QStringLiteral("fake result"));
+}
+
+#include "tst_ToolsManager.moc"

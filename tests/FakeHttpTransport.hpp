@@ -125,6 +125,8 @@ public:
         return m_streams.isEmpty() ? nullptr : m_streams.last().data();
     }
 
+    FakeHttpStream *streamAt(int index) const { return m_streams.value(index).data(); }
+
     SentRequest streamRequest(int index) const { return m_streamRequests.value(index); }
 
     int bufferedCount() const { return m_buffered.size(); }
