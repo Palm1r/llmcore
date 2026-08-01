@@ -35,19 +35,34 @@ Public, the caller-facing surface:
 Protected, the format-facing surface:
 
 - `toolDialect()` -- the provider's `ToolDialect`, returned from its message translator (`FooMessage::toolDialect()`). This is what `ToolsManager` serializes tool definitions through. It is a method on the client rather than something read off the message object because `tools()` may be called before any request, i.e. before a translator exists.
-- `processData(id, data)` -- raw streaming bytes in; push them through `requestSSEParser(id)` or `requestLineFramer(id)` and update the message object.
-- `processBufferedResponse(id, data)` -- the same for a non-streamed body.
-- `buildContinuationPayload(originalPayload, message, toolResults)` -- the assistant turn plus the tool results, in the provider's wire format. `appendChatMessagesContinuation` covers the OpenAI-shaped `messages` array case.
+- `processBufferedResponse(id, data)` -- a whole non-streamed body.
+- `buildContinuationPayload(originalPayload, message, toolResults)` -- the assistant turn plus the tool results, in the provider's wire format. `appendChatContinuation<FooMessage>` is the whole method for any provider whose turns are a plain `messages` array.
 
 ### Hooks with a working default
 
 Override only when the provider deviates:
 
+- `processSseEvent(id, event, json)` -- one framed SSE event, already parsed. This is where an SSE provider does its work; `event.type` carries the wire event name for providers that dispatch on it (Responses), and providers that dispatch on the JSON body (Claude, OpenAI, Google) ignore it.
+- `processData(id, data)` -- raw streaming bytes. The default feeds `requestSSEParser(id)` and hands whatever it framed to `dispatchSseEvents`. Override only for a different framing (Ollama's JSON lines) or to inspect the bytes first (Google sniffs for a non-SSE error body, then calls `BaseClient::processData`).
 - `parseHttpError(response)` -- vendor error envelope. Most providers delegate to `parseErrorObject(response, annotations)`, which renders `"HTTP <status>: <error.message>"` plus one parenthesised clause per annotation whose field is present; an annotation with an empty label prints the value bare. Ollama is the outlier -- its `error` is a plain string.
-- `onStreamFinished(id, error)` -- end-of-stream. Overriding this replaces the base tail (stop reason capture, tool dispatch, finalization); prefer `flushStreamBuffers`.
-- `flushStreamBuffers(id)` -- called by the base at end of stream *before* it decides the request is done. Drain a framer that can hold a trailing event here; the SSE-based clients all do `dispatchStreamEvents(id, requestSSEParser(id).flush())`.
+- `flushStreamBuffers(id)` -- called by the base at end of stream *before* it decides the request is done. The default flushes the SSE parser, so every SSE provider gets its trailing partial event for free; Ollama overrides it to drain the line framer.
+- `takePendingStreamError(id)` -- an error the provider recognised mid-stream but could not act on yet. The base drains it before concluding the stream succeeded. Google alone uses it, for the 200-with-error-body case its sniffer catches.
+- `onStreamDrained(id)` -- the stream is drained and the request is still alive; last chance to finish the message off before the base reads its state. Google dispatches its tool calls here, because its finish reason arrives inside a candidate rather than as an event of its own.
 - `cleanupDerivedData(id)` -- per-request state beyond the message object. Only providers that keep survives-the-turn bookkeeping need it (Google's failed-request set and error sniffers, Responses' item-id map).
 - `logCategory()` -- the category the shared base code logs under, so a subclass does not report under its parent's name.
+- `onStreamFinished(id, error)` -- the whole end-of-stream sequence. Nothing in the tree overrides it, and nothing should: the hooks above are the seams cut out of it.
+
+### End of stream
+
+One sequence, shared by all seven providers:
+
+1. a transport error, or `takePendingStreamError`, fails the request;
+2. `flushStreamBuffers` drains whatever the framer still holds;
+3. `onStreamDrained` lets the provider finish the message;
+4. a message left in `RequiresToolExecution` hands control to the tool loop and returns;
+5. otherwise the stop reason is captured and the request completes.
+
+Each step re-checks that the request is still alive, because any of them can emit a signal whose handler cancels it.
 
 ### Shared helpers the subclass calls
 
@@ -73,18 +88,14 @@ RequestID FooClient::sendMessage(
 }
 ```
 
-The `FooMessage` for `id` is allocated later, by the stream handler, on the first chunk that carries content:
+Nothing else is needed to get bytes flowing: the base frames them and calls the per-event hook, where the `FooMessage` for `id` is allocated on the first event that carries content.
 
 ```cpp
-void FooClient::processData(const RequestID &id, const QByteArray &data)
+void FooClient::processSseEvent(
+    const RequestID &id, const SSEEvent &, const QJsonObject &json)
 {
-    if (!hasRequest(id))
-        return;
-
-    for (const SSEEvent &ev : requestSSEParser(id).append(data)) {
-        auto *message = ensureMessage<FooMessage>(id);
-        ...
-    }
+    auto *message = ensureMessage<FooMessage>(id);
+    ...
 }
 ```
 
@@ -111,7 +122,7 @@ Errors reach the caller through three paths:
 1. Create a new folder under `source/clients/` with the client and message translator files.
 2. Add a public header under `include/LLMQore/`, and list it in the `include/LLMQore/Clients` umbrella header.
 3. In the translator's `.cpp`, define the provider's `ToolDialect` subclass (anonymous namespace) and expose it through a static `FooMessage::toolDialect()`. Both directions of the format -- schema out, tool results back -- belong in this one file.
-4. Implement the pure virtuals: `sendMessage`, `ask`, `listModels`, `toolDialect`, `processData`, `processBufferedResponse`, `buildContinuationPayload`. Seed the default `AuthScheme` and header map in the constructor -- there is no request-building hook to override.
-5. Override `logCategory()` so the shared base code logs under the new provider's name, and `flushStreamBuffers()` if the framer can hold a trailing event.
+4. Implement the pure virtuals: `sendMessage`, `ask`, `listModels`, `toolDialect`, `processBufferedResponse`, `buildContinuationPayload`. Seed the default `AuthScheme` and header map in the constructor -- there is no request-building hook to override.
+5. Override `processSseEvent()` for the streaming path, and `logCategory()` so the shared base code logs under the new provider's name. A provider that is not SSE-framed overrides `processData()` and `flushStreamBuffers()` instead.
 6. Use `ensureMessage<FooMessage>(id)` in the stream handler; do not keep a message map in the client.
 7. Add unit tests: constructor sanity and header shape (`tst_RequestHeaders` is parameterised over every provider), the tool schema shape in `tst_ToolsManager`, model listing over `FakeHttpTransport` in `ListModels`, error rendering in `ParseHttpError`, and translator behaviour in a `tst_FooMessage` suite that needs no event loop.

@@ -40,8 +40,8 @@ public:
 
 protected:
     [[nodiscard]] const ToolDialect &toolDialect() const override;
-    void processData(const RequestID &id, const QByteArray &data) override;
-    void flushStreamBuffers(const RequestID &id) override;
+    void processSseEvent(
+        const RequestID &id, const SSEEvent &event, const QJsonObject &json) override;
     void processBufferedResponse(const RequestID &id, const QByteArray &data) override;
     QJsonObject buildContinuationPayload(
         const QJsonObject &originalPayload,
@@ -49,10 +49,6 @@ protected:
         const QHash<QString, ToolResult> &toolResults) override;
     [[nodiscard]] QString parseHttpError(const HttpResponse &response) const override;
     [[nodiscard]] const QLoggingCategory &logCategory() const override;
-
-private:
-    void dispatchStreamEvents(const RequestID &id, const QList<SSEEvent> &events);
-    void processStreamEvent(const RequestID &id, const QJsonObject &event);
 
 };
 

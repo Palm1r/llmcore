@@ -137,14 +137,7 @@ QJsonObject OllamaClient::buildContinuationPayload(
     BaseMessage *message,
     const QHash<QString, ToolResult> &toolResults)
 {
-    auto *ollamaMsg = qobject_cast<OllamaMessage *>(message);
-    if (!ollamaMsg)
-        return originalPayload;
-
-    return appendChatMessagesContinuation(
-        originalPayload,
-        ollamaMsg->toProviderFormat(),
-        ollamaMsg->createToolResultMessages(toolResults));
+    return appendChatContinuation<OllamaMessage>(originalPayload, message, toolResults);
 }
 
 void OllamaClient::flushStreamBuffers(const RequestID &id)

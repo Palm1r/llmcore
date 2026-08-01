@@ -88,33 +88,6 @@ QString ClaudeClient::parseHttpError(const HttpResponse &response) const
     return parseErrorObject(response, {{{}, QStringLiteral("type")}});
 }
 
-void ClaudeClient::processData(const RequestID &id, const QByteArray &data)
-{
-    if (!hasRequest(id))
-        return;
-
-    dispatchStreamEvents(id, requestSSEParser(id).append(data));
-}
-
-void ClaudeClient::flushStreamBuffers(const RequestID &id)
-{
-    dispatchStreamEvents(id, requestSSEParser(id).flush());
-}
-
-void ClaudeClient::dispatchStreamEvents(const RequestID &id, const QList<SSEEvent> &events)
-{
-    for (const SSEEvent &ev : events) {
-        if (ev.data.isEmpty() || ev.data == "[DONE]")
-            continue;
-        const QJsonObject json = QJsonDocument::fromJson(ev.data).object();
-        if (json.isEmpty())
-            continue;
-        processStreamEvent(id, json);
-        if (!hasRequest(id))
-            return;
-    }
-}
-
 QJsonObject ClaudeClient::buildContinuationPayload(
     const QJsonObject &originalPayload,
     BaseMessage *message,
@@ -138,7 +111,8 @@ QJsonObject ClaudeClient::buildContinuationPayload(
     return request;
 }
 
-void ClaudeClient::processStreamEvent(const RequestID &id, const QJsonObject &event)
+void ClaudeClient::processSseEvent(
+    const RequestID &id, const SSEEvent &, const QJsonObject &event)
 {
     QString eventType = event["type"].toString();
 

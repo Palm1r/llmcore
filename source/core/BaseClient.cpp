@@ -571,6 +571,9 @@ void BaseClient::startHttpRequest(
 
 void BaseClient::onStreamFinished(const RequestID &id, std::optional<QString> error)
 {
+    if (!error)
+        error = takePendingStreamError(id);
+
     if (error) {
         cleanupFullRequest(id);
         failRequest(id, *error);
@@ -579,6 +582,10 @@ void BaseClient::onStreamFinished(const RequestID &id, std::optional<QString> er
 
     if (hasRequest(id))
         flushStreamBuffers(id);
+    if (!hasRequest(id))
+        return;
+
+    onStreamDrained(id);
     if (!hasRequest(id))
         return;
 
@@ -867,7 +874,54 @@ void BaseClient::notifyPendingThinkingBlocks(const RequestID &id)
     }
 }
 
-void BaseClient::flushStreamBuffers(const RequestID &)
+void BaseClient::flushStreamBuffers(const RequestID &id)
+{
+    dispatchSseEvents(id, requestSSEParser(id).flush());
+}
+
+std::optional<QString> BaseClient::takePendingStreamError(const RequestID &)
+{
+    return std::nullopt;
+}
+
+void BaseClient::onStreamDrained(const RequestID &)
+{}
+
+void BaseClient::processData(const RequestID &id, const QByteArray &data)
+{
+    if (!hasRequest(id))
+        return;
+
+    dispatchSseEvents(id, requestSSEParser(id).append(data));
+}
+
+void BaseClient::dispatchSseEvents(const RequestID &id, const QList<SSEEvent> &events)
+{
+    for (int i = 0; i < events.size(); ++i) {
+        const SSEEvent &ev = events.at(i);
+        if (ev.data.isEmpty() || ev.data == "[DONE]")
+            continue;
+
+        const QJsonObject json = QJsonDocument::fromJson(ev.data).object();
+        if (json.isEmpty())
+            continue;
+
+        processSseEvent(id, ev, json);
+
+        if (!hasRequest(id)) {
+            const int dropped = events.size() - i - 1;
+            if (dropped > 0) {
+                qCDebug(logCategory()).noquote()
+                    << QString("Dropped %1 event(s) after the request ended: %2")
+                           .arg(dropped)
+                           .arg(id);
+            }
+            return;
+        }
+    }
+}
+
+void BaseClient::processSseEvent(const RequestID &, const SSEEvent &, const QJsonObject &)
 {}
 
 void BaseClient::storeRequestContext(const RequestID &id, const QUrl &url, const QJsonObject &payload)

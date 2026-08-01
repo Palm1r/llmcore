@@ -44,9 +44,11 @@ public:
 protected:
     [[nodiscard]] const ToolDialect &toolDialect() const override;
     void processData(const RequestID &id, const QByteArray &data) override;
+    void processSseEvent(
+        const RequestID &id, const SSEEvent &event, const QJsonObject &json) override;
     void processBufferedResponse(const RequestID &id, const QByteArray &data) override;
-    void onStreamFinished(const RequestID &id, std::optional<QString> error) override;
-    void flushStreamBuffers(const RequestID &id) override;
+    std::optional<QString> takePendingStreamError(const RequestID &id) override;
+    void onStreamDrained(const RequestID &id) override;
     void cleanupDerivedData(const RequestID &id) override;
     QJsonObject buildContinuationPayload(
         const QJsonObject &originalPayload,
@@ -56,7 +58,6 @@ protected:
     [[nodiscard]] const QLoggingCategory &logCategory() const override;
 
 private:
-    void dispatchStreamEvents(const RequestID &id, const QList<SSEEvent> &events);
     // A 200-with-error-body response is not SSE-framed, so it has to be
     // reassembled across chunks before it can be recognised.
     class JsonErrorSniffer

@@ -39,7 +39,8 @@ public:
 
 protected:
     void processBufferedResponse(const RequestID &id, const QByteArray &data) override;
-    void processStreamEvent(const RequestID &id, const QJsonObject &chunk) override;
+    void processSseEvent(
+        const RequestID &id, const SSEEvent &event, const QJsonObject &json) override;
     [[nodiscard]] const QLoggingCategory &logCategory() const override;
 
 private:

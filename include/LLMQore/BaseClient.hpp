@@ -150,7 +150,7 @@ protected:
     // The provider's tool dialect, supplied by its message translator.
     virtual const ToolDialect &toolDialect() const = 0;
 
-    virtual void processData(const RequestID &id, const QByteArray &data) = 0;
+    virtual void processData(const RequestID &id, const QByteArray &data);
     virtual void processBufferedResponse(const RequestID &id, const QByteArray &data) = 0;
     virtual QJsonObject buildContinuationPayload(
         const QJsonObject &originalPayload,
@@ -218,12 +218,37 @@ protected:
         const QJsonObject &assistantMessage,
         const QJsonArray &toolMessages);
 
+    template<typename T>
+    [[nodiscard]] static QJsonObject appendChatContinuation(
+        const QJsonObject &originalPayload,
+        BaseMessage *message,
+        const QHash<QString, ToolResult> &toolResults)
+    {
+        auto *typed = qobject_cast<T *>(message);
+        if (!typed)
+            return originalPayload;
+
+        return appendChatMessagesContinuation(
+            originalPayload,
+            typed->toProviderFormat(),
+            typed->createToolResultMessages(toolResults));
+    }
+
     virtual void onStreamFinished(const RequestID &id, std::optional<QString> error);
+
+    virtual std::optional<QString> takePendingStreamError(const RequestID &id);
+
+    virtual void onStreamDrained(const RequestID &id);
 
     // Called by the base at end-of-stream, before it decides the request is
     // done. Providers whose framer can hold a trailing event drain it here
     // instead of re-implementing the tail of onStreamFinished.
     virtual void flushStreamBuffers(const RequestID &id);
+
+    void dispatchSseEvents(const RequestID &id, const QList<SSEEvent> &events);
+
+    virtual void processSseEvent(
+        const RequestID &id, const SSEEvent &event, const QJsonObject &json);
 
     [[nodiscard]] HttpTransport *transport() const;
     [[nodiscard]] QNetworkRequest prepareNetworkRequest(const QUrl &url) const;

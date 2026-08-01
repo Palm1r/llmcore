@@ -42,23 +42,15 @@ public:
 
 protected:
     [[nodiscard]] const ToolDialect &toolDialect() const override;
-    void processData(const RequestID &id, const QByteArray &data) override;
     void processBufferedResponse(const RequestID &id, const QByteArray &data) override;
     QJsonObject buildContinuationPayload(
         const QJsonObject &originalPayload,
         BaseMessage *message,
         const QHash<QString, ToolResult> &toolResults) override;
     [[nodiscard]] QString parseHttpError(const HttpResponse &response) const override;
-    void flushStreamBuffers(const RequestID &id) override;
 
-    // Runs already-framed SSE events through the dialect. Subclasses that need
-    // the same dispatch from another point (a trailing flush, a second wire
-    // shape) reuse this instead of re-implementing the loop.
-    void dispatchStreamEvents(const RequestID &id, const QList<SSEEvent> &events);
-
-    // One framed event. Override to recognise a provider-specific chunk shape,
-    // and delegate here for anything OpenAI-compatible.
-    virtual void processStreamEvent(const RequestID &id, const QJsonObject &chunk);
+    void processSseEvent(
+        const RequestID &id, const SSEEvent &event, const QJsonObject &json) override;
 
     // Reads `usage` off any response object -- streamed chunk or buffered body.
     void applyUsage(const RequestID &id, const QJsonObject &responseObject);
@@ -68,6 +60,7 @@ protected:
     [[nodiscard]] const QLoggingCategory &logCategory() const override;
 
 private:
+    static QString takeReasoningAndText(OpenAIMessage *message, const QJsonObject &source);
     void processStreamChunk(const RequestID &id, const QJsonObject &chunk);
 
 };

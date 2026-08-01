@@ -628,6 +628,19 @@ TEST(StreamFlush, TrailingSseEventWithoutABlankLineIsStillDispatched)
          "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":"
          "{\"type\":\"text_delta\",\"text\":\"tail\"}}\n",
          QStringLiteral("tail")},
+        {"Google",
+         [](FakeHttpTransport &t) {
+             return std::make_unique<GoogleAIClient>("http://fake.local", "k", "m", &t);
+         },
+         "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"tail\"}]}}]}\n",
+         QStringLiteral("tail")},
+        {"OpenAIResponses",
+         [](FakeHttpTransport &t) {
+             return std::make_unique<OpenAIResponsesClient>("http://fake.local/v1", "k", "m", &t);
+         },
+         "event: response.output_text.delta\n"
+         "data: {\"delta\":\"tail\"}\n",
+         QStringLiteral("tail")},
     };
 
     for (const Case &c : cases) {

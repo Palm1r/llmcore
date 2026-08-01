@@ -144,64 +144,27 @@ void GoogleAIClient::processData(const RequestID &id, const QByteArray &data)
         return;
     }
 
-    dispatchStreamEvents(id, requestSSEParser(id).append(data));
+    BaseClient::processData(id, data);
 }
 
-void GoogleAIClient::flushStreamBuffers(const RequestID &id)
+void GoogleAIClient::processSseEvent(
+    const RequestID &id, const SSEEvent &, const QJsonObject &chunk)
 {
-    dispatchStreamEvents(id, requestSSEParser(id).flush());
+    processStreamChunk(id, chunk);
 }
 
-void GoogleAIClient::dispatchStreamEvents(const RequestID &id, const QList<SSEEvent> &events)
+std::optional<QString> GoogleAIClient::takePendingStreamError(const RequestID &id)
 {
-    for (const SSEEvent &ev : events) {
-        if (ev.data.isEmpty() || ev.data == "[DONE]")
-            continue;
-        const QJsonObject chunk = QJsonDocument::fromJson(ev.data).object();
-        if (chunk.isEmpty())
-            continue;
-        processStreamChunk(id, chunk);
-        if (!hasRequest(id))
-            return;
-    }
+    if (!m_failedRequests.contains(id))
+        return std::nullopt;
+
+    return m_failedRequests.take(id);
 }
 
-void GoogleAIClient::onStreamFinished(const RequestID &id, std::optional<QString> error)
+void GoogleAIClient::onStreamDrained(const RequestID &id)
 {
-    if (error) {
-        cleanupFullRequest(id);
-        failRequest(id, *error);
-        return;
-    }
-
-    if (m_failedRequests.contains(id)) {
-        QString failError = m_failedRequests.take(id);
-        cleanupFullRequest(id);
-        failRequest(id, failError);
-        return;
-    }
-
-    if (hasRequest(id))
-        flushStreamBuffers(id);
-    if (!hasRequest(id))
-        return;
-
     notifyPendingThinkingBlocks(id);
-
-    if (auto *message = messageAs<GoogleMessage>(id)) {
-        executeToolsFromMessage(id);
-
-        if (message->state() == MessageState::RequiresToolExecution) {
-            qCDebug(llmGoogleLog).noquote()
-                << QString("Waiting for tools to complete for %1").arg(id);
-            return;
-        }
-    }
-
-    captureStopReason(id);
-
-    cleanupFullRequest(id);
-    completeRequest(id);
+    executeToolsFromMessage(id);
 }
 
 void GoogleAIClient::processStreamChunk(const RequestID &id, const QJsonObject &chunk)

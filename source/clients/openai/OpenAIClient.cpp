@@ -93,47 +93,8 @@ QString OpenAIClient::parseHttpError(const HttpResponse &response) const
          {QStringLiteral("code"), QStringLiteral("code")}});
 }
 
-void OpenAIClient::processData(const RequestID &id, const QByteArray &data)
-{
-    if (!hasRequest(id))
-        return;
-
-    dispatchStreamEvents(id, requestSSEParser(id).append(data));
-}
-
-void OpenAIClient::dispatchStreamEvents(const RequestID &id, const QList<SSEEvent> &events)
-{
-    for (int i = 0; i < events.size(); ++i) {
-        const SSEEvent &ev = events.at(i);
-        if (ev.data.isEmpty() || ev.data == "[DONE]")
-            continue;
-        const QJsonObject chunk = QJsonDocument::fromJson(ev.data).object();
-        if (chunk.isEmpty())
-            continue;
-
-        processStreamEvent(id, chunk);
-
-        if (!hasRequest(id)) {
-            const int dropped = events.size() - i - 1;
-            if (dropped > 0) {
-                qCDebug(logCategory()).noquote()
-                    << QString("Dropped %1 event(s) after the request ended: %2")
-                           .arg(dropped)
-                           .arg(id);
-            }
-            return;
-        }
-    }
-}
-
-void OpenAIClient::flushStreamBuffers(const RequestID &id)
-{
-    // Some servers -- llama.cpp among them -- close the stream without a
-    // trailing blank line, leaving the final event un-dispatched.
-    dispatchStreamEvents(id, requestSSEParser(id).flush());
-}
-
-void OpenAIClient::processStreamEvent(const RequestID &id, const QJsonObject &chunk)
+void OpenAIClient::processSseEvent(
+    const RequestID &id, const SSEEvent &, const QJsonObject &chunk)
 {
     if (chunk.contains("choices"))
         processStreamChunk(id, chunk);
@@ -153,14 +114,22 @@ QJsonObject OpenAIClient::buildContinuationPayload(
     BaseMessage *message,
     const QHash<QString, ToolResult> &toolResults)
 {
-    auto *openaiMsg = qobject_cast<OpenAIMessage *>(message);
-    if (!openaiMsg)
-        return originalPayload;
+    return appendChatContinuation<OpenAIMessage>(originalPayload, message, toolResults);
+}
 
-    return appendChatMessagesContinuation(
-        originalPayload,
-        openaiMsg->toProviderFormat(),
-        openaiMsg->createToolResultMessages(toolResults));
+QString OpenAIClient::takeReasoningAndText(OpenAIMessage *message, const QJsonObject &source)
+{
+    if (source.contains("reasoning_content") && !source["reasoning_content"].isNull())
+        message->handleReasoningDelta(source["reasoning_content"].toString());
+
+    if (!source.contains("content") || source["content"].isNull())
+        return {};
+
+    const OpenAIMessage::ContentParts parts = OpenAIMessage::splitContentParts(source["content"]);
+    if (!parts.thinking.isEmpty())
+        message->handleReasoningDelta(parts.thinking);
+
+    return parts.text;
 }
 
 void OpenAIClient::processStreamChunk(const RequestID &id, const QJsonObject &chunk)
@@ -175,21 +144,11 @@ void OpenAIClient::processStreamChunk(const RequestID &id, const QJsonObject &ch
 
     OpenAIMessage *message = ensureMessage<OpenAIMessage>(id);
 
-    // DeepSeek-style reasoning: dedicated "reasoning_content" field
-    if (delta.contains("reasoning_content") && !delta["reasoning_content"].isNull())
-        message->handleReasoningDelta(delta["reasoning_content"].toString());
-
-    // Standard text (string) or Mistral Magistral thinking+text chunks (array)
-    if (delta.contains("content") && !delta["content"].isNull()) {
-        const OpenAIMessage::ContentParts parts
-            = OpenAIMessage::splitContentParts(delta["content"]);
-        if (!parts.thinking.isEmpty())
-            message->handleReasoningDelta(parts.thinking);
-        if (!parts.text.isEmpty()) {
-            notifyPendingThinkingBlocks(id);
-            message->handleContentDelta(parts.text);
-            addChunk(id, parts.text);
-        }
+    const QString text = takeReasoningAndText(message, delta);
+    if (!text.isEmpty()) {
+        notifyPendingThinkingBlocks(id);
+        message->handleContentDelta(text);
+        addChunk(id, text);
     }
 
     if (delta.contains("tool_calls")) {
@@ -244,20 +203,10 @@ void OpenAIClient::processBufferedResponse(const RequestID &id, const QByteArray
 
     auto *message = ensureMessage<OpenAIMessage>(id);
 
-    // DeepSeek-style reasoning: dedicated "reasoning_content" field
-    if (messageObj.contains("reasoning_content") && !messageObj["reasoning_content"].isNull())
-        message->handleReasoningDelta(messageObj["reasoning_content"].toString());
-
-    // Standard text (string) or Mistral Magistral thinking+text chunks (array)
-    if (messageObj.contains("content") && !messageObj["content"].isNull()) {
-        const OpenAIMessage::ContentParts parts
-            = OpenAIMessage::splitContentParts(messageObj["content"]);
-        if (!parts.thinking.isEmpty())
-            message->handleReasoningDelta(parts.thinking);
-        if (!parts.text.isEmpty()) {
-            message->handleContentDelta(parts.text);
-            addChunk(id, parts.text);
-        }
+    const QString text = takeReasoningAndText(message, messageObj);
+    if (!text.isEmpty()) {
+        message->handleContentDelta(text);
+        addChunk(id, text);
     }
 
     notifyPendingThinkingBlocks(id);

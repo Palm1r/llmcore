@@ -103,10 +103,11 @@ void LlamaCppClient::applyNativeUsage(const RequestID &id, const QJsonObject &ch
     setUsage(id, u);
 }
 
-void LlamaCppClient::processStreamEvent(const RequestID &id, const QJsonObject &chunk)
+void LlamaCppClient::processSseEvent(
+    const RequestID &id, const SSEEvent &event, const QJsonObject &chunk)
 {
     if (!isNativeCompletionChunk(chunk)) {
-        OpenAIClient::processStreamEvent(id, chunk);
+        OpenAIClient::processSseEvent(id, event, chunk);
         return;
     }
 

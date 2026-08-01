@@ -33,10 +33,11 @@ sequenceDiagram
         alt errorMode
             BC->>BC: append to errorBody
         else normal
-            BC->>CC: processData(id, bytes)
-            CC->>SSE: append(bytes)
-            SSE-->>CC: QList<SSEEvent>
+            BC->>BC: processData(id, bytes)
+            BC->>SSE: append(bytes)
+            SSE-->>BC: QList<SSEEvent>
             loop each event
+                BC->>CC: processSseEvent(id, event, json)
                 CC->>MSG: handleEvent (provider-specific)
                 alt text_delta
                     CC->>BC: addChunk(id, text)

@@ -86,34 +86,6 @@ QString OpenAIResponsesClient::parseHttpError(const HttpResponse &response) cons
          {QStringLiteral("code"), QStringLiteral("code")}});
 }
 
-void OpenAIResponsesClient::processData(const RequestID &id, const QByteArray &data)
-{
-    if (!hasRequest(id))
-        return;
-
-    dispatchStreamEvents(id, requestSSEParser(id).append(data));
-}
-
-void OpenAIResponsesClient::flushStreamBuffers(const RequestID &id)
-{
-    dispatchStreamEvents(id, requestSSEParser(id).flush());
-}
-
-void OpenAIResponsesClient::dispatchStreamEvents(
-    const RequestID &id, const QList<SSEEvent> &events)
-{
-    for (const SSEEvent &ev : events) {
-        if (ev.data.isEmpty() || ev.data == "[DONE]")
-            continue;
-        const QJsonObject payload = QJsonDocument::fromJson(ev.data).object();
-        if (payload.isEmpty())
-            continue;
-        processStreamEvent(id, ev.type, payload);
-        if (!hasRequest(id))
-            return;
-    }
-}
-
 void OpenAIResponsesClient::cleanupDerivedData(const RequestID &id)
 {
     m_itemIdToCallId.remove(id);
@@ -143,9 +115,11 @@ QJsonObject OpenAIResponsesClient::buildContinuationPayload(
     return request;
 }
 
-void OpenAIResponsesClient::processStreamEvent(
-    const RequestID &id, const QString &eventType, const QJsonObject &data)
+void OpenAIResponsesClient::processSseEvent(
+    const RequestID &id, const SSEEvent &event, const QJsonObject &data)
 {
+    const QString &eventType = event.type;
+
     OpenAIResponsesMessage *message = ensureMessage<OpenAIResponsesMessage>(id);
 
     if (eventType == "response.output_text.delta") {

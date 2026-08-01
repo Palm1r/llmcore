@@ -40,8 +40,8 @@ public:
 
 protected:
     [[nodiscard]] const ToolDialect &toolDialect() const override;
-    void processData(const RequestID &id, const QByteArray &data) override;
-    void flushStreamBuffers(const RequestID &id) override;
+    void processSseEvent(
+        const RequestID &id, const SSEEvent &event, const QJsonObject &json) override;
     void processBufferedResponse(const RequestID &id, const QByteArray &data) override;
     void cleanupDerivedData(const RequestID &id) override;
     QJsonObject buildContinuationPayload(
@@ -52,9 +52,6 @@ protected:
     [[nodiscard]] const QLoggingCategory &logCategory() const override;
 
 private:
-    void dispatchStreamEvents(const RequestID &id, const QList<SSEEvent> &events);
-    void processStreamEvent(const RequestID &id, const QString &eventType, const QJsonObject &data);
-
     static QString extractAggregatedText(const QJsonObject &responseObj);
     static QString extractReasoningText(const QJsonObject &item);
 
