@@ -61,7 +61,7 @@ Tools can be enabled or disabled at runtime. Disabled tools remain in the regist
 
 ### Schema serialization
 
-When building tool definitions for the provider, `ToolsManager` wraps each enabled tool into the format required by the provider's tool schema. The supported shapes differ -- some providers use a nested function wrapper, some use a flat structure, and Google groups declarations into an array. The format is determined by the provider's declared schema format.
+When building tool definitions for the provider, `ToolsManager` wraps each enabled tool through a `ToolDialect` -- the object the client hands it at construction, obtained from `BaseClient::toolDialect()`. `wrapDefinition(tool)` produces one entry, and `finalizeDefinitions(array)` wraps the whole array for providers that need an envelope. The shapes differ -- some providers use a nested `function` wrapper, some a flat structure, and Google both sanitizes the parameter schema (dropping the JSON Schema keywords Gemini rejects) and groups declarations under a single `function_declarations` object -- but `ToolsManager` itself branches on nothing: each dialect lives next to its provider's message translator, alongside the code that reads tool results back.
 
 ### Execution queue
 
