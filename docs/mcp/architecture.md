@@ -104,5 +104,5 @@ flowchart TD
 - **Provider clients never talk to `McpSession` directly.** MCP tools are `McpRemoteTool` instances in `ToolRegistry`/`ToolsManager`.
 - **`McpTransport` is the only byte-level boundary.** Rest works on `QJsonObject`.
 - **`BaseClient` owns HTTP side; `McpSession` owns JSON-RPC side.** No shared code/types.
-- **`McpServer` depends on `ToolRegistry`, not `ToolsManager`** — no `ToolSchemaFormat` needed for MCP servers.
+- **`McpServer` depends on `ToolRegistry`, not `ToolsManager`** — no `ToolDialect` needed for MCP servers.
 - **One `ToolsManager` holds tools from multiple sources** — indistinguishable to `buildContinuationPayload`.

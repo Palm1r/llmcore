@@ -19,6 +19,8 @@
 #include <LLMQore/OpenAIResponsesClient.hpp>
 #include <LLMQore/ToolsManager.hpp>
 
+#include "core/Usage.hpp"
+
 #include "FakeHttpTransport.hpp"
 
 using namespace LLMQore;
@@ -485,79 +487,116 @@ TEST(TokenUsageClaude, ContinuationWithoutUsageLeavesNullopt)
     EXPECT_FALSE(info.usage.has_value());
 }
 
-namespace {
-
-class UsageHelperProbe : public ClaudeClient
+TEST(UsageSchemaParsing, ApplyToKeepsCountersTheResponseDidNotMention)
 {
-public:
-    using ClaudeClient::ClaudeClient;
-    using BaseClient::accumulateUsage;
-    using BaseClient::currentUsage;
-    using BaseClient::totalUsage;
-};
+    TokenUsage base;
+    base.promptTokens = 500;
+    base.completionTokens = 10;
+    base.cachedPromptTokens = 100;
+    base.reasoningTokens = 7;
 
-RequestID startedRequest(UsageHelperProbe &client, const FakeHttpTransport &transport)
-{
-    const RequestID id = client.ask(QStringLiteral("hi"));
-    EXPECT_EQ(transport.streamCount(), 1);
-    return id;
+    UsageDelta delta;
+    delta.completionTokens = 42;
+
+    const TokenUsage merged = applyTo(delta, base);
+    EXPECT_EQ(merged.completionTokens, 42);
+    EXPECT_EQ(merged.promptTokens, 500);
+    EXPECT_EQ(merged.cachedPromptTokens, 100) << "an unmentioned counter must survive";
+    EXPECT_EQ(merged.reasoningTokens, 7) << "an unmentioned counter must survive";
 }
 
-} // namespace
-
-TEST(TokenUsageAccumulation, AccumulateUsageAddsIntoTurnSnapshot)
+TEST(UsageSchemaParsing, AMissingContainerYieldsAnEmptyDelta)
 {
-    FakeHttpTransport transport;
-    UsageHelperProbe client("http://fake.local", "sk-test", "claude-test", &transport);
-    const RequestID id = startedRequest(client, transport);
+    const UsageSchema schema{
+        QLatin1String("usage"),
+        {{}, QLatin1String("prompt_tokens")},
+        {{}, QLatin1String("completion_tokens")},
+        {QLatin1String("prompt_tokens_details"), QLatin1String("cached_tokens")},
+        {}};
 
-    TokenUsage a;
-    a.promptTokens = 10;
-    a.completionTokens = 3;
-    client.accumulateUsage(id, a);
+    EXPECT_TRUE(parseUsage(QJsonObject{{"choices", QJsonArray{}}}, schema).isEmpty());
+    EXPECT_TRUE(parseUsage(QJsonObject{{"usage", QJsonValue::Null}}, schema).isEmpty());
 
-    TokenUsage b;
-    b.promptTokens = 4;
-    b.cachedPromptTokens = 7;
-    client.accumulateUsage(id, b);
-
-    const auto turn = client.currentUsage(id);
-    ASSERT_TRUE(turn.has_value());
-    EXPECT_EQ(turn->promptTokens, 14);
-    EXPECT_EQ(turn->completionTokens, 3);
-    EXPECT_EQ(turn->cachedPromptTokens, 7);
-
-    client.cancelRequest(id);
+    const UsageDelta nested = parseUsage(
+        QJsonObject{
+            {"usage",
+             QJsonObject{
+                 {"prompt_tokens", 12},
+                 {"prompt_tokens_details", QJsonObject{{"cached_tokens", 4}}}}}},
+        schema);
+    ASSERT_TRUE(nested.promptTokens.has_value());
+    EXPECT_EQ(*nested.promptTokens, 12);
+    ASSERT_TRUE(nested.cachedPromptTokens.has_value());
+    EXPECT_EQ(*nested.cachedPromptTokens, 4);
+    EXPECT_FALSE(nested.completionTokens.has_value());
 }
 
-TEST(TokenUsageAccumulation, TotalUsageReflectsBothAccumulatedAndCurrent)
+TEST(UsageSchemaParsing, GoogleLaterChunkDoesNotZeroEarlierCounters)
 {
     FakeHttpTransport transport;
-    UsageHelperProbe client("http://fake.local", "sk-test", "claude-test", &transport);
-    const RequestID id = startedRequest(client, transport);
+    GoogleAIClient client("http://fake.local", "key", "gemini-test", &transport);
 
-    TokenUsage turn1;
-    turn1.promptTokens = 500;
-    turn1.completionTokens = 40;
-    turn1.cachedPromptTokens = 100;
-    client.accumulateUsage(id, turn1);
-    client.continueRequest(id, QJsonObject{{"messages", QJsonArray{}}});
+    QSignalSpy finalized(&client, &BaseClient::requestFinalized);
 
-    EXPECT_EQ(client.totalUsage(id)->promptTokens, 500);
-    EXPECT_FALSE(client.currentUsage(id).has_value());
+    client.ask(QStringLiteral("hi"));
+    transport.lastStream()->sendAll(
+        "data: {\"usageMetadata\":{\"promptTokenCount\":40,\"candidatesTokenCount\":5,"
+        "\"cachedContentTokenCount\":30,\"thoughtsTokenCount\":9},"
+        "\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"a\"}]}}]}\n\n"
+        "data: {\"usageMetadata\":{\"promptTokenCount\":40,\"candidatesTokenCount\":12},"
+        "\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"b\"}]},"
+        "\"finishReason\":\"STOP\"}]}\n\n");
 
-    TokenUsage turn2;
-    turn2.promptTokens = 700;
-    turn2.completionTokens = 20;
-    client.accumulateUsage(id, turn2);
+    ASSERT_EQ(finalized.count(), 1);
+    const auto usage = finalized.first().at(1).value<CompletionInfo>().usage;
+    ASSERT_TRUE(usage.has_value());
+    EXPECT_EQ(usage->completionTokens, 12);
+    EXPECT_EQ(usage->cachedPromptTokens, 30) << "the second chunk omitted it, not reset it";
+    EXPECT_EQ(usage->reasoningTokens, 9) << "the second chunk omitted it, not reset it";
+}
 
-    const auto total = client.totalUsage(id);
-    ASSERT_TRUE(total.has_value());
-    EXPECT_EQ(total->promptTokens, 1200);
-    EXPECT_EQ(total->completionTokens, 60);
-    EXPECT_EQ(total->cachedPromptTokens, 100);
+TEST(UsageSchemaParsing, OpenAILaterChunkDoesNotZeroEarlierCounters)
+{
+    FakeHttpTransport transport;
+    OpenAIClient client("http://fake.local/v1", "sk-test", "gpt-test", &transport);
 
-    client.cancelRequest(id);
+    QSignalSpy finalized(&client, &BaseClient::requestFinalized);
+
+    client.ask(QStringLiteral("hi"));
+    transport.lastStream()->sendAll(
+        "data: {\"choices\":[{\"delta\":{\"content\":\"a\"}}],"
+        "\"usage\":{\"prompt_tokens\":80,\"completion_tokens\":1,"
+        "\"prompt_tokens_details\":{\"cached_tokens\":64},"
+        "\"completion_tokens_details\":{\"reasoning_tokens\":3}}}\n\n"
+        "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],"
+        "\"usage\":{\"prompt_tokens\":80,\"completion_tokens\":11}}\n\n"
+        "data: [DONE]\n\n");
+
+    ASSERT_EQ(finalized.count(), 1);
+    const auto usage = finalized.first().at(1).value<CompletionInfo>().usage;
+    ASSERT_TRUE(usage.has_value());
+    EXPECT_EQ(usage->completionTokens, 11);
+    EXPECT_EQ(usage->cachedPromptTokens, 64) << "the final chunk omitted it, not reset it";
+    EXPECT_EQ(usage->reasoningTokens, 3) << "the final chunk omitted it, not reset it";
+}
+
+TEST(UsageSchemaParsing, LlamaCppNativeCompletionReportsItsOwnCounters)
+{
+    FakeHttpTransport transport;
+    LlamaCppClient client("http://fake.local", "", "local-model", &transport);
+
+    QSignalSpy finalized(&client, &BaseClient::requestFinalized);
+
+    client.ask(QStringLiteral("hi"));
+    transport.lastStream()->sendAll(
+        "data: {\"content\":\"a\",\"stop\":false,\"tokens_evaluated\":21}\n\n"
+        "data: {\"content\":\"\",\"stop\":true,\"tokens_predicted\":6}\n\n");
+
+    ASSERT_EQ(finalized.count(), 1);
+    const auto usage = finalized.first().at(1).value<CompletionInfo>().usage;
+    ASSERT_TRUE(usage.has_value());
+    EXPECT_EQ(usage->promptTokens, 21) << "the final chunk omitted it, not reset it";
+    EXPECT_EQ(usage->completionTokens, 6);
 }
 
 #include "tst_TokenUsage.moc"

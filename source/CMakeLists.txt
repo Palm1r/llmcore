@@ -6,8 +6,9 @@ target_sources(LLMQore PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/core/Log.cpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/BaseClient.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/core/BaseClient.cpp
-    ${PROJECT_SOURCE_DIR}/include/LLMQore/ToolLoopRunner.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/core/ToolLoopRunner.cpp
+    ${PROJECT_SOURCE_DIR}/include/LLMQore/UsageSchema.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/Usage.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/Usage.cpp
 
     ${PROJECT_SOURCE_DIR}/include/LLMQore/HttpResponse.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/network/HttpResponse.cpp
@@ -21,8 +22,6 @@ target_sources(LLMQore PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/network/HttpClient.cpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/HttpRequestParser.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/network/HttpRequestParser.cpp
-    ${PROJECT_SOURCE_DIR}/include/LLMQore/LineBuffer.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/network/LineBuffer.cpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/SSEParser.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/network/SSEParser.cpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/RequestMode.hpp
@@ -68,7 +67,8 @@ target_sources(LLMQore PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/tools/ToolRegistry.cpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/ToolsManager.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tools/ToolsManager.cpp
-    ${PROJECT_SOURCE_DIR}/include/LLMQore/ToolSchemaFormat.hpp
+    ${PROJECT_SOURCE_DIR}/include/LLMQore/ToolDialect.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/tools/ToolDialect.cpp
 
     # --- RPC (shared JSON-RPC layer: transport + session) ---
     ${PROJECT_SOURCE_DIR}/include/LLMQore/RpcExceptions.hpp
@@ -76,7 +76,8 @@ target_sources(LLMQore PRIVATE
     ${PROJECT_SOURCE_DIR}/include/LLMQore/JsonRpcSession.hpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/RpcStdioTransport.hpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/RpcPipeTransport.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/rpc/RpcLineFramer.hpp
+    ${PROJECT_SOURCE_DIR}/include/LLMQore/RpcLineFramer.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/rpc/RpcLineFramer.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/rpc/RpcTransport.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/rpc/JsonRpcSession.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/rpc/RpcStdioClientTransport.cpp
@@ -90,6 +91,7 @@ target_sources(LLMQore PRIVATE
     ${PROJECT_SOURCE_DIR}/include/LLMQore/McpRemoteTool.hpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/McpStdioServerTransport.hpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/McpHttpTransport.hpp
+    ${PROJECT_SOURCE_DIR}/include/LLMQore/McpProvisioning.hpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/BaseResourceProvider.hpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/BasePromptProvider.hpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/BaseRootsProvider.hpp
@@ -101,6 +103,7 @@ target_sources(LLMQore PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/mcp/McpRemoteTool.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/mcp/McpStdioServerTransport.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/mcp/McpHttpTransport.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/mcp/McpProvisioning.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/mcp/McpHttpServerTransport.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/mcp/BaseResourceProvider.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/mcp/BasePromptProvider.cpp

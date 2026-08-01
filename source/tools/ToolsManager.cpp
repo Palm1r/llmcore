@@ -5,7 +5,7 @@
 #include <LLMQore/FutureUtils.hpp>
 #include <LLMQore/Log.hpp>
 #include <LLMQore/McpClient.hpp>
-#include <LLMQore/McpHttpTransport.hpp>
+#include <LLMQore/McpProvisioning.hpp>
 #include <LLMQore/McpRemoteTool.hpp>
 #include <LLMQore/RpcStdioTransport.hpp>
 #include <LLMQore/ToolsManager.hpp>
@@ -15,59 +15,10 @@
 
 namespace LLMQore {
 
-namespace {
-
-QJsonValue sanitizeSchemaValueForGoogle(const QJsonValue &value);
-
-QJsonObject sanitizeSchemaForGoogle(const QJsonObject &schema)
-{
-    static const QSet<QString> kUnsupported{
-        QStringLiteral("$schema"),
-        QStringLiteral("$id"),
-        QStringLiteral("$ref"),
-        QStringLiteral("$defs"),
-        QStringLiteral("definitions"),
-        QStringLiteral("additionalProperties"),
-        QStringLiteral("patternProperties"),
-        QStringLiteral("unevaluatedProperties"),
-        QStringLiteral("dependencies"),
-        QStringLiteral("dependentSchemas"),
-        QStringLiteral("dependentRequired"),
-        QStringLiteral("allOf"),
-        QStringLiteral("oneOf"),
-        QStringLiteral("not"),
-        QStringLiteral("const"),
-    };
-
-    QJsonObject result;
-    for (auto it = schema.begin(); it != schema.end(); ++it) {
-        if (kUnsupported.contains(it.key()))
-            continue;
-        result.insert(it.key(), sanitizeSchemaValueForGoogle(it.value()));
-    }
-    return result;
-}
-
-QJsonValue sanitizeSchemaValueForGoogle(const QJsonValue &value)
-{
-    if (value.isObject())
-        return sanitizeSchemaForGoogle(value.toObject());
-    if (value.isArray()) {
-        QJsonArray out;
-        const QJsonArray arr = value.toArray();
-        for (const auto &item : arr)
-            out.append(sanitizeSchemaValueForGoogle(item));
-        return out;
-    }
-    return value;
-}
-
-} // namespace
-
-ToolsManager::ToolsManager(ToolSchemaFormat format, QObject *parent)
+ToolsManager::ToolsManager(const ToolDialect &dialect, QObject *parent)
     : ToolRegistry(parent)
     , m_toolHandler(new ToolHandler(this))
-    , m_format(format)
+    , m_dialect(dialect)
 {
     initConnections();
 }
@@ -84,39 +35,25 @@ void ToolsManager::removeAllTools()
     m_mcpClientTools.clear();
 }
 
-void ToolsManager::addMcpServer(const McpServerEntry &entry)
+void ToolsManager::addMcpServer(const Mcp::ServerEndpoint &endpoint)
 {
-    Rpc::Transport *transport = nullptr;
-
-    if (entry.url.isValid()) {
-        Mcp::HttpTransportConfig cfg;
-        cfg.endpoint = entry.url;
-        cfg.headers = entry.headers;
-        if (entry.httpSpec == QLatin1String("2024-11-05"))
-            cfg.spec = Mcp::McpHttpSpec::V2024_11_05;
-        transport = new Mcp::McpHttpTransport(cfg, nullptr, this);
-    } else if (!entry.command.isEmpty()) {
-        Rpc::StdioLaunchConfig cfg;
-        cfg.program = entry.command;
-        cfg.arguments = entry.arguments;
-        cfg.environment = entry.env;
-        cfg.workingDirectory = entry.workingDirectory;
-        transport = new Rpc::StdioClientTransport(cfg, this);
-    } else {
-        qCWarning(llmToolsLog).noquote()
-            << QString("McpServerEntry '%1': no command or url specified").arg(entry.name);
+    Rpc::Transport *transport = Mcp::makeTransport(endpoint, this);
+    if (!transport)
         return;
-    }
 
     auto *client = new Mcp::McpClient(
-        transport, Mcp::Implementation{entry.name, QStringLiteral(LLMQORE_VERSION_STRING)}, this);
+        transport,
+        Mcp::Implementation{endpoint.name, QStringLiteral(LLMQORE_VERSION_STRING)},
+        this);
+
+    const QString name = endpoint.name;
 
     (void)LLMQore::compat(client->connectAndInitialize())
         .then(this, [this, client](const Mcp::InitializeResult &) { addMcpClient(client); })
-        .onFailed(this, [entry](const std::exception &e) {
+        .onFailed(this, [name](const std::exception &e) {
             qCWarning(llmToolsLog).noquote()
                 << QString("Failed to connect MCP server '%1': %2")
-                       .arg(entry.name, QString::fromUtf8(e.what()));
+                       .arg(name, QString::fromUtf8(e.what()));
         });
 }
 
@@ -125,29 +62,29 @@ void ToolsManager::loadMcpServers(const QJsonObject &config)
     const QJsonObject servers = config["mcpServers"].toObject();
     for (auto it = servers.begin(); it != servers.end(); ++it) {
         const QJsonObject server = it.value().toObject();
-        McpServerEntry entry;
-        entry.name = it.key();
+        Mcp::ServerEndpoint endpoint;
+        endpoint.name = it.key();
 
         if (server.contains("url")) {
-            entry.url = QUrl(server["url"].toString());
-            entry.httpSpec = server["spec"].toString();
+            endpoint.url = QUrl(server["url"].toString());
+            endpoint.httpSpec = server["spec"].toString();
             const QJsonObject headers = server["headers"].toObject();
             for (auto h = headers.begin(); h != headers.end(); ++h)
-                entry.headers.insert(h.key(), h.value().toString());
+                endpoint.headers.insert(h.key(), h.value().toString());
         } else {
-            entry.command = server["command"].toString();
+            endpoint.command = server["command"].toString();
             const QJsonArray args = server["args"].toArray();
             for (const auto &arg : args)
-                entry.arguments.append(arg.toString());
+                endpoint.arguments.append(arg.toString());
             const QJsonObject envObj = server["env"].toObject();
             if (!envObj.isEmpty()) {
                 for (auto e = envObj.begin(); e != envObj.end(); ++e)
-                    entry.env.insert(e.key(), e.value().toString());
+                    endpoint.env.insert(e.key(), e.value().toString());
             }
-            entry.workingDirectory = server["workingDirectory"].toString();
+            endpoint.workingDirectory = server["workingDirectory"].toString();
         }
 
-        addMcpServer(entry);
+        addMcpServer(endpoint);
     }
 }
 
@@ -220,11 +157,11 @@ void ToolsManager::executeToolCall(
     qCDebug(llmToolsLog).noquote()
         << QString("Queueing tool %1 (ID: %2) for request %3").arg(toolName, toolId, requestId);
 
-    if (!m_toolQueues.contains(requestId)) {
-        m_toolQueues[requestId] = ToolQueue();
+    if (!m_toolRounds.contains(requestId)) {
+        m_toolRounds[requestId] = ToolRound();
     }
 
-    auto &queue = m_toolQueues[requestId];
+    auto &queue = m_toolRounds[requestId];
 
     for (const auto &tool : queue.queue) {
         if (tool.id == toolId) {
@@ -261,11 +198,11 @@ void ToolsManager::setExecutionGate(ExecutionGate gate)
 
 void ToolsManager::executeNextTool(const QString &requestId)
 {
-    if (!m_toolQueues.contains(requestId)) {
+    if (!m_toolRounds.contains(requestId)) {
         return;
     }
 
-    auto &queue = m_toolQueues[requestId];
+    auto &queue = m_toolRounds[requestId];
 
     while (!queue.queue.isEmpty()) {
         PendingTool pendingTool = queue.queue.takeFirst();
@@ -292,7 +229,7 @@ void ToolsManager::executeNextTool(const QString &requestId)
                    .arg(pendingTool.name, pendingTool.id, requestId)
                    .arg(queue.queue.size());
 
-        if (m_executionGate) {
+        if (m_executionGate && toolInstance->safety() == ToolSafety::Mutating) {
             const QString gatedId = pendingTool.id;
             const QString gatedName = pendingTool.name;
             const QJsonObject gatedInput = pendingTool.input;
@@ -341,59 +278,20 @@ void ToolsManager::executeNextTool(const QString &requestId)
 
     qCDebug(llmToolsLog).noquote()
         << QString("All tools complete for request %1, emitting results").arg(requestId);
-    QHash<QString, ToolResult> results = getToolResults(requestId);
-    emit toolExecutionComplete(requestId, results);
+
+    const QHash<QString, ToolResult> results = getToolResults(requestId);
+
+    // Close the round before emitting: the handler may abort and drop the
+    // request, and nothing below may touch `queue` afterwards.
+    queue.beginNextRound();
     queue.isExecuting = false;
+
+    emit toolExecutionComplete(requestId, results);
 }
 
 QJsonArray ToolsManager::getToolsDefinitions() const
 {
     return buildToolsDefinitions();
-}
-
-QJsonObject ToolsManager::wrapDefinition(const BaseTool *tool) const
-{
-    QJsonObject schema = tool->parametersSchema();
-
-    switch (m_format) {
-    case ToolSchemaFormat::OpenAI:
-    case ToolSchemaFormat::Ollama: {
-        QJsonObject function;
-        function["name"] = tool->id();
-        function["description"] = tool->description();
-        function["parameters"] = schema;
-
-        QJsonObject wrapped;
-        wrapped["type"] = "function";
-        wrapped["function"] = function;
-        return wrapped;
-    }
-    case ToolSchemaFormat::OpenAIResponses: {
-        QJsonObject wrapped;
-        wrapped["type"] = "function";
-        wrapped["name"] = tool->id();
-        wrapped["description"] = tool->description();
-        wrapped["parameters"] = schema;
-        return wrapped;
-    }
-    case ToolSchemaFormat::Claude: {
-        QJsonObject wrapped;
-        wrapped["name"] = tool->id();
-        wrapped["description"] = tool->description();
-        wrapped["input_schema"] = schema;
-        return wrapped;
-    }
-    case ToolSchemaFormat::Google: {
-        QJsonObject functionDeclaration;
-        functionDeclaration["name"] = tool->id();
-        functionDeclaration["description"] = tool->description();
-        functionDeclaration["parameters"] = sanitizeSchemaForGoogle(schema);
-        return functionDeclaration;
-    }
-    }
-
-    Q_UNREACHABLE();
-    return {};
 }
 
 QJsonArray ToolsManager::buildToolsDefinitions() const
@@ -406,28 +304,17 @@ QJsonArray ToolsManager::buildToolsDefinitions() const
             continue;
         }
 
-        toolsArray.append(wrapDefinition(t));
+        toolsArray.append(m_dialect.wrapDefinition(*t));
     }
 
-    if (m_format == ToolSchemaFormat::Google && !toolsArray.isEmpty()) {
-        QJsonArray functionDeclarations;
-        for (const auto &item : toolsArray)
-            functionDeclarations.append(item);
-
-        QJsonObject wrapper;
-        wrapper["function_declarations"] = functionDeclarations;
-
-        return QJsonArray{wrapper};
-    }
-
-    return toolsArray;
+    return m_dialect.finalizeDefinitions(std::move(toolsArray));
 }
 
 void ToolsManager::cleanupRequest(const QString &requestId)
 {
-    if (m_toolQueues.contains(requestId)) {
+    if (m_toolRounds.contains(requestId)) {
         m_toolHandler->cleanupRequest(requestId);
-        m_toolQueues.remove(requestId);
+        m_toolRounds.remove(requestId);
     }
 }
 
@@ -447,10 +334,10 @@ void ToolsManager::onToolErrored(
 void ToolsManager::finalizePendingTool(
     const QString &requestId, const QString &toolId, const ToolResult &rich, bool success)
 {
-    if (!m_toolQueues.contains(requestId))
+    if (!m_toolRounds.contains(requestId))
         return;
 
-    auto &queue = m_toolQueues[requestId];
+    auto &queue = m_toolRounds[requestId];
     if (!queue.completed.contains(toolId))
         return;
 
@@ -480,8 +367,8 @@ QHash<QString, ToolResult> ToolsManager::getToolResults(const QString &requestId
 {
     QHash<QString, ToolResult> results;
 
-    if (m_toolQueues.contains(requestId)) {
-        const auto &queue = m_toolQueues[requestId];
+    if (m_toolRounds.contains(requestId)) {
+        const auto &queue = m_toolRounds[requestId];
         for (auto it = queue.completed.begin(); it != queue.completed.end(); ++it) {
             if (it.value().complete)
                 results[it.key()] = it.value().result;

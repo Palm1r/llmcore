@@ -13,16 +13,43 @@
 #include <QTimer>
 #include <QtConcurrent/QtConcurrent>
 
+#include <QSignalSpy>
+
 #include <LLMQore/BaseTool.hpp>
 #include <LLMQore/McpClient.hpp>
 #include <LLMQore/McpHttpServerTransport.hpp>
 #include <LLMQore/McpHttpTransport.hpp>
 #include <LLMQore/McpServer.hpp>
 
+#include "FakeHttpTransport.hpp"
+
 using namespace LLMQore;
 using namespace LLMQore::Mcp;
 
+using LLMQoreTest::FakeHttpStream;
+using LLMQoreTest::FakeHttpTransport;
+
 namespace {
+
+void spin(int rounds = 8)
+{
+    for (int i = 0; i < rounds; ++i)
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
+}
+
+QJsonObject jsonRpcResult(int id, const QString &value)
+{
+    return QJsonObject{
+        {"jsonrpc", "2.0"},
+        {"id", id},
+        {"result", QJsonObject{{"value", value}}},
+    };
+}
+
+QByteArray compact(const QJsonObject &object)
+{
+    return QJsonDocument(object).toJson(QJsonDocument::Compact);
+}
 
 template<typename T>
 T waitForFuture(const QFuture<T> &future, int timeoutMs = 5000)
@@ -138,6 +165,199 @@ TEST_F(McpHttpServerTest, HandshakeAndToolCallOverHttp)
 
     delete clientTransport;
     delete serverTransport;
+}
+
+TEST_F(McpHttpServerTest, LatestSpecPostsStraightToTheConfiguredEndpoint)
+{
+    FakeHttpTransport http;
+
+    HttpTransportConfig cfg;
+    cfg.endpoint = QUrl("http://mcp.local/mcp");
+    cfg.spec = McpHttpSpec::V2025_03_26;
+    McpHttpTransport transport(cfg, &http);
+
+    transport.start();
+    EXPECT_TRUE(transport.isOpen());
+    EXPECT_EQ(transport.state(), Rpc::Transport::State::Connected);
+    EXPECT_EQ(http.streamCount(), 0) << "2025-03-26 must not open a standing SSE stream";
+
+    transport.send(QJsonObject{{"jsonrpc", "2.0"}, {"id", 1}, {"method", "ping"}});
+    ASSERT_EQ(http.bufferedCount(), 1);
+
+    const auto sent = http.bufferedRequest(0);
+    EXPECT_EQ(sent.verb, QByteArray("POST"));
+    EXPECT_EQ(sent.url(), cfg.endpoint);
+    EXPECT_EQ(sent.header("Accept"), QByteArray("application/json, text/event-stream"));
+    EXPECT_EQ(sent.payload().value("method").toString(), "ping");
+}
+
+TEST_F(McpHttpServerTest, LegacySpecOpensSseStreamAndWaitsForTheEndpointEvent)
+{
+    FakeHttpTransport http;
+
+    HttpTransportConfig cfg;
+    cfg.endpoint = QUrl("http://mcp.local/sse");
+    cfg.spec = McpHttpSpec::V2024_11_05;
+    cfg.headers.insert("X-Tenant", "acme");
+    McpHttpTransport transport(cfg, &http);
+
+    transport.start();
+    ASSERT_EQ(http.streamCount(), 1) << "2024-11-05 must open a GET SSE stream";
+    EXPECT_EQ(transport.state(), Rpc::Transport::State::Connecting);
+
+    const auto streamReq = http.streamRequest(0);
+    EXPECT_EQ(streamReq.verb, QByteArray("GET"));
+    EXPECT_EQ(streamReq.url(), cfg.endpoint);
+    EXPECT_EQ(streamReq.header("Accept"), QByteArray("text/event-stream"));
+    EXPECT_EQ(streamReq.header("X-Tenant"), QByteArray("acme"));
+
+    transport.send(QJsonObject{{"jsonrpc", "2.0"}, {"id", 1}, {"method", "ping"}});
+    EXPECT_EQ(http.bufferedCount(), 0) << "sends before the endpoint event must queue";
+
+    http.lastStream()->sendChunk("event: endpoint\ndata: /messages?sessionId=abc\n\n");
+    spin();
+
+    EXPECT_EQ(transport.state(), Rpc::Transport::State::Connected);
+    ASSERT_EQ(http.bufferedCount(), 1) << "queued send must flush once the endpoint is known";
+
+    const auto posted = http.bufferedRequest(0);
+    EXPECT_EQ(posted.verb, QByteArray("POST"));
+    EXPECT_EQ(posted.url(), QUrl("http://mcp.local/messages?sessionId=abc"));
+    EXPECT_EQ(posted.header("X-Tenant"), QByteArray("acme"));
+}
+
+TEST_F(McpHttpServerTest, LegacySpecDeliversServerMessagesOverTheSseStream)
+{
+    FakeHttpTransport http;
+
+    HttpTransportConfig cfg;
+    cfg.endpoint = QUrl("http://mcp.local/sse");
+    cfg.spec = McpHttpSpec::V2024_11_05;
+    McpHttpTransport transport(cfg, &http);
+
+    QSignalSpy messages(&transport, &Rpc::Transport::messageReceived);
+
+    transport.start();
+    ASSERT_EQ(http.streamCount(), 1);
+
+    http.lastStream()->sendChunk("event: endpoint\ndata: /messages\n\n");
+    http.lastStream()->sendChunk("event: message\ndata: " + compact(jsonRpcResult(7, "pong")) + "\n\n");
+    spin();
+
+    ASSERT_EQ(messages.size(), 1);
+    const QJsonObject received = messages.first().first().toJsonObject();
+    EXPECT_EQ(received.value("id").toInt(), 7);
+    EXPECT_EQ(received.value("result").toObject().value("value").toString(), "pong");
+}
+
+TEST_F(McpHttpServerTest, SessionIdFromTheFirstResponseIsEchoedOnLaterPosts)
+{
+    FakeHttpTransport http;
+
+    HttpTransportConfig cfg;
+    cfg.endpoint = QUrl("http://mcp.local/mcp");
+    cfg.spec = McpHttpSpec::V2025_03_26;
+    McpHttpTransport transport(cfg, &http);
+
+    transport.start();
+    transport.send(QJsonObject{{"jsonrpc", "2.0"}, {"id", 1}, {"method", "initialize"}});
+    ASSERT_EQ(http.bufferedCount(), 1);
+    EXPECT_TRUE(http.bufferedRequest(0).header("Mcp-Session-Id").isEmpty());
+
+    http.respondToLast(
+        200,
+        compact(jsonRpcResult(1, "ok")),
+        {{"Content-Type", "application/json"}, {"Mcp-Session-Id", "sess-42"}});
+    spin();
+
+    transport.send(QJsonObject{{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/list"}});
+    ASSERT_EQ(http.bufferedCount(), 2);
+    EXPECT_EQ(http.bufferedRequest(1).header("Mcp-Session-Id"), QByteArray("sess-42"));
+}
+
+TEST_F(McpHttpServerTest, JsonResponseBodyBecomesOneReceivedMessage)
+{
+    FakeHttpTransport http;
+
+    HttpTransportConfig cfg;
+    cfg.endpoint = QUrl("http://mcp.local/mcp");
+    cfg.spec = McpHttpSpec::V2025_03_26;
+    McpHttpTransport transport(cfg, &http);
+
+    QSignalSpy messages(&transport, &Rpc::Transport::messageReceived);
+
+    transport.start();
+    transport.send(QJsonObject{{"jsonrpc", "2.0"}, {"id", 3}, {"method", "ping"}});
+    http.respondToLast(200, compact(jsonRpcResult(3, "pong")));
+    spin();
+
+    ASSERT_EQ(messages.size(), 1);
+    EXPECT_EQ(messages.first().first().toJsonObject().value("id").toInt(), 3);
+}
+
+TEST_F(McpHttpServerTest, EventStreamResponseBodyYieldsEveryFramedMessage)
+{
+    FakeHttpTransport http;
+
+    HttpTransportConfig cfg;
+    cfg.endpoint = QUrl("http://mcp.local/mcp");
+    cfg.spec = McpHttpSpec::V2025_03_26;
+    McpHttpTransport transport(cfg, &http);
+
+    QSignalSpy messages(&transport, &Rpc::Transport::messageReceived);
+
+    transport.start();
+    transport.send(QJsonObject{{"jsonrpc", "2.0"}, {"id", 4}, {"method", "tools/call"}});
+
+    const QByteArray sseBody = "event: message\ndata: " + compact(jsonRpcResult(4, "first"))
+        + "\n\nevent: message\ndata: " + compact(jsonRpcResult(5, "second")) + "\n\n";
+    http.respondToLast(200, sseBody, {{"Content-Type", "text/event-stream"}});
+    spin();
+
+    ASSERT_EQ(messages.size(), 2);
+    EXPECT_EQ(messages.at(0).first().toJsonObject().value("id").toInt(), 4);
+    EXPECT_EQ(messages.at(1).first().toJsonObject().value("id").toInt(), 5);
+}
+
+TEST_F(McpHttpServerTest, AcceptedWithoutBodyProducesNoMessageAndNoError)
+{
+    FakeHttpTransport http;
+
+    HttpTransportConfig cfg;
+    cfg.endpoint = QUrl("http://mcp.local/mcp");
+    cfg.spec = McpHttpSpec::V2025_03_26;
+    McpHttpTransport transport(cfg, &http);
+
+    QSignalSpy messages(&transport, &Rpc::Transport::messageReceived);
+    QSignalSpy errors(&transport, &Rpc::Transport::errorOccurred);
+
+    transport.start();
+    transport.send(QJsonObject{{"jsonrpc", "2.0"}, {"method", "notifications/initialized"}});
+    http.respondToLast(202, {});
+    spin();
+
+    EXPECT_EQ(messages.size(), 0);
+    EXPECT_EQ(errors.size(), 0);
+}
+
+TEST_F(McpHttpServerTest, HttpErrorStatusIsReportedAsTransportError)
+{
+    FakeHttpTransport http;
+
+    HttpTransportConfig cfg;
+    cfg.endpoint = QUrl("http://mcp.local/mcp");
+    cfg.spec = McpHttpSpec::V2025_03_26;
+    McpHttpTransport transport(cfg, &http);
+
+    QSignalSpy errors(&transport, &Rpc::Transport::errorOccurred);
+
+    transport.start();
+    transport.send(QJsonObject{{"jsonrpc", "2.0"}, {"id", 9}, {"method", "ping"}});
+    http.respondToLast(503, "upstream down");
+    spin();
+
+    ASSERT_EQ(errors.size(), 1);
+    EXPECT_TRUE(errors.first().first().toString().contains("503"));
 }
 
 #include "tst_McpHttpServer.moc"

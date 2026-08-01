@@ -7,6 +7,7 @@
 #include <QTimer>
 
 #include <LLMQore/FutureUtils.hpp>
+#include <LLMQore/McpProvisioning.hpp>
 
 using namespace LLMQore;
 using namespace LLMQore::Mcp;
@@ -15,18 +16,6 @@ namespace {
 constexpr int kInitialBackoffMs = 1000;
 constexpr int kMaxBackoffMs = 30000;
 
-McpHttpSpec parseHttpSpec(const QString &spec)
-{
-    if (spec.isEmpty())
-        return McpHttpSpec::Latest;
-    if (spec == QLatin1String("2024-11-05"))
-        return McpHttpSpec::V2024_11_05;
-    if (spec == QLatin1String("2025-03-26") || spec == QLatin1String("2025-06-18")
-        || spec == QLatin1String("2025-11-25") || spec == QLatin1String("latest"))
-        return McpHttpSpec::V2025_03_26;
-    qWarning().noquote() << "Unknown httpSpec" << spec << "— falling back to latest.";
-    return McpHttpSpec::Latest;
-}
 } // namespace
 
 namespace McpBridge {
@@ -55,22 +44,10 @@ BridgeServer::BridgeServer(const BridgeConfig &config, QObject *parent)
 
 void BridgeServer::start()
 {
-    for (const UpstreamEntry &entry : m_config.upstreams) {
-        Rpc::Transport *transport = nullptr;
-
-        if (entry.type == UpstreamType::Sse) {
-            HttpTransportConfig httpCfg;
-            httpCfg.endpoint = entry.url;
-            httpCfg.spec = parseHttpSpec(entry.httpSpec);
-            httpCfg.headers = entry.headers;
-            transport = new McpHttpTransport(httpCfg, nullptr, this);
-        } else {
-            Rpc::StdioLaunchConfig launchCfg;
-            launchCfg.program = entry.command;
-            launchCfg.arguments = entry.args;
-            launchCfg.environment = entry.env;
-            transport = new Rpc::StdioClientTransport(launchCfg, this);
-        }
+    for (const ServerEndpoint &endpoint : m_config.upstreams) {
+        Rpc::Transport *transport = makeTransport(endpoint, this);
+        if (!transport)
+            continue;
 
         auto *client = new McpClient(
             transport,
@@ -79,12 +56,12 @@ void BridgeServer::start()
             this);
 
         Upstream upstream;
-        upstream.name = entry.name;
+        upstream.name = endpoint.name;
         upstream.transport = transport;
         upstream.client = client;
         m_upstreams.append(upstream);
 
-        const QString name = entry.name;
+        const QString name = endpoint.name;
         connect(client, &McpClient::errorOccurred, this, [name](const QString &err) {
             qWarning().noquote() << QString("[%1] error: %2").arg(name, err);
         });

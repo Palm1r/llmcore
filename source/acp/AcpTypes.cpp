@@ -730,6 +730,11 @@ QJsonObject SessionUpdate::toJson() const
         o.insert("availableCommands", arr);
     } else if (sessionUpdate == QLatin1String(SessionUpdateKind::CurrentModeUpdate)) {
         o.insert("currentModeId", currentModeId);
+    } else if (sessionUpdate == QLatin1String(SessionUpdateKind::UsageUpdate)) {
+        for (auto it = usage.constBegin(); it != usage.constEnd(); ++it)
+            o.insert(it.key(), it.value());
+    } else if (sessionUpdate == QLatin1String(SessionUpdateKind::SessionInfoUpdate)) {
+        o.insert("title", title);
     }
     return o;
 }
@@ -753,6 +758,11 @@ SessionUpdate SessionUpdate::fromJson(const QJsonObject &obj)
     for (const QJsonValue &v : obj.value("availableCommands").toArray())
         u.availableCommands.append(AvailableCommand::fromJson(v.toObject()));
     u.currentModeId = obj.value("currentModeId").toString();
+    if (u.sessionUpdate == QLatin1String(SessionUpdateKind::UsageUpdate)) {
+        u.usage = obj;
+        u.usage.remove(QStringLiteral("sessionUpdate"));
+    }
+    u.title = obj.value("title").toString();
     return u;
 }
 

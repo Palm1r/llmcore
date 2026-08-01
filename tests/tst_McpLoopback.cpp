@@ -26,7 +26,8 @@
 #include <LLMQore/RpcPipeTransport.hpp>
 #include <LLMQore/McpServer.hpp>
 #include <LLMQore/JsonRpcSession.hpp>
-#include <LLMQore/ToolSchemaFormat.hpp>
+#include "clients/claude/ClaudeMessage.hpp"
+#include "clients/openai/OpenAIMessage.hpp"
 #include <LLMQore/ToolsManager.hpp>
 
 using namespace LLMQore;
@@ -364,14 +365,10 @@ public:
     }
 
 protected:
-    ToolSchemaFormat toolSchemaFormat() const override
-    {
-        return ToolSchemaFormat::OpenAI;
-    }
+    const ToolDialect &toolDialect() const override { return OpenAIMessage::toolDialect(); }
+    const UsageSchema &usageSchema() const override { return kNoUsageSchema; }
     void processData(const RequestID &, const QByteArray &) override {}
     void processBufferedResponse(const RequestID &, const QByteArray &) override {}
-    BaseMessage *messageForRequest(const RequestID &) const override { return nullptr; }
-    void cleanupDerivedData(const RequestID &) override {}
     QJsonObject buildContinuationPayload(
         const QJsonObject &,
         BaseMessage *,
@@ -562,7 +559,7 @@ TEST_F(McpLoopbackTest, AddMcpClientRegistersToolsInToolsManager)
     server.addTool(new EchoTool(&server));
 
     McpClient client(clientTransport);
-    ToolsManager manager(ToolSchemaFormat::Claude);
+    ToolsManager manager(ClaudeMessage::toolDialect());
 
     server.start();
     waitForFuture(client.connectAndInitialize());
@@ -598,7 +595,7 @@ TEST_F(McpLoopbackTest, ToolsChangedNotificationRefreshesTools)
     server.addTool(new EchoTool(&server));
 
     McpClient client(clientTransport);
-    ToolsManager manager(ToolSchemaFormat::Claude);
+    ToolsManager manager(ClaudeMessage::toolDialect());
 
     server.start();
     waitForFuture(client.connectAndInitialize());
@@ -882,7 +879,7 @@ TEST_F(McpLoopbackTest, RootsListRoundTripsFromServerToClient)
 
     // Server calls roots/list on the client over the same session.
     QFuture<QJsonValue> raw
-        = server.session()->sendRequest(QStringLiteral("roots/list"), QJsonObject{});
+        = server.session()->sendRequest(QLatin1String(Mcp::Method::RootsList), QJsonObject{});
     const QJsonValue value = waitForFuture(raw);
     const QJsonArray arr = value.toObject().value("roots").toArray();
     ASSERT_EQ(arr.size(), 1);

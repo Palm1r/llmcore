@@ -9,6 +9,7 @@
 #include <QUrl>
 
 #include <LLMQore/BaseClient.hpp>
+#include <LLMQore/SSEParser.hpp>
 
 namespace LLMQore {
 
@@ -34,25 +35,21 @@ public:
         RequestMode mode = RequestMode::Streaming) override;
     RequestID ask(
         const QString &prompt, RequestMode mode = RequestMode::Streaming) override;
-    ToolSchemaFormat toolSchemaFormat() const override { return ToolSchemaFormat::Claude; }
 
     QFuture<QList<QString>> listModels(const QString &endpoint = {}) override;
 
 protected:
-    void processData(const RequestID &id, const QByteArray &data) override;
+    [[nodiscard]] const ToolDialect &toolDialect() const override;
+    [[nodiscard]] const UsageSchema &usageSchema() const override;
+    void processSseEvent(
+        const RequestID &id, const SSEEvent &event, const QJsonObject &json) override;
     void processBufferedResponse(const RequestID &id, const QByteArray &data) override;
-    BaseMessage *messageForRequest(const RequestID &id) const override;
-    void cleanupDerivedData(const RequestID &id) override;
     QJsonObject buildContinuationPayload(
         const QJsonObject &originalPayload,
         BaseMessage *message,
         const QHash<QString, ToolResult> &toolResults) override;
     [[nodiscard]] QString parseHttpError(const HttpResponse &response) const override;
 
-private:
-    void processStreamEvent(const RequestID &id, const QJsonObject &event);
-
-    QHash<RequestID, ClaudeMessage *> m_messages;
 };
 
 } // namespace LLMQore

@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Petr Mironychev
 // SPDX-License-Identifier: MIT
 
+#include <LLMQore/BaseTool.hpp>
 #include "ClaudeMessage.hpp"
 
 #include <QJsonArray>
@@ -9,6 +10,29 @@
 #include <LLMQore/Log.hpp>
 
 namespace LLMQore {
+
+namespace {
+
+class ClaudeToolDialect : public ToolDialect
+{
+public:
+    QJsonObject wrapDefinition(const BaseTool &tool) const override
+    {
+        return QJsonObject{
+            {"name", tool.id()},
+            {"description", tool.description()},
+            {"input_schema", tool.parametersSchema()}};
+    }
+};
+
+} // namespace
+
+const ToolDialect &ClaudeMessage::toolDialect()
+{
+    static const ClaudeToolDialect dialect;
+    return dialect;
+}
+
 
 ClaudeMessage::ClaudeMessage(QObject *parent)
     : BaseMessage(parent)
@@ -251,24 +275,17 @@ QJsonValue buildClaudeToolResultContent(const ToolResult &r)
 QJsonArray ClaudeMessage::createToolResultsContent(
     const QHash<QString, ToolResult> &toolResults) const
 {
-    QJsonArray results;
-
-    for (const auto *toolContent : getCurrentToolUseContent()) {
-        if (!toolResults.contains(toolContent->id()))
-            continue;
-
-        const ToolResult &r = toolResults[toolContent->id()];
-        QJsonObject block{
-            {"type", "tool_result"},
-            {"tool_use_id", toolContent->id()},
-            {"content", buildClaudeToolResultContent(r)},
-        };
-        if (r.isError)
-            block.insert("is_error", true);
-        results.append(block);
-    }
-
-    return results;
+    return mapToolResults(
+        toolResults, [](const ToolUseContent &use, const ToolResult &r, QJsonArray &out) {
+            QJsonObject block{
+                {"type", "tool_result"},
+                {"tool_use_id", use.id()},
+                {"content", buildClaudeToolResultContent(r)},
+            };
+            if (r.isError)
+                block.insert("is_error", true);
+            out.append(block);
+        });
 }
 
 QList<RedactedThinkingContent *> ClaudeMessage::getCurrentRedactedThinkingContent() const

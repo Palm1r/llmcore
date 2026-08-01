@@ -15,33 +15,14 @@
 #include <QUrl>
 
 #include <LLMQore/LLMQore_global.h>
+#include <LLMQore/McpProvisioning.hpp>
 #include <LLMQore/ToolRegistry.hpp>
 #include <LLMQore/ToolResult.hpp>
-#include <LLMQore/ToolSchemaFormat.hpp>
+#include <LLMQore/ToolDialect.hpp>
 
 namespace LLMQore::Mcp {
 class McpClient;
 struct ToolInfo;
-}
-
-namespace LLMQore {
-
-struct LLMQORE_EXPORT McpServerEntry
-{
-    QString name;
-
-    // stdio
-    QString command;
-    QStringList arguments;
-    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-    QString workingDirectory;
-
-    // http (if set, stdio fields are ignored)
-    QUrl url;
-    QHash<QString, QString> headers;
-    QString httpSpec; // "2024-11-05" for legacy SSE, empty for latest
-};
-
 }
 
 namespace LLMQore {
@@ -58,11 +39,21 @@ struct PendingTool
     bool complete = false;
 };
 
-struct ToolQueue
+// One turn of the agent loop. `completed` is the round's ledger, not the
+// request's history: it is cleared at every round boundary, so a model that
+// reuses a tool-call id in the next round is executed again instead of being
+// swallowed by the dedup.
+struct ToolRound
 {
     QList<PendingTool> queue;
     QHash<QString, PendingTool> completed;
     bool isExecuting = false;
+
+    void beginNextRound()
+    {
+        queue.clear();
+        completed.clear();
+    }
 };
 
 class LLMQORE_EXPORT ToolsManager : public ToolRegistry
@@ -70,9 +61,9 @@ class LLMQORE_EXPORT ToolsManager : public ToolRegistry
     Q_OBJECT
 
 public:
-    explicit ToolsManager(ToolSchemaFormat format, QObject *parent = nullptr);
+    explicit ToolsManager(const ToolDialect &dialect, QObject *parent = nullptr);
 
-    void addMcpServer(const McpServerEntry &entry);
+    void addMcpServer(const Mcp::ServerEndpoint &endpoint);
     void loadMcpServers(const QJsonObject &config);
     void addMcpClient(Mcp::McpClient *client);
     void removeMcpClient(Mcp::McpClient *client);
@@ -91,6 +82,8 @@ public:
     void setToolExecutionDelay(int delayMs);
     int toolExecutionDelay() const;
 
+    // Asked before a tool runs. Only consulted for tools that declare
+    // ToolSafety::Mutating -- a read-only tool has nothing to approve.
     using ExecutionGate = std::function<QFuture<bool>(
         const QString &requestId,
         const QString &toolId,
@@ -124,13 +117,13 @@ private:
     void executeNextTool(const QString &requestId);
     void finalizePendingTool(
         const QString &requestId, const QString &toolId, const ToolResult &rich, bool success);
+    // Results of the round now closing -- not of every round so far.
     QHash<QString, ToolResult> getToolResults(const QString &requestId) const;
     QJsonArray buildToolsDefinitions() const;
-    QJsonObject wrapDefinition(const BaseTool *tool) const;
 
     ToolHandler *m_toolHandler;
-    ToolSchemaFormat m_format;
-    QHash<QString, ToolQueue> m_toolQueues;
+    const ToolDialect &m_dialect;
+    QHash<QString, ToolRound> m_toolRounds;
     ExecutionGate m_executionGate;
     int m_toolExecutionDelayMs = 0;
 

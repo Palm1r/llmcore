@@ -73,6 +73,10 @@ private:
 
     void cancelPendingFetch();
 
+    QString conversationKey() const;
+    QJsonObject userTurn(const QString &text) const;
+    QJsonObject assistantTurn(const QString &text) const;
+
     MessageModel m_messages;
     LLMQore::BaseClient *m_client = nullptr;
     QPointer<QFutureWatcher<QList<QString>>> m_modelWatcher;

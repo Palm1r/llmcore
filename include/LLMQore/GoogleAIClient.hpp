@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include <QFuture>
 #include <QHash>
 #include <QJsonObject>
@@ -10,6 +12,7 @@
 #include <QUrl>
 
 #include <LLMQore/BaseClient.hpp>
+#include <LLMQore/SSEParser.hpp>
 
 namespace LLMQore {
 
@@ -35,15 +38,18 @@ public:
         RequestMode mode = RequestMode::Streaming) override;
     RequestID ask(
         const QString &prompt, RequestMode mode = RequestMode::Streaming) override;
-    ToolSchemaFormat toolSchemaFormat() const override { return ToolSchemaFormat::Google; }
 
     QFuture<QList<QString>> listModels(const QString &endpoint = {}) override;
 
 protected:
+    [[nodiscard]] const ToolDialect &toolDialect() const override;
+    [[nodiscard]] const UsageSchema &usageSchema() const override;
     void processData(const RequestID &id, const QByteArray &data) override;
+    void processSseEvent(
+        const RequestID &id, const SSEEvent &event, const QJsonObject &json) override;
     void processBufferedResponse(const RequestID &id, const QByteArray &data) override;
-    void onStreamFinished(const RequestID &id, std::optional<QString> error) override;
-    BaseMessage *messageForRequest(const RequestID &id) const override;
+    std::optional<QString> takePendingStreamError(const RequestID &id) override;
+    void onStreamDrained(const RequestID &id) override;
     void cleanupDerivedData(const RequestID &id) override;
     QJsonObject buildContinuationPayload(
         const QJsonObject &originalPayload,
@@ -52,10 +58,24 @@ protected:
     [[nodiscard]] QString parseHttpError(const HttpResponse &response) const override;
 
 private:
+    // A 200-with-error-body response is not SSE-framed, so it has to be
+    // reassembled across chunks before it can be recognised.
+    class JsonErrorSniffer
+    {
+    public:
+        static constexpr qsizetype kMaxBytes = 64 * 1024;
+
+        std::optional<QString> append(const QByteArray &chunk);
+
+    private:
+        bool m_active = true;
+        QByteArray m_buffer;
+    };
+
     void processStreamChunk(const RequestID &id, const QJsonObject &chunk);
 
-    QHash<RequestID, GoogleMessage *> m_messages;
     QHash<RequestID, QString> m_failedRequests;
+    QHash<RequestID, JsonErrorSniffer> m_errorSniffers;
 };
 
 } // namespace LLMQore

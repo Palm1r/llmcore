@@ -5,7 +5,7 @@
 
 #include <LLMQore/Log.hpp>
 
-#include "../rpc/RpcLineFramer.hpp"
+#include <LLMQore/RpcLineFramer.hpp>
 
 #include <QDateTime>
 #include <QFile>

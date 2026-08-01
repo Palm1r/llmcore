@@ -170,7 +170,7 @@ McpServer::~McpServer() = default;
 void McpServer::installHandlers()
 {
     m_session->setRequestHandler(
-        QStringLiteral("initialize"),
+        QLatin1String(Method::Initialize),
         [this](const QJsonObject &params) -> QFuture<QJsonValue> {
             const QString clientVersion = params.value("protocolVersion").toString();
             Implementation clientInfo
@@ -222,10 +222,10 @@ void McpServer::installHandlers()
         });
 
     m_session->setNotificationHandler(
-        QStringLiteral("notifications/initialized"), [](const QJsonObject &) {});
+        QLatin1String(Method::Initialized), [](const QJsonObject &) {});
 
     m_session->setRequestHandler(
-        QStringLiteral("tools/list"),
+        QLatin1String(Method::ToolsList),
         [this](const QJsonObject &) -> QFuture<QJsonValue> {
             QJsonArray arr;
             for (LLMQore::BaseTool *tool : collectTools()) {
@@ -244,7 +244,7 @@ void McpServer::installHandlers()
         });
 
     m_session->setRequestHandler(
-        QStringLiteral("tools/call"),
+        QLatin1String(Method::ToolsCall),
         [this](const QJsonObject &params) -> QFuture<QJsonValue> {
             const QString name = params.value("name").toString();
             const QJsonObject args = params.value("arguments").toObject();
@@ -267,7 +267,7 @@ void McpServer::installHandlers()
         });
 
     m_session->setRequestHandler(
-        QStringLiteral("resources/list"),
+        QLatin1String(Method::ResourcesList),
         [this](const QJsonObject &) -> QFuture<QJsonValue> {
             return collectListFromProviders<BaseResourceProvider, ResourceInfo>(
                 this,
@@ -277,7 +277,7 @@ void McpServer::installHandlers()
         });
 
     m_session->setRequestHandler(
-        QStringLiteral("resources/templates/list"),
+        QLatin1String(Method::ResourcesTemplatesList),
         [this](const QJsonObject &) -> QFuture<QJsonValue> {
             return collectListFromProviders<BaseResourceProvider, ResourceTemplate>(
                 this,
@@ -287,7 +287,7 @@ void McpServer::installHandlers()
         });
 
     m_session->setRequestHandler(
-        QStringLiteral("resources/read"),
+        QLatin1String(Method::ResourcesRead),
         [this](const QJsonObject &params) -> QFuture<QJsonValue> {
             const QString uri = params.value("uri").toString();
             emit resourceRead(uri);
@@ -310,7 +310,7 @@ void McpServer::installHandlers()
         });
 
     m_session->setRequestHandler(
-        QStringLiteral("resources/subscribe"),
+        QLatin1String(Method::ResourcesSubscribe),
         [this](const QJsonObject &params) -> QFuture<QJsonValue> {
             const QString uri = params.value("uri").toString();
             for (const auto &providerPtr : m_resourceProviders) {
@@ -322,7 +322,7 @@ void McpServer::installHandlers()
         });
 
     m_session->setRequestHandler(
-        QStringLiteral("resources/unsubscribe"),
+        QLatin1String(Method::ResourcesUnsubscribe),
         [this](const QJsonObject &params) -> QFuture<QJsonValue> {
             const QString uri = params.value("uri").toString();
             for (const auto &providerPtr : m_resourceProviders) {
@@ -334,7 +334,7 @@ void McpServer::installHandlers()
         });
 
     m_session->setRequestHandler(
-        QStringLiteral("prompts/list"),
+        QLatin1String(Method::PromptsList),
         [this](const QJsonObject &) -> QFuture<QJsonValue> {
             return collectListFromProviders<BasePromptProvider, PromptInfo>(
                 this,
@@ -344,7 +344,7 @@ void McpServer::installHandlers()
         });
 
     m_session->setRequestHandler(
-        QStringLiteral("prompts/get"),
+        QLatin1String(Method::PromptsGet),
         [this](const QJsonObject &params) -> QFuture<QJsonValue> {
             const QString name = params.value("name").toString();
             const QJsonObject args = params.value("arguments").toObject();
@@ -366,7 +366,7 @@ void McpServer::installHandlers()
         });
 
     m_session->setRequestHandler(
-        QStringLiteral("completion/complete"),
+        QLatin1String(Method::CompletionComplete),
         [this](const QJsonObject &params) -> QFuture<QJsonValue> {
             const CompletionReference ref
                 = CompletionReference::fromJson(params.value("ref").toObject());
@@ -422,7 +422,7 @@ void McpServer::installHandlers()
                 return state->promise->future();
             };
 
-            if (ref.type == QLatin1String("ref/prompt")) {
+            if (ref.type == QLatin1String(RefType::Prompt)) {
                 if (m_promptProviders.isEmpty() || ref.name.isEmpty())
                     return makeReadyFuture(CompletionResult{}.toJson());
                 return mergeCompletions(
@@ -431,7 +431,7 @@ void McpServer::installHandlers()
                     });
             }
 
-            if (ref.type == QLatin1String("ref/resource")) {
+            if (ref.type == QLatin1String(RefType::Resource)) {
                 if (m_resourceProviders.isEmpty() || ref.uri.isEmpty())
                     return makeReadyFuture(CompletionResult{}.toJson());
                 return mergeCompletions(
@@ -444,7 +444,7 @@ void McpServer::installHandlers()
         });
 
     m_session->setRequestHandler(
-        QStringLiteral("logging/setLevel"),
+        QLatin1String(Method::LoggingSetLevel),
         [this](const QJsonObject &params) -> QFuture<QJsonValue> {
             const QString level = params.value("level").toString();
             if (level.isEmpty()) {
@@ -457,7 +457,7 @@ void McpServer::installHandlers()
         });
 
     m_session->setRequestHandler(
-        QStringLiteral("ping"),
+        QLatin1String(Method::Ping),
         [](const QJsonObject &) -> QFuture<QJsonValue> { return makeReadyFuture(QJsonObject{}); });
 }
 
@@ -475,13 +475,13 @@ void McpServer::addTool(LLMQore::BaseTool *tool)
         return;
     m_standaloneTools.insert(tool->id(), tool);
     if (m_initialized)
-        m_session->sendNotification(QStringLiteral("notifications/tools/list_changed"));
+        m_session->sendNotification(QLatin1String(Method::ToolsListChanged));
 }
 
 void McpServer::removeTool(const QString &name)
 {
     if (m_standaloneTools.remove(name) && m_initialized) {
-        m_session->sendNotification(QStringLiteral("notifications/tools/list_changed"));
+        m_session->sendNotification(QLatin1String(Method::ToolsListChanged));
     }
 }
 
@@ -492,12 +492,12 @@ void McpServer::addResourceProvider(BaseResourceProvider *provider)
     m_resourceProviders.append(provider);
     connect(provider, &BaseResourceProvider::listChanged, this, [this]() {
         if (m_initialized)
-            m_session->sendNotification(QStringLiteral("notifications/resources/list_changed"));
+            m_session->sendNotification(QLatin1String(Method::ResourcesListChanged));
     });
     connect(provider, &BaseResourceProvider::resourceUpdated, this, [this](const QString &uri) {
         if (m_initialized) {
             m_session->sendNotification(
-                QStringLiteral("notifications/resources/updated"),
+                QLatin1String(Method::ResourcesUpdated),
                 QJsonObject{{"uri", uri}});
         }
     });
@@ -517,7 +517,7 @@ void McpServer::addPromptProvider(BasePromptProvider *provider)
     m_promptProviders.append(provider);
     connect(provider, &BasePromptProvider::listChanged, this, [this]() {
         if (m_initialized)
-            m_session->sendNotification(QStringLiteral("notifications/prompts/list_changed"));
+            m_session->sendNotification(QLatin1String(Method::PromptsListChanged));
     });
 }
 
@@ -549,7 +549,7 @@ QFuture<CreateMessageResult> McpServer::createSamplingMessage(
     }
 
     return LLMQore::compat(
-               m_session->sendRequest(QStringLiteral("sampling/createMessage"), params.toJson(), timeout))
+               m_session->sendRequest(QLatin1String(Method::SamplingCreateMessage), params.toJson(), timeout))
         .then(this, [](const QJsonValue &value) { return CreateMessageResult::fromJson(value.toObject()); });
 }
 
@@ -574,7 +574,7 @@ QFuture<ElicitResult> McpServer::createElicitation(
     }
 
     return LLMQore::compat(
-               m_session->sendRequest(QStringLiteral("elicitation/create"), params.toJson(), timeout))
+               m_session->sendRequest(QLatin1String(Method::ElicitationCreate), params.toJson(), timeout))
         .then(this, [](const QJsonValue &value) { return ElicitResult::fromJson(value.toObject()); });
 }
 
@@ -594,7 +594,7 @@ void McpServer::sendLogMessage(
         params.insert("logger", logger);
     if (!message.isEmpty())
         params.insert("message", message);
-    m_session->sendNotification(QStringLiteral("notifications/message"), params);
+    m_session->sendNotification(QLatin1String(Method::LoggingMessage), params);
 }
 
 void McpServer::start()

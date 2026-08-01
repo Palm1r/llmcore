@@ -33,7 +33,7 @@ flowchart TD
         HT["HttpTransport<br/><small>injectable transport seam</small>"]
         HC["HttpClient<br/><small>async HTTP transport</small>"]
         HS["HttpStreamHandle / HttpStream<br/><small>streaming reply handle</small>"]
-        SSE["SSEParser + LineBuffer<br/><small>event-stream framing</small>"]
+        SSE["SSEParser + Rpc::LineFramer<br/><small>event-stream framing</small>"]
     end
 
     subgraph MCP["MCP stack (optional)"]
@@ -76,11 +76,11 @@ include/LLMQore/
 ├── HttpResponse.hpp             ← buffered reply value
 ├── HttpTransportError.hpp       ← typed transport error
 ├── SSEParser.hpp                ← Server-Sent Events framer
-├── LineBuffer.hpp               ← JSON-lines framer (Ollama)
+├── RpcLineFramer.hpp            ← JSON-lines framer (Ollama, JSON-RPC stdio)
 ├── ToolRegistry.hpp             ← tool storage base class
 ├── ToolsManager.hpp             ← extends ToolRegistry + schema + exec queue
 ├── ToolResult.hpp               ← rich tool result envelope
-├── ToolSchemaFormat.hpp         ← per-provider schema enum
+├── ToolDialect.hpp              ← per-provider tool-schema seam
 ├── ClaudeClient.hpp, OpenAIClient.hpp, ...
 ├── Mcp*.hpp                     ← MCP stack public headers
 ├── BasePromptProvider.hpp, BaseResourceProvider.hpp,
@@ -91,7 +91,7 @@ source/
 ├── core/          BaseClient.cpp, BaseMessage.cpp, Log.cpp
 ├── clients/       claude/, openai/, google/, ollama/, llamacpp/
 ├── network/       HttpTransport.cpp, HttpClient.cpp, HttpStream.cpp,
-│                  SSEParser.cpp, LineBuffer.cpp, HttpRequestParser.cpp,
+│                  SSEParser.cpp, HttpRequestParser.cpp,
 │                  HttpResponse.cpp, HttpTransportError.cpp
 ├── tools/         BaseTool.cpp, ToolRegistry.cpp, ToolsManager.cpp, ToolResult.cpp,
 │                  ToolHandler.{hpp,cpp}
@@ -108,9 +108,9 @@ Each `source/clients/<vendor>/` holds the `*Client.cpp` + `*Message.{hpp,cpp}` p
 - **`HttpClient` knows nothing about LLMs, JSON, or MCP.** It is a pure HTTP transport. Only DNS, timeout, SSL, abort, and connection-refused failures surface as transport errors; all HTTP status codes are passed through as response values.
 - **`HttpTransport` is the only way a provider client reaches the network.** `BaseClient` never touches `QNetworkAccessManager` or `QNetworkReply`; it holds an `HttpTransport *` supplied at construction (defaulting to a private `HttpClient`) and consumes streams through the abstract `HttpStreamHandle`. Substituting a transport is therefore enough to drive any provider client end to end without a socket.
 - **`McpTransport` is the only byte-level boundary** on the MCP side. Everything above it operates on parsed JSON objects.
-- **`McpServer` depends on `ToolRegistry`, not `ToolsManager`** -- no `ToolSchemaFormat` needed for MCP servers.
+- **`McpServer` depends on `ToolRegistry`, not `ToolsManager`** -- no `ToolDialect` needed for MCP servers.
 - **One `ToolsManager` holds tools from multiple sources** (local and MCP), and they are indistinguishable to the continuation payload builder.
 - **The SSE parser is spec-compliant and shared** across all providers except Ollama, which uses a JSON-lines framer instead.
 - **In-flight request state is centralized** in a single request map inside `BaseClient`. Each entry holds the stream, buffers, original payload for continuations, and the stop reason. Progress and completion reach the host via signals (`chunkReceived`, `requestCompleted`, `requestFinalized`, `requestFailed`, ...), not per-request callback structs.
-- **The tool-continuation loop is a separate policy object.** `ToolLoopRunner` (owned by the client, see `BaseClient::toolLoop()`) tracks rounds per request, enforces the limit, obtains the continuation body (`BaseClient::buildReplayContinuation`), and resends through the transport primitive `BaseClient::continueRequest`. The client itself stays transport + tool dispatch.
-- **Tool continuations are bounded** to a per-runner maximum (default 10, `setMaxRounds` / the `setMaxToolContinuations` forwarder) to prevent runaway loops.
+- **The tool-continuation loop is the client's own ledger.** `BaseClient` counts rounds per request, enforces the limit, obtains the continuation body, and resends -- all behind private members. A caller sees only `setMaxToolContinuations()` and the read-only `toolRounds()`; the round itself is `ToolRound` inside `ToolsManager`, whose pending/completed tables are cleared at every round boundary.
+- **Tool continuations are bounded** to a per-client maximum (`BaseClient::maxToolContinuations`, defaulting to `kDefaultMaxToolRounds` = 10, set through `setMaxToolContinuations`) to prevent runaway loops.

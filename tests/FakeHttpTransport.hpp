@@ -125,28 +125,39 @@ public:
         return m_streams.isEmpty() ? nullptr : m_streams.last().data();
     }
 
+    FakeHttpStream *streamAt(int index) const { return m_streams.value(index).data(); }
+
     SentRequest streamRequest(int index) const { return m_streamRequests.value(index); }
 
     int bufferedCount() const { return m_buffered.size(); }
 
     SentRequest bufferedRequest(int index) const { return m_buffered.value(index).sent; }
 
-    void respondTo(int index, int statusCode, const QByteArray &body)
+    void respondTo(
+        int index,
+        int statusCode,
+        const QByteArray &body,
+        const QList<QPair<QByteArray, QByteArray>> &headers = {})
     {
         if (index < 0 || index >= m_buffered.size())
             return;
         LLMQore::HttpResponse response;
         response.statusCode = statusCode;
-        response.rawHeaders = {{"Content-Type", "application/json"}};
+        response.rawHeaders = headers.isEmpty()
+            ? QList<QPair<QByteArray, QByteArray>>{{"Content-Type", "application/json"}}
+            : headers;
         response.body = body;
         auto &promise = m_buffered[index].promise;
         promise->addResult(response);
         promise->finish();
     }
 
-    void respondToLast(int statusCode, const QByteArray &body)
+    void respondToLast(
+        int statusCode,
+        const QByteArray &body,
+        const QList<QPair<QByteArray, QByteArray>> &headers = {})
     {
-        respondTo(m_buffered.size() - 1, statusCode, body);
+        respondTo(m_buffered.size() - 1, statusCode, body, headers);
     }
 
     void failLast(

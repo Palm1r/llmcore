@@ -1,15 +1,41 @@
 // Copyright (C) 2026 Petr Mironychev
 // SPDX-License-Identifier: MIT
 
+#include <LLMQore/BaseTool.hpp>
 #include "OllamaMessage.hpp"
 #include <LLMQore/Log.hpp>
 
-#include <QDateTime>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QRegularExpression>
 
 namespace LLMQore {
+
+namespace {
+
+class OllamaToolDialect : public ToolDialect
+{
+public:
+    QJsonObject wrapDefinition(const BaseTool &tool) const override
+    {
+        return QJsonObject{
+            {"type", "function"},
+            {"function",
+             QJsonObject{
+                 {"name", tool.id()},
+                 {"description", tool.description()},
+                 {"parameters", tool.parametersSchema()}}}};
+    }
+};
+
+} // namespace
+
+const ToolDialect &OllamaMessage::toolDialect()
+{
+    static const OllamaToolDialect dialect;
+    return dialect;
+}
+
 
 OllamaMessage::OllamaMessage(QObject *parent)
     : BaseMessage(parent)
@@ -73,9 +99,11 @@ void OllamaMessage::handleThinkingComplete(const QString &signature)
     }
 }
 
-void OllamaMessage::handleDone(bool done)
+void OllamaMessage::handleDone(bool done, const QString &doneReason)
 {
     m_done = done;
+    if (!doneReason.isEmpty())
+        m_doneReason = doneReason;
     if (done) {
         bool isToolCall = tryParseToolCall();
 
@@ -176,6 +204,7 @@ bool OllamaMessage::tryParseToolCall()
     }
     qDeleteAll(m_currentBlocks);
     m_currentBlocks.clear();
+    m_currentThinkingContent = nullptr;
 
     addCurrentContent<ToolUseContent>(toolId, name, arguments);
 
@@ -191,10 +220,11 @@ bool OllamaMessage::tryParseToolCall()
 
 QString OllamaMessage::makeToolCallId(const QString &name)
 {
-    return QString("call_%1_%2_%3")
-        .arg(name)
-        .arg(QDateTime::currentMSecsSinceEpoch())
-        .arg(m_toolCallSequence++);
+    // Ollama's native shape carries no call id, so one is minted here. The
+    // wall-clock component this used to carry was there to dodge the tool
+    // queue's cross-round dedup; the round ledger clears itself now, so a
+    // loop-scoped counter is enough -- and it makes the id reproducible.
+    return QString("call_%1_%2").arg(name).arg(m_toolCallSequence++);
 }
 
 QString OllamaMessage::stripMarkdownCodeFence(const QString &content) const
@@ -273,24 +303,16 @@ QJsonObject OllamaMessage::toProviderFormat() const
 QJsonArray OllamaMessage::createToolResultMessages(
     const QHash<QString, ToolResult> &toolResults) const
 {
-    QJsonArray messages;
-
-    for (const auto *toolContent : getCurrentToolUseContent()) {
-        if (toolResults.contains(toolContent->id())) {
-            const QString text = toolResults[toolContent->id()].asText();
-            QJsonObject toolMessage;
-            toolMessage["role"] = "tool";
-            toolMessage["content"] = text;
-            messages.append(toolMessage);
+    return mapToolResults(
+        toolResults, [](const ToolUseContent &use, const ToolResult &r, QJsonArray &out) {
+            const QString text = toolResultText(r);
+            out.append(QJsonObject{{"role", "tool"}, {"content", text}});
 
             qCDebug(llmOllamaLog).noquote()
                 << QString("Created tool result message for tool %1 (id=%2), content length=%3")
-                       .arg(toolContent->name(), toolContent->id())
+                       .arg(use.name(), use.id())
                        .arg(text.length());
-        }
-    }
-
-    return messages;
+        });
 }
 
 bool OllamaMessage::isAccumulatingToolCall() const
@@ -305,6 +327,7 @@ void OllamaMessage::startNewContinuation()
     BaseMessage::startNewContinuation();
     m_accumulatedContent.clear();
     m_done = false;
+    m_doneReason.clear();
     m_contentAddedToTextBlock = false;
     m_currentThinkingContent = nullptr;
 }

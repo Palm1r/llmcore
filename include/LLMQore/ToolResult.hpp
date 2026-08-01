@@ -68,6 +68,10 @@ struct LLMQORE_EXPORT ToolResult
     QString asText() const;
     bool isEmpty() const;
 
+    // True when every block is plain text, so a provider can send the result
+    // as a bare string instead of a block array.
+    bool hasOnlyText() const;
+
     QJsonObject toJson() const;
     static ToolResult fromJson(const QJsonObject &obj);
 };

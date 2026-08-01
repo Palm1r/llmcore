@@ -14,6 +14,17 @@
 
 namespace LLMQore {
 
+namespace {
+
+const UsageSchema kGoogleUsage{
+    QLatin1String("usageMetadata"),
+    {{}, QLatin1String("promptTokenCount")},
+    {{}, QLatin1String("candidatesTokenCount")},
+    {{}, QLatin1String("cachedContentTokenCount")},
+    {{}, QLatin1String("thoughtsTokenCount")}};
+
+} // namespace
+
 GoogleAIClient::GoogleAIClient(QObject *parent)
     : GoogleAIClient({}, {}, {}, parent)
 {}
@@ -31,6 +42,7 @@ GoogleAIClient::GoogleAIClient(
     QObject *parent)
     : BaseClient(url, apiKey, model, transport, parent)
 {
+    setLogCategory(llmGoogleLog());
     setAuthScheme(
         {.placement = AuthScheme::Placement::QueryParam, .name = QStringLiteral("key")});
     setHeaders({{QStringLiteral("Content-Type"), QStringLiteral("application/json")}});
@@ -66,60 +78,68 @@ RequestID GoogleAIClient::ask(const QString &prompt, RequestMode mode)
     return sendMessage(payload, {}, mode);
 }
 
+const ToolDialect &GoogleAIClient::toolDialect() const
+{
+    return GoogleMessage::toolDialect();
+}
+
+const UsageSchema &GoogleAIClient::usageSchema() const
+{
+    return kGoogleUsage;
+}
+
 QFuture<QList<QString>> GoogleAIClient::listModels(const QString &endpoint)
 {
-    const QString resolved = endpoint.isEmpty() ? QStringLiteral("/models") : endpoint;
-    QUrl url(m_url + resolved);
-    QNetworkRequest request = prepareNetworkRequest(url);
-
-    return LLMQore::compat(transport()->send(request, QByteArrayView("GET")))
-        .then(this, [](const HttpResponse &response) {
-            QList<QString> models;
-            if (!response.isSuccess()) {
-                qCDebug(llmGoogleLog).noquote()
-                    << QString("Error fetching models: HTTP %1").arg(response.statusCode);
-                return models;
-            }
-
-            QJsonObject json = QJsonDocument::fromJson(response.body).object();
-            if (json.contains("models")) {
-                QJsonArray modelArray = json["models"].toArray();
-                for (const QJsonValue &value : modelArray) {
-                    QJsonObject modelObject = value.toObject();
-                    if (modelObject.contains("name")) {
-                        QString modelName = modelObject["name"].toString();
-                        if (modelName.contains("/"))
-                            modelName = modelName.split("/").last();
-                        models.append(modelName);
-                    }
-                }
-            }
-            return models;
-        })
-        .onFailed(this, [](const std::exception &e) {
-            qCDebug(llmGoogleLog).noquote() << QString("Error fetching models: %1").arg(e.what());
-            return QList<QString>{};
+    return fetchModelList(
+        endpointUrl(endpoint, QStringLiteral("/models")),
+        QStringLiteral("models"),
+        QStringLiteral("name"),
+        [](QString name) {
+            return name.contains('/') ? name.split('/').last() : name;
         });
 }
 
 QString GoogleAIClient::parseHttpError(const HttpResponse &response) const
 {
-    const QJsonDocument doc = QJsonDocument::fromJson(response.body);
-    if (doc.isObject()) {
-        const QJsonObject error = doc.object().value("error").toObject();
-        const QString message = error.value("message").toString();
-        const int code = error.value("code").toInt();
-        const QString status = error.value("status").toString();
-        if (!message.isEmpty()) {
-            QString out = QString("HTTP %1: %2").arg(response.statusCode).arg(message);
-            if (code != 0)
-                out += QString(" (code: %1)").arg(code);
-            if (!status.isEmpty())
-                out += QString(" (status: %1)").arg(status);
-            return out;
-        }
+    return parseErrorObject(
+        response,
+        {{QStringLiteral("code"), QStringLiteral("code")},
+         {QStringLiteral("status"), QStringLiteral("status")}});
+}
+
+std::optional<QString> GoogleAIClient::JsonErrorSniffer::append(const QByteArray &chunk)
+{
+    if (!m_active)
+        return std::nullopt;
+
+    m_buffer.append(chunk);
+
+    const QByteArray trimmed = m_buffer.trimmed();
+    if (trimmed.isEmpty())
+        return std::nullopt;
+
+    // SSE framing never starts with '{': stop sniffing for the rest of the stream.
+    if (!trimmed.startsWith('{') || m_buffer.size() > kMaxBytes) {
+        m_active = false;
+        m_buffer.clear();
+        return std::nullopt;
     }
-    return BaseClient::parseHttpError(response);
+
+    const QJsonDocument doc = QJsonDocument::fromJson(trimmed);
+    if (doc.isNull() || !doc.isObject())
+        return std::nullopt;
+
+    m_active = false;
+    m_buffer.clear();
+
+    const QJsonObject obj = doc.object();
+    if (!obj.contains("error"))
+        return std::nullopt;
+
+    const QJsonObject error = obj.value("error").toObject();
+    return QString("Google AI API Error %1: %2")
+        .arg(error.value("code").toInt())
+        .arg(error.value("message").toString());
 }
 
 void GoogleAIClient::processData(const RequestID &id, const QByteArray &data)
@@ -127,92 +147,46 @@ void GoogleAIClient::processData(const RequestID &id, const QByteArray &data)
     if (data.isEmpty())
         return;
 
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    if (!doc.isNull() && doc.isObject()) {
-        QJsonObject obj = doc.object();
-        if (obj.contains("error")) {
-            QJsonObject error = obj["error"].toObject();
-            QString errorMessage = error["message"].toString();
-            int errorCode = error["code"].toInt();
-            QString fullError
-                = QString("Google AI API Error %1: %2").arg(errorCode).arg(errorMessage);
-
-            qCDebug(llmGoogleLog).noquote() << fullError;
-            m_failedRequests.insert(id, fullError);
-            return;
-        }
-    }
-
     if (!hasRequest(id))
         return;
 
-    const QList<SSEEvent> events = requestSSEParser(id).append(data);
-    for (const SSEEvent &ev : events) {
-        if (ev.data.isEmpty() || ev.data == "[DONE]")
-            continue;
-        const QJsonObject chunk = QJsonDocument::fromJson(ev.data).object();
-        if (chunk.isEmpty())
-            continue;
-        processStreamChunk(id, chunk);
+    if (const auto error = m_errorSniffers[id].append(data)) {
+        qCDebug(llmGoogleLog).noquote() << *error;
+        m_failedRequests.insert(id, *error);
+        return;
     }
+
+    BaseClient::processData(id, data);
 }
 
-void GoogleAIClient::onStreamFinished(const RequestID &id, std::optional<QString> error)
+void GoogleAIClient::processSseEvent(
+    const RequestID &id, const SSEEvent &, const QJsonObject &chunk)
 {
-    if (error) {
-        cleanupFullRequest(id);
-        failRequest(id, *error);
-        return;
-    }
+    processStreamChunk(id, chunk);
+}
 
-    if (m_failedRequests.contains(id)) {
-        QString failError = m_failedRequests.take(id);
-        cleanupFullRequest(id);
-        failRequest(id, failError);
-        return;
-    }
+std::optional<QString> GoogleAIClient::takePendingStreamError(const RequestID &id)
+{
+    if (!m_failedRequests.contains(id))
+        return std::nullopt;
 
+    return m_failedRequests.take(id);
+}
+
+void GoogleAIClient::onStreamDrained(const RequestID &id)
+{
     notifyPendingThinkingBlocks(id);
-
-    if (m_messages.contains(id)) {
-        GoogleMessage *message = m_messages[id];
-        executeToolsFromMessage(id);
-
-        if (message->state() == MessageState::RequiresToolExecution) {
-            qCDebug(llmGoogleLog).noquote()
-                << QString("Waiting for tools to complete for %1").arg(id);
-            return;
-        }
-    }
-
-    cleanupFullRequest(id);
-    completeRequest(id);
+    executeToolsFromMessage(id);
 }
 
 void GoogleAIClient::processStreamChunk(const RequestID &id, const QJsonObject &chunk)
 {
-    const QJsonObject usageMeta = chunk.value("usageMetadata").toObject();
-    if (!usageMeta.isEmpty()) {
-        TokenUsage u;
-        u.promptTokens = usageMeta.value("promptTokenCount").toInt();
-        u.completionTokens = usageMeta.value("candidatesTokenCount").toInt();
-        u.cachedPromptTokens = usageMeta.value("cachedContentTokenCount").toInt();
-        u.reasoningTokens = usageMeta.value("thoughtsTokenCount").toInt();
-        setUsage(id, u);
-    }
+    applyUsage(id, chunk);
 
     if (!chunk.contains("candidates"))
         return;
 
-    GoogleMessage *message = m_messages.value(id);
-    if (!message) {
-        message = new GoogleMessage(this);
-        m_messages[id] = message;
-        qCDebug(llmGoogleLog).noquote() << QString("Created GoogleMessage for request %1").arg(id);
-    } else if (message->state() == MessageState::RequiresToolExecution) {
-        message->startNewContinuation();
-        qCDebug(llmGoogleLog).noquote() << QString("Starting continuation for request %1").arg(id);
-    }
+    GoogleMessage *message = ensureMessage<GoogleMessage>(id);
 
     QJsonArray candidates = chunk["candidates"].toArray();
     for (const QJsonValue &candidate : candidates) {
@@ -276,17 +250,10 @@ void GoogleAIClient::processStreamChunk(const RequestID &id, const QJsonObject &
     }
 }
 
-BaseMessage *GoogleAIClient::messageForRequest(const RequestID &id) const
-{
-    return m_messages.value(id, nullptr);
-}
-
 void GoogleAIClient::cleanupDerivedData(const RequestID &id)
 {
-    if (auto *msg = m_messages.take(id))
-        msg->deleteLater();
-
     m_failedRequests.remove(id);
+    m_errorSniffers.remove(id);
 }
 
 QJsonObject GoogleAIClient::buildContinuationPayload(

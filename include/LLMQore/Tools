@@ -4,6 +4,7 @@
 #pragma once
 
 #include <LLMQore/BaseTool.hpp>
+#include <LLMQore/ToolDialect.hpp>
 #include <LLMQore/ToolExceptions.hpp>
 #include <LLMQore/ToolResult.hpp>
 #include <LLMQore/ToolsManager.hpp>

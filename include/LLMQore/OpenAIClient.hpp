@@ -8,7 +8,10 @@
 #include <QJsonObject>
 #include <QUrl>
 
+#include <QLoggingCategory>
+
 #include <LLMQore/BaseClient.hpp>
+#include <LLMQore/SSEParser.hpp>
 
 namespace LLMQore {
 
@@ -34,25 +37,26 @@ public:
         RequestMode mode = RequestMode::Streaming) override;
     RequestID ask(
         const QString &prompt, RequestMode mode = RequestMode::Streaming) override;
-    ToolSchemaFormat toolSchemaFormat() const override { return ToolSchemaFormat::OpenAI; }
 
     QFuture<QList<QString>> listModels(const QString &endpoint = {}) override;
 
 protected:
-    void processData(const RequestID &id, const QByteArray &data) override;
+    [[nodiscard]] const ToolDialect &toolDialect() const override;
+    [[nodiscard]] const UsageSchema &usageSchema() const override;
     void processBufferedResponse(const RequestID &id, const QByteArray &data) override;
-    BaseMessage *messageForRequest(const RequestID &id) const override;
-    void cleanupDerivedData(const RequestID &id) override;
     QJsonObject buildContinuationPayload(
         const QJsonObject &originalPayload,
         BaseMessage *message,
         const QHash<QString, ToolResult> &toolResults) override;
     [[nodiscard]] QString parseHttpError(const HttpResponse &response) const override;
 
+    void processSseEvent(
+        const RequestID &id, const SSEEvent &event, const QJsonObject &json) override;
+
 private:
+    static QString takeReasoningAndText(OpenAIMessage *message, const QJsonObject &source);
     void processStreamChunk(const RequestID &id, const QJsonObject &chunk);
 
-    QHash<RequestID, OpenAIMessage *> m_messages;
 };
 
 } // namespace LLMQore

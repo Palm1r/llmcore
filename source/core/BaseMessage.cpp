@@ -3,6 +3,8 @@
 
 #include <LLMQore/BaseMessage.hpp>
 
+#include <QJsonDocument>
+
 namespace LLMQore {
 
 BaseMessage::BaseMessage(QObject *parent)
@@ -52,6 +54,32 @@ TextContent *BaseMessage::getOrCreateTextContent()
     }
 
     return addCurrentContent<TextContent>();
+}
+
+QJsonArray BaseMessage::mapToolResults(
+    const QHash<QString, ToolResult> &toolResults, const ToolResultEmitter &emitFor) const
+{
+    QJsonArray out;
+
+    for (const ToolUseContent *use : getCurrentToolUseContent()) {
+        const auto result = toolResults.constFind(use->id());
+        if (result == toolResults.constEnd())
+            continue;
+        emitFor(*use, *result, out);
+    }
+
+    return out;
+}
+
+QString BaseMessage::toolResultText(const ToolResult &result)
+{
+    const QString text = result.asText();
+    if (result.structuredContent.isEmpty())
+        return text;
+
+    const QString json = QString::fromUtf8(
+        QJsonDocument(result.structuredContent).toJson(QJsonDocument::Compact));
+    return text.isEmpty() ? json : text + QLatin1Char('\n') + json;
 }
 
 } // namespace LLMQore

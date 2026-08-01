@@ -119,12 +119,14 @@ void ChatController::send(const QString &text, const QString &model)
     setBusy(true);
     setStatus("Waiting for response...");
 
-    m_history.append(QJsonObject{{"role", "user"}, {"content", trimmed}});
+    m_history.append(userTurn(trimmed));
 
     QJsonObject payload;
     payload["model"] = model;
-    payload["stream"] = true;
-    payload["messages"] = m_history;
+    payload[conversationKey()] = m_history;
+
+    if (m_currentProvider != "Google AI")
+        payload["stream"] = true;
 
     if (m_currentProvider == "Claude")
         payload["max_tokens"] = 20000;
@@ -134,6 +136,30 @@ void ChatController::send(const QString &text, const QString &model)
         payload["tools"] = toolsDefs;
 
     m_currentRequest = m_client->sendMessage(payload);
+}
+
+QString ChatController::conversationKey() const
+{
+    return m_currentProvider == "Google AI" ? QStringLiteral("contents")
+                                            : QStringLiteral("messages");
+}
+
+QJsonObject ChatController::userTurn(const QString &text) const
+{
+    if (m_currentProvider == "Google AI") {
+        return QJsonObject{
+            {"role", "user"}, {"parts", QJsonArray{QJsonObject{{"text", text}}}}};
+    }
+    return QJsonObject{{"role", "user"}, {"content", text}};
+}
+
+QJsonObject ChatController::assistantTurn(const QString &text) const
+{
+    if (m_currentProvider == "Google AI") {
+        return QJsonObject{
+            {"role", "model"}, {"parts", QJsonArray{QJsonObject{{"text", text}}}}};
+    }
+    return QJsonObject{{"role", "assistant"}, {"content", text}};
 }
 
 void ChatController::stopGeneration()
@@ -223,9 +249,16 @@ void ChatController::createClient(const QString &provider, const QString &url, c
                    const QString &result) {
                 m_messages.append("tool", QString("[%1]: %2").arg(toolName, result));
             });
+    connect(m_client, &LLMQore::BaseClient::requestFinalized, this,
+            [this](const LLMQore::RequestID &, const LLMQore::CompletionInfo &info) {
+                const QJsonArray sent = info.requestPayload.value(conversationKey()).toArray();
+                if (!sent.isEmpty())
+                    m_history = sent;
+                if (!info.fullText.isEmpty())
+                    m_history.append(assistantTurn(info.fullText));
+            });
     connect(m_client, &LLMQore::BaseClient::requestCompleted, this,
-            [this](const LLMQore::RequestID &, const QString &fullText) {
-                m_history.append(QJsonObject{{"role", "assistant"}, {"content", fullText}});
+            [this](const LLMQore::RequestID &, const QString &) {
                 setBusy(false);
                 setStatus("Ready");
             });

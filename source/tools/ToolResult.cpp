@@ -213,6 +213,15 @@ QString ToolResult::asText() const
     return parts.join(QLatin1Char('\n'));
 }
 
+bool ToolResult::hasOnlyText() const
+{
+    for (const ToolContent &block : content) {
+        if (block.type != ToolContent::Text)
+            return false;
+    }
+    return true;
+}
+
 bool ToolResult::isEmpty() const
 {
     return content.isEmpty() && structuredContent.isEmpty();

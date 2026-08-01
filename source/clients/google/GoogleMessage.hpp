@@ -4,15 +4,19 @@
 #pragma once
 
 #include <LLMQore/BaseMessage.hpp>
+#include <LLMQore/ToolDialect.hpp>
 #include <LLMQore/ToolResult.hpp>
 
 namespace LLMQore {
 
-class LLMQORE_EXPORT GoogleMessage : public BaseMessage
+class GoogleMessage : public BaseMessage
 {
     Q_OBJECT
 public:
     explicit GoogleMessage(QObject *parent = nullptr);
+
+    // How this provider spells tool schemas on the way out.
+    static const ToolDialect &toolDialect();
 
     void handleContentDelta(const QString &text);
     void handleThoughtDelta(const QString &text);

@@ -13,22 +13,53 @@
 #include <LLMQore/OpenAIClient.hpp>
 #include <LLMQore/OpenAIResponsesClient.hpp>
 
+#include <QJsonArray>
+#include <QJsonObject>
+
+#include <LLMQore/BaseTool.hpp>
+#include <LLMQore/ToolsManager.hpp>
+
 using namespace LLMQore;
+
+namespace {
+
+class ProbeTool : public BaseTool
+{
+    Q_OBJECT
+public:
+    using BaseTool::BaseTool;
+
+    QString id() const override { return QStringLiteral("probe"); }
+    QString displayName() const override { return QStringLiteral("Probe"); }
+    QString description() const override { return QStringLiteral("A probe"); }
+    QJsonObject parametersSchema() const override { return QJsonObject{{"type", "object"}}; }
+    QFuture<ToolResult> executeAsync(const QJsonObject &) override { return {}; }
+};
+
+// The dialect a client was wired with, read off the wire rather than off a tag.
+QJsonObject soleDefinition(BaseClient &client)
+{
+    client.tools()->addTool(new ProbeTool(&client));
+    const QJsonArray definitions = client.tools()->getToolsDefinitions();
+    return definitions.size() == 1 ? definitions.first().toObject() : QJsonObject{};
+}
+
+} // namespace
 
 TEST(ClaudeClientConstructor, Basic)
 {
     ClaudeClient client("https://api.anthropic.com", "sk-test", "claude-sonnet-4-6");
 
-    EXPECT_EQ(client.toolSchemaFormat(), ToolSchemaFormat::Claude);
     EXPECT_NE(client.tools(), nullptr);
+    EXPECT_TRUE(soleDefinition(client).contains("input_schema"));
 }
 
 TEST(ClaudeClientConstructor, Default)
 {
     ClaudeClient client;
 
-    EXPECT_EQ(client.toolSchemaFormat(), ToolSchemaFormat::Claude);
     EXPECT_NE(client.tools(), nullptr);
+    EXPECT_TRUE(soleDefinition(client).contains("input_schema"));
     EXPECT_TRUE(client.url().isEmpty());
     EXPECT_TRUE(client.apiKey().isEmpty());
     EXPECT_TRUE(client.model().isEmpty());
@@ -38,16 +69,16 @@ TEST(OpenAIClientConstructor, Basic)
 {
     OpenAIClient client("https://api.openai.com/v1", "sk-test", "gpt-4");
 
-    EXPECT_EQ(client.toolSchemaFormat(), ToolSchemaFormat::OpenAI);
     EXPECT_NE(client.tools(), nullptr);
+    EXPECT_TRUE(soleDefinition(client).contains("function"));
 }
 
 TEST(OpenAIClientConstructor, Default)
 {
     OpenAIClient client;
 
-    EXPECT_EQ(client.toolSchemaFormat(), ToolSchemaFormat::OpenAI);
     EXPECT_NE(client.tools(), nullptr);
+    EXPECT_TRUE(soleDefinition(client).contains("function"));
     EXPECT_TRUE(client.url().isEmpty());
     EXPECT_TRUE(client.apiKey().isEmpty());
     EXPECT_TRUE(client.model().isEmpty());
@@ -57,16 +88,20 @@ TEST(OpenAIResponsesClientConstructor, Basic)
 {
     OpenAIResponsesClient client("https://api.openai.com/v1", "sk-test", "o3-mini");
 
-    EXPECT_EQ(client.toolSchemaFormat(), ToolSchemaFormat::OpenAIResponses);
     EXPECT_NE(client.tools(), nullptr);
+    const QJsonObject responsesDefinition = soleDefinition(client);
+    EXPECT_FALSE(responsesDefinition.contains("function"));
+    EXPECT_EQ(responsesDefinition.value("name").toString(), QStringLiteral("probe"));
 }
 
 TEST(OpenAIResponsesClientConstructor, Default)
 {
     OpenAIResponsesClient client;
 
-    EXPECT_EQ(client.toolSchemaFormat(), ToolSchemaFormat::OpenAIResponses);
     EXPECT_NE(client.tools(), nullptr);
+    const QJsonObject responsesDefinition = soleDefinition(client);
+    EXPECT_FALSE(responsesDefinition.contains("function"));
+    EXPECT_EQ(responsesDefinition.value("name").toString(), QStringLiteral("probe"));
     EXPECT_TRUE(client.url().isEmpty());
     EXPECT_TRUE(client.apiKey().isEmpty());
     EXPECT_TRUE(client.model().isEmpty());
@@ -76,16 +111,16 @@ TEST(OllamaClientConstructor, Basic)
 {
     OllamaClient client("http://localhost:11434", "", "llama3");
 
-    EXPECT_EQ(client.toolSchemaFormat(), ToolSchemaFormat::Ollama);
     EXPECT_NE(client.tools(), nullptr);
+    EXPECT_TRUE(soleDefinition(client).contains("function"));
 }
 
 TEST(OllamaClientConstructor, Default)
 {
     OllamaClient client;
 
-    EXPECT_EQ(client.toolSchemaFormat(), ToolSchemaFormat::Ollama);
     EXPECT_NE(client.tools(), nullptr);
+    EXPECT_TRUE(soleDefinition(client).contains("function"));
     EXPECT_TRUE(client.url().isEmpty());
     EXPECT_TRUE(client.apiKey().isEmpty());
     EXPECT_TRUE(client.model().isEmpty());
@@ -96,16 +131,16 @@ TEST(GoogleAIClientConstructor, Basic)
     GoogleAIClient
         client("https://generativelanguage.googleapis.com", "AIza-test", "gemini-2.5-flash");
 
-    EXPECT_EQ(client.toolSchemaFormat(), ToolSchemaFormat::Google);
     EXPECT_NE(client.tools(), nullptr);
+    EXPECT_TRUE(soleDefinition(client).contains("function_declarations"));
 }
 
 TEST(GoogleAIClientConstructor, Default)
 {
     GoogleAIClient client;
 
-    EXPECT_EQ(client.toolSchemaFormat(), ToolSchemaFormat::Google);
     EXPECT_NE(client.tools(), nullptr);
+    EXPECT_TRUE(soleDefinition(client).contains("function_declarations"));
     EXPECT_TRUE(client.url().isEmpty());
     EXPECT_TRUE(client.apiKey().isEmpty());
     EXPECT_TRUE(client.model().isEmpty());
@@ -115,16 +150,16 @@ TEST(LlamaCppClientConstructor, Basic)
 {
     LlamaCppClient client("http://localhost:8080", "", "my-model");
 
-    EXPECT_EQ(client.toolSchemaFormat(), ToolSchemaFormat::OpenAI);
     EXPECT_NE(client.tools(), nullptr);
+    EXPECT_TRUE(soleDefinition(client).contains("function"));
 }
 
 TEST(LlamaCppClientConstructor, Default)
 {
     LlamaCppClient client;
 
-    EXPECT_EQ(client.toolSchemaFormat(), ToolSchemaFormat::OpenAI);
     EXPECT_NE(client.tools(), nullptr);
+    EXPECT_TRUE(soleDefinition(client).contains("function"));
     EXPECT_TRUE(client.url().isEmpty());
     EXPECT_TRUE(client.apiKey().isEmpty());
     EXPECT_TRUE(client.model().isEmpty());
@@ -134,17 +169,19 @@ TEST(MistralClientConstructor, Basic)
 {
     MistralClient client("https://api.mistral.ai/v1", "sk-test", "codestral-latest");
 
-    EXPECT_EQ(client.toolSchemaFormat(), ToolSchemaFormat::OpenAI);
     EXPECT_NE(client.tools(), nullptr);
+    EXPECT_TRUE(soleDefinition(client).contains("function"));
 }
 
 TEST(MistralClientConstructor, Default)
 {
     MistralClient client;
 
-    EXPECT_EQ(client.toolSchemaFormat(), ToolSchemaFormat::OpenAI);
     EXPECT_NE(client.tools(), nullptr);
+    EXPECT_TRUE(soleDefinition(client).contains("function"));
     EXPECT_TRUE(client.url().isEmpty());
     EXPECT_TRUE(client.apiKey().isEmpty());
     EXPECT_TRUE(client.model().isEmpty());
 }
+
+#include "tst_ClientConstructors.moc"

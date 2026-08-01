@@ -15,6 +15,17 @@
 
 namespace LLMQore {
 
+namespace {
+
+const UsageSchema kResponsesUsage{
+    QLatin1String("usage"),
+    {{}, QLatin1String("input_tokens")},
+    {{}, QLatin1String("output_tokens")},
+    {QLatin1String("input_tokens_details"), QLatin1String("cached_tokens")},
+    {QLatin1String("output_tokens_details"), QLatin1String("reasoning_tokens")}};
+
+} // namespace
+
 OpenAIResponsesClient::OpenAIResponsesClient(QObject *parent)
     : OpenAIResponsesClient({}, {}, {}, parent)
 {}
@@ -32,6 +43,7 @@ OpenAIResponsesClient::OpenAIResponsesClient(
     QObject *parent)
     : BaseClient(url, apiKey, model, transport, parent)
 {
+    setLogCategory(llmOpenAILog());
     setAuthScheme(
         {.placement = AuthScheme::Placement::Header,
          .name = QStringLiteral("Authorization"),
@@ -63,84 +75,31 @@ RequestID OpenAIResponsesClient::ask(const QString &prompt, RequestMode mode)
     return sendMessage(payload, {}, mode);
 }
 
+const ToolDialect &OpenAIResponsesClient::toolDialect() const
+{
+    return OpenAIResponsesMessage::toolDialect();
+}
+
+const UsageSchema &OpenAIResponsesClient::usageSchema() const
+{
+    return kResponsesUsage;
+}
+
 QFuture<QList<QString>> OpenAIResponsesClient::listModels(const QString &endpoint)
 {
-    const QString resolved = endpoint.isEmpty() ? QStringLiteral("/models") : endpoint;
-    QUrl url(m_url + resolved);
-    QNetworkRequest request = prepareNetworkRequest(url);
-
-    return LLMQore::compat(transport()->send(request, QByteArrayView("GET")))
-        .then(this, [](const HttpResponse &response) {
-            QList<QString> models;
-            if (!response.isSuccess()) {
-                qCDebug(llmOpenAILog).noquote()
-                    << QString("Error fetching models: HTTP %1").arg(response.statusCode);
-                return models;
-            }
-
-            QJsonObject json = QJsonDocument::fromJson(response.body).object();
-            if (json.contains("data")) {
-                QJsonArray modelArray = json["data"].toArray();
-                for (const QJsonValue &value : modelArray) {
-                    QJsonObject modelObject = value.toObject();
-                    if (modelObject.contains("id"))
-                        models.append(modelObject["id"].toString());
-                }
-            }
-            return models;
-        })
-        .onFailed(this, [](const std::exception &e) {
-            qCDebug(llmOpenAILog).noquote() << QString("Error fetching models: %1").arg(e.what());
-            return QList<QString>{};
-        });
+    return fetchModelList(endpointUrl(endpoint, QStringLiteral("/models")));
 }
 
 QString OpenAIResponsesClient::parseHttpError(const HttpResponse &response) const
 {
-    const QJsonDocument doc = QJsonDocument::fromJson(response.body);
-    if (doc.isObject()) {
-        const QJsonObject error = doc.object().value("error").toObject();
-        const QString message = error.value("message").toString();
-        const QString type = error.value("type").toString();
-        const QString code = error.value("code").toString();
-        if (!message.isEmpty()) {
-            QString out = QString("HTTP %1: %2").arg(response.statusCode).arg(message);
-            if (!type.isEmpty())
-                out += QString(" (type: %1)").arg(type);
-            if (!code.isEmpty())
-                out += QString(" (code: %1)").arg(code);
-            return out;
-        }
-    }
-    return BaseClient::parseHttpError(response);
-}
-
-void OpenAIResponsesClient::processData(const RequestID &id, const QByteArray &data)
-{
-    if (!hasRequest(id))
-        return;
-
-    const QList<SSEEvent> events = requestSSEParser(id).append(data);
-    for (const SSEEvent &ev : events) {
-        if (ev.data.isEmpty() || ev.data == "[DONE]")
-            continue;
-        const QJsonObject payload = QJsonDocument::fromJson(ev.data).object();
-        if (payload.isEmpty())
-            continue;
-        processStreamEvent(id, ev.type, payload);
-    }
-}
-
-BaseMessage *OpenAIResponsesClient::messageForRequest(const RequestID &id) const
-{
-    return m_messages.value(id, nullptr);
+    return parseErrorObject(
+        response,
+        {{QStringLiteral("type"), QStringLiteral("type")},
+         {QStringLiteral("code"), QStringLiteral("code")}});
 }
 
 void OpenAIResponsesClient::cleanupDerivedData(const RequestID &id)
 {
-    if (auto *msg = m_messages.take(id))
-        msg->deleteLater();
-
     m_itemIdToCallId.remove(id);
 }
 
@@ -168,16 +127,12 @@ QJsonObject OpenAIResponsesClient::buildContinuationPayload(
     return request;
 }
 
-void OpenAIResponsesClient::processStreamEvent(
-    const RequestID &id, const QString &eventType, const QJsonObject &data)
+void OpenAIResponsesClient::processSseEvent(
+    const RequestID &id, const SSEEvent &event, const QJsonObject &data)
 {
-    OpenAIResponsesMessage *message = m_messages.value(id);
-    if (!message) {
-        message = new OpenAIResponsesMessage(this);
-        m_messages[id] = message;
-    } else if (message->state() == MessageState::RequiresToolExecution) {
-        message->startNewContinuation();
-    }
+    const QString &eventType = event.type;
+
+    OpenAIResponsesMessage *message = ensureMessage<OpenAIResponsesMessage>(id);
 
     if (eventType == "response.output_text.delta") {
         QString delta = data["delta"].toString();
@@ -279,17 +234,7 @@ void OpenAIResponsesClient::processStreamEvent(
 
         message->handleStatus(statusStr);
 
-        const QJsonObject usage = responseObj.value("usage").toObject();
-        if (!usage.isEmpty()) {
-            TokenUsage u;
-            u.promptTokens = usage.value("input_tokens").toInt();
-            u.completionTokens = usage.value("output_tokens").toInt();
-            const QJsonObject itd = usage.value("input_tokens_details").toObject();
-            u.cachedPromptTokens = itd.value("cached_tokens").toInt();
-            const QJsonObject otd = usage.value("output_tokens_details").toObject();
-            u.reasoningTokens = otd.value("reasoning_tokens").toInt();
-            setUsage(id, u);
-        }
+        applyUsage(id, responseObj);
 
         notifyPendingThinkingBlocks(id);
         executeToolsFromMessage(id);
@@ -388,8 +333,7 @@ void OpenAIResponsesClient::processBufferedResponse(const RequestID &id, const Q
         return;
     }
 
-    auto *message = new OpenAIResponsesMessage(this);
-    m_messages[id] = message;
+    auto *message = ensureMessage<OpenAIResponsesMessage>(id);
 
     QJsonArray output = response["output"].toArray();
     for (const auto &item : output) {
@@ -441,17 +385,7 @@ void OpenAIResponsesClient::processBufferedResponse(const RequestID &id, const Q
         executeToolsFromMessage(id);
     }
 
-    const QJsonObject usage = response.value("usage").toObject();
-    if (!usage.isEmpty()) {
-        TokenUsage u;
-        u.promptTokens = usage.value("input_tokens").toInt();
-        u.completionTokens = usage.value("output_tokens").toInt();
-        const QJsonObject itd = usage.value("input_tokens_details").toObject();
-        u.cachedPromptTokens = itd.value("cached_tokens").toInt();
-        const QJsonObject otd = usage.value("output_tokens_details").toObject();
-        u.reasoningTokens = otd.value("reasoning_tokens").toInt();
-        setUsage(id, u);
-    }
+    applyUsage(id, response);
 }
 
 } // namespace LLMQore

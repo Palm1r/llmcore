@@ -4,15 +4,19 @@
 #pragma once
 
 #include <LLMQore/BaseMessage.hpp>
+#include <LLMQore/ToolDialect.hpp>
 #include <LLMQore/ToolResult.hpp>
 
 namespace LLMQore {
 
-class LLMQORE_EXPORT ClaudeMessage : public BaseMessage
+class ClaudeMessage : public BaseMessage
 {
     Q_OBJECT
 public:
     explicit ClaudeMessage(QObject *parent = nullptr);
+
+    // How this provider spells tool schemas on the way out.
+    static const ToolDialect &toolDialect();
 
     void handleContentBlockStart(int index, const QString &blockType, const QJsonObject &data);
     void handleContentBlockDelta(int index, const QString &deltaType, const QJsonObject &delta);

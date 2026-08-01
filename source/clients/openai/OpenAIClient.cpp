@@ -8,13 +8,23 @@
 #include <QJsonValue>
 
 #include "OpenAIMessage.hpp"
-#include "OpenAIUsage.hpp"
 #include <LLMQore/FutureUtils.hpp>
 #include <LLMQore/HttpTransport.hpp>
 #include <LLMQore/Log.hpp>
 #include <LLMQore/SSEParser.hpp>
 
 namespace LLMQore {
+
+namespace {
+
+const UsageSchema kOpenAIUsage{
+    QLatin1String("usage"),
+    {{}, QLatin1String("prompt_tokens")},
+    {{}, QLatin1String("completion_tokens")},
+    {QLatin1String("prompt_tokens_details"), QLatin1String("cached_tokens")},
+    {QLatin1String("completion_tokens_details"), QLatin1String("reasoning_tokens")}};
+
+} // namespace
 
 OpenAIClient::OpenAIClient(QObject *parent)
     : OpenAIClient({}, {}, {}, parent)
@@ -33,11 +43,22 @@ OpenAIClient::OpenAIClient(
     QObject *parent)
     : BaseClient(url, apiKey, model, transport, parent)
 {
+    setLogCategory(llmOpenAILog());
     setAuthScheme(
         {.placement = AuthScheme::Placement::Header,
          .name = QStringLiteral("Authorization"),
          .valuePrefix = QStringLiteral("Bearer ")});
     setHeaders({{QStringLiteral("Content-Type"), QStringLiteral("application/json")}});
+}
+
+const ToolDialect &OpenAIClient::toolDialect() const
+{
+    return OpenAIMessage::toolDialect();
+}
+
+const UsageSchema &OpenAIClient::usageSchema() const
+{
+    return kOpenAIUsage;
 }
 
 RequestID OpenAIClient::sendMessage(
@@ -55,7 +76,7 @@ RequestID OpenAIClient::sendMessage(
     RequestID id = createRequest();
     const QString resolved = endpoint.isEmpty() ? QStringLiteral("/chat/completions") : endpoint;
 
-    qCDebug(llmOpenAILog).noquote() << QString("Sending request %1 to %2").arg(id, resolved);
+    qCDebug(logCategory()).noquote() << QString("Sending request %1 to %2").arg(id, resolved);
 
     sendRequest(id, QUrl(m_url + resolved), request, mode);
     return id;
@@ -72,86 +93,24 @@ RequestID OpenAIClient::ask(const QString &prompt, RequestMode mode)
 
 QFuture<QList<QString>> OpenAIClient::listModels(const QString &endpoint)
 {
-    const QString resolved = endpoint.isEmpty() ? QStringLiteral("/models") : endpoint;
-    QUrl url(m_url + resolved);
-    QNetworkRequest request = prepareNetworkRequest(url);
-
-    return LLMQore::compat(transport()->send(request, QByteArrayView("GET")))
-        .then(this, [](const HttpResponse &response) {
-            QList<QString> models;
-            if (!response.isSuccess()) {
-                qCDebug(llmOpenAILog).noquote()
-                    << QString("Error fetching models: HTTP %1").arg(response.statusCode);
-                return models;
-            }
-
-            QJsonObject json = QJsonDocument::fromJson(response.body).object();
-            if (json.contains("data")) {
-                QJsonArray modelArray = json["data"].toArray();
-                for (const QJsonValue &value : modelArray) {
-                    QJsonObject modelObject = value.toObject();
-                    if (modelObject.contains("id"))
-                        models.append(modelObject["id"].toString());
-                }
-            }
-            return models;
-        })
-        .onFailed(this, [](const std::exception &e) {
-            qCDebug(llmOpenAILog).noquote() << QString("Error fetching models: %1").arg(e.what());
-            return QList<QString>{};
-        });
+    return fetchModelList(endpointUrl(endpoint, QStringLiteral("/models")));
 }
 
 QString OpenAIClient::parseHttpError(const HttpResponse &response) const
 {
-    const QJsonDocument doc = QJsonDocument::fromJson(response.body);
-    if (doc.isObject()) {
-        const QJsonObject error = doc.object().value("error").toObject();
-        const QString message = error.value("message").toString();
-        const QString type = error.value("type").toString();
-        const QString code = error.value("code").toString();
-        if (!message.isEmpty()) {
-            QString out = QString("HTTP %1: %2").arg(response.statusCode).arg(message);
-            if (!type.isEmpty())
-                out += QString(" (type: %1)").arg(type);
-            if (!code.isEmpty())
-                out += QString(" (code: %1)").arg(code);
-            return out;
-        }
-    }
-    return BaseClient::parseHttpError(response);
+    return parseErrorObject(
+        response,
+        {{QStringLiteral("type"), QStringLiteral("type")},
+         {QStringLiteral("code"), QStringLiteral("code")}});
 }
 
-void OpenAIClient::processData(const RequestID &id, const QByteArray &data)
+void OpenAIClient::processSseEvent(
+    const RequestID &id, const SSEEvent &, const QJsonObject &chunk)
 {
-    if (!hasRequest(id))
-        return;
+    if (chunk.contains("choices"))
+        processStreamChunk(id, chunk);
 
-    const QList<SSEEvent> events = requestSSEParser(id).append(data);
-    for (const SSEEvent &ev : events) {
-        if (ev.data.isEmpty() || ev.data == "[DONE]")
-            continue;
-        const QJsonObject chunk = QJsonDocument::fromJson(ev.data).object();
-        if (chunk.isEmpty())
-            continue;
-        if (chunk.contains("choices"))
-            processStreamChunk(id, chunk);
-
-        const QJsonObject usage = chunk.value("usage").toObject();
-        if (!usage.isEmpty())
-            setUsage(id, parseOpenAIUsage(usage));
-    }
-}
-
-BaseMessage *OpenAIClient::messageForRequest(const RequestID &id) const
-{
-    return m_messages.value(id, nullptr);
-}
-
-void OpenAIClient::cleanupDerivedData(const RequestID &id)
-{
-    if (auto *msg = m_messages.take(id))
-        msg->deleteLater();
+    applyUsage(id, chunk);
 }
 
 QJsonObject OpenAIClient::buildContinuationPayload(
@@ -159,14 +118,22 @@ QJsonObject OpenAIClient::buildContinuationPayload(
     BaseMessage *message,
     const QHash<QString, ToolResult> &toolResults)
 {
-    auto *openaiMsg = qobject_cast<OpenAIMessage *>(message);
-    if (!openaiMsg)
-        return originalPayload;
+    return appendChatContinuation<OpenAIMessage>(originalPayload, message, toolResults);
+}
 
-    return appendChatMessagesContinuation(
-        originalPayload,
-        openaiMsg->toProviderFormat(),
-        openaiMsg->createToolResultMessages(toolResults));
+QString OpenAIClient::takeReasoningAndText(OpenAIMessage *message, const QJsonObject &source)
+{
+    if (source.contains("reasoning_content") && !source["reasoning_content"].isNull())
+        message->handleReasoningDelta(source["reasoning_content"].toString());
+
+    if (!source.contains("content") || source["content"].isNull())
+        return {};
+
+    const OpenAIMessage::ContentParts parts = OpenAIMessage::splitContentParts(source["content"]);
+    if (!parts.thinking.isEmpty())
+        message->handleReasoningDelta(parts.thinking);
+
+    return parts.text;
 }
 
 void OpenAIClient::processStreamChunk(const RequestID &id, const QJsonObject &chunk)
@@ -179,31 +146,13 @@ void OpenAIClient::processStreamChunk(const RequestID &id, const QJsonObject &ch
     QJsonObject delta = choice["delta"].toObject();
     QString finishReason = choice["finish_reason"].toString();
 
-    OpenAIMessage *message = m_messages.value(id);
-    if (!message) {
-        message = new OpenAIMessage(this);
-        m_messages[id] = message;
-        qCDebug(llmOpenAILog).noquote() << QString("Created OpenAIMessage for request %1").arg(id);
-    } else if (message->state() == MessageState::RequiresToolExecution) {
-        message->startNewContinuation();
-        qCDebug(llmOpenAILog).noquote() << QString("Starting continuation for request %1").arg(id);
-    }
+    OpenAIMessage *message = ensureMessage<OpenAIMessage>(id);
 
-    // DeepSeek-style reasoning: dedicated "reasoning_content" field
-    if (delta.contains("reasoning_content") && !delta["reasoning_content"].isNull())
-        message->handleReasoningDelta(delta["reasoning_content"].toString());
-
-    // Standard text (string) or Mistral Magistral thinking+text chunks (array)
-    if (delta.contains("content") && !delta["content"].isNull()) {
-        const OpenAIMessage::ContentParts parts
-            = OpenAIMessage::splitContentParts(delta["content"]);
-        if (!parts.thinking.isEmpty())
-            message->handleReasoningDelta(parts.thinking);
-        if (!parts.text.isEmpty()) {
-            notifyPendingThinkingBlocks(id);
-            message->handleContentDelta(parts.text);
-            addChunk(id, parts.text);
-        }
+    const QString text = takeReasoningAndText(message, delta);
+    if (!text.isEmpty()) {
+        notifyPendingThinkingBlocks(id);
+        message->handleContentDelta(text);
+        addChunk(id, text);
     }
 
     if (delta.contains("tool_calls")) {
@@ -256,23 +205,12 @@ void OpenAIClient::processBufferedResponse(const RequestID &id, const QByteArray
     QJsonObject messageObj = choice["message"].toObject();
     QString finishReason = choice["finish_reason"].toString();
 
-    auto *message = new OpenAIMessage(this);
-    m_messages[id] = message;
+    auto *message = ensureMessage<OpenAIMessage>(id);
 
-    // DeepSeek-style reasoning: dedicated "reasoning_content" field
-    if (messageObj.contains("reasoning_content") && !messageObj["reasoning_content"].isNull())
-        message->handleReasoningDelta(messageObj["reasoning_content"].toString());
-
-    // Standard text (string) or Mistral Magistral thinking+text chunks (array)
-    if (messageObj.contains("content") && !messageObj["content"].isNull()) {
-        const OpenAIMessage::ContentParts parts
-            = OpenAIMessage::splitContentParts(messageObj["content"]);
-        if (!parts.thinking.isEmpty())
-            message->handleReasoningDelta(parts.thinking);
-        if (!parts.text.isEmpty()) {
-            message->handleContentDelta(parts.text);
-            addChunk(id, parts.text);
-        }
+    const QString text = takeReasoningAndText(message, messageObj);
+    if (!text.isEmpty()) {
+        message->handleContentDelta(text);
+        addChunk(id, text);
     }
 
     notifyPendingThinkingBlocks(id);
@@ -297,9 +235,7 @@ void OpenAIClient::processBufferedResponse(const RequestID &id, const QByteArray
         executeToolsFromMessage(id);
     }
 
-    const QJsonObject usage = response.value("usage").toObject();
-    if (!usage.isEmpty())
-        setUsage(id, parseOpenAIUsage(usage));
+    applyUsage(id, response);
 }
 
 } // namespace LLMQore

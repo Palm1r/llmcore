@@ -41,7 +41,7 @@ BridgeConfig loadConfig(const QString &path)
     for (const QString &name : names) {
         const QJsonObject entry = serversObj[name].toObject();
 
-        UpstreamEntry upstream;
+        LLMQore::Mcp::ServerEndpoint upstream;
         upstream.name = name;
 
         // "enable" is optional; default true. Explicit false skips the entry.
@@ -57,7 +57,6 @@ BridgeConfig loadConfig(const QString &path)
         // as a synonym of `"http"`; it was a pure alias and has been
         // dropped to keep the config surface honest.
         if (typeStr == "sse" || typeStr == "http") {
-            upstream.type = UpstreamType::Sse;
             upstream.url = QUrl(entry["url"].toString());
             if (!upstream.url.isValid()) {
                 qWarning().noquote() << "Skipping" << name << "— invalid url.";
@@ -84,7 +83,6 @@ BridgeConfig loadConfig(const QString &path)
                 upstream.httpSpec = entry["httpSpec"].toString();
         } else {
             // Default: stdio. Accept explicit "stdio" too.
-            upstream.type = UpstreamType::Stdio;
             upstream.command = entry["command"].toString();
             if (upstream.command.isEmpty()) {
                 qWarning().noquote() << "Skipping" << name << "— no command.";
@@ -93,7 +91,7 @@ BridgeConfig loadConfig(const QString &path)
 
             const QJsonArray argsArray = entry["args"].toArray();
             for (const QJsonValue &v : argsArray)
-                upstream.args << v.toString();
+                upstream.arguments << v.toString();
 
             if (entry.contains("env")) {
                 const QJsonObject envObj = entry["env"].toObject();

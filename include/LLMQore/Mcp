@@ -16,6 +16,7 @@
 #include <LLMQore/McpClient.hpp>
 #include <LLMQore/McpHttpServerTransport.hpp>
 #include <LLMQore/McpHttpTransport.hpp>
+#include <LLMQore/McpProvisioning.hpp>
 #include <LLMQore/McpRemoteTool.hpp>
 #include <LLMQore/McpServer.hpp>
 #include <LLMQore/McpStdioServerTransport.hpp>

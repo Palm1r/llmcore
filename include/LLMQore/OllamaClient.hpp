@@ -34,16 +34,15 @@ public:
         RequestMode mode = RequestMode::Streaming) override;
     RequestID ask(
         const QString &prompt, RequestMode mode = RequestMode::Streaming) override;
-    ToolSchemaFormat toolSchemaFormat() const override { return ToolSchemaFormat::Ollama; }
 
     QFuture<QList<QString>> listModels(const QString &endpoint = {}) override;
 
 protected:
+    [[nodiscard]] const ToolDialect &toolDialect() const override;
+    [[nodiscard]] const UsageSchema &usageSchema() const override;
     void processData(const RequestID &id, const QByteArray &data) override;
     void processBufferedResponse(const RequestID &id, const QByteArray &data) override;
-    void onStreamFinished(const RequestID &id, std::optional<QString> error) override;
-    BaseMessage *messageForRequest(const RequestID &id) const override;
-    void cleanupDerivedData(const RequestID &id) override;
+    void flushStreamBuffers(const RequestID &id) override;
     QJsonObject buildContinuationPayload(
         const QJsonObject &originalPayload,
         BaseMessage *message,
@@ -52,8 +51,9 @@ protected:
 
 private:
     void processStreamData(const RequestID &id, const QJsonObject &data);
+    // False when the object was a provider error and the request was failed.
+    bool handleStreamObject(const RequestID &id, const QJsonObject &obj);
 
-    QHash<RequestID, OllamaMessage *> m_messages;
 };
 
 } // namespace LLMQore

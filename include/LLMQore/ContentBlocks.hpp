@@ -117,12 +117,18 @@ public:
     QString thinking() const { return m_thinking; }
     QString signature() const { return m_signature; }
     void appendThinking(const QString &text) { m_thinking += text; }
+
+    // Whether this block has already been announced to the caller. Kept on the
+    // block, so the client needs no per-request emission bookkeeping.
+    bool isNotified() const noexcept { return m_notified; }
+    void markNotified() noexcept { m_notified = true; }
     void setThinking(const QString &text) { m_thinking = text; }
     void setSignature(const QString &signature) { m_signature = signature; }
 
 private:
     QString m_thinking;
     QString m_signature;
+    bool m_notified = false;
 };
 
 class RedactedThinkingContent : public ContentBlock
@@ -136,8 +142,12 @@ public:
     QString signature() const { return m_signature; }
     void setSignature(const QString &signature) { m_signature = signature; }
 
+    bool isNotified() const noexcept { return m_notified; }
+    void markNotified() noexcept { m_notified = true; }
+
 private:
     QString m_signature;
+    bool m_notified = false;
 };
 
 // Ownership: caller (typically BaseMessage) takes ownership of the returned pointer.

@@ -25,6 +25,12 @@ class QTimer;
 
 namespace LLMQore::Rpc {
 
+// Notification names the session itself speaks, on both ends of the wire.
+namespace Method {
+inline constexpr const char *Cancelled = "notifications/cancelled";
+inline constexpr const char *Progress  = "notifications/progress";
+} // namespace Method
+
 class LLMQORE_EXPORT JsonRpcSession : public QObject
 {
     Q_OBJECT

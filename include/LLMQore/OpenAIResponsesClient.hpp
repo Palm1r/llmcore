@@ -9,6 +9,7 @@
 #include <QUrl>
 
 #include <LLMQore/BaseClient.hpp>
+#include <LLMQore/SSEParser.hpp>
 
 namespace LLMQore {
 
@@ -34,14 +35,15 @@ public:
         RequestMode mode = RequestMode::Streaming) override;
     RequestID ask(
         const QString &prompt, RequestMode mode = RequestMode::Streaming) override;
-    ToolSchemaFormat toolSchemaFormat() const override { return ToolSchemaFormat::OpenAIResponses; }
 
     QFuture<QList<QString>> listModels(const QString &endpoint = {}) override;
 
 protected:
-    void processData(const RequestID &id, const QByteArray &data) override;
+    [[nodiscard]] const ToolDialect &toolDialect() const override;
+    [[nodiscard]] const UsageSchema &usageSchema() const override;
+    void processSseEvent(
+        const RequestID &id, const SSEEvent &event, const QJsonObject &json) override;
     void processBufferedResponse(const RequestID &id, const QByteArray &data) override;
-    BaseMessage *messageForRequest(const RequestID &id) const override;
     void cleanupDerivedData(const RequestID &id) override;
     QJsonObject buildContinuationPayload(
         const QJsonObject &originalPayload,
@@ -50,12 +52,9 @@ protected:
     [[nodiscard]] QString parseHttpError(const HttpResponse &response) const override;
 
 private:
-    void processStreamEvent(const RequestID &id, const QString &eventType, const QJsonObject &data);
-
     static QString extractAggregatedText(const QJsonObject &responseObj);
     static QString extractReasoningText(const QJsonObject &item);
 
-    QHash<RequestID, OpenAIResponsesMessage *> m_messages;
     QHash<RequestID, QHash<QString, QString>> m_itemIdToCallId;
 };
 

@@ -1,0 +1,274 @@
+// Copyright (C) 2026 Petr Mironychev
+// SPDX-License-Identifier: MIT
+
+#include <gtest/gtest.h>
+
+#include <QCoreApplication>
+#include <QJsonArray>
+#include <QJsonObject>
+#include <QPromise>
+#include <QSignalSpy>
+
+#include <LLMQore/BaseTool.hpp>
+#include <LLMQore/OpenAIClient.hpp>
+#include <LLMQore/ToolsManager.hpp>
+
+#include "FakeHttpTransport.hpp"
+
+using namespace LLMQore;
+using LLMQoreTest::FakeHttpTransport;
+
+namespace {
+
+const int kRegisterRoundMetaTypes = []() {
+    qRegisterMetaType<TokenUsage>("LLMQore::TokenUsage");
+    qRegisterMetaType<CompletionInfo>("LLMQore::CompletionInfo");
+    qRegisterMetaType<RequestID>("LLMQore::RequestID");
+    return 0;
+}();
+
+class CountingTool : public BaseTool
+{
+    Q_OBJECT
+public:
+    using BaseTool::BaseTool;
+
+    QString id() const override { return QStringLiteral("echo"); }
+    QString displayName() const override { return QStringLiteral("Echo"); }
+    QString description() const override { return QStringLiteral("Counts its calls"); }
+    QJsonObject parametersSchema() const override { return QJsonObject{{"type", "object"}}; }
+
+    QFuture<ToolResult> executeAsync(const QJsonObject &) override
+    {
+        ++calls;
+        QPromise<ToolResult> promise;
+        QFuture<ToolResult> future = promise.future();
+        promise.start();
+        promise.addResult(ToolResult::text(QString::number(calls)));
+        promise.finish();
+        return future;
+    }
+
+    int calls = 0;
+};
+
+// One assistant turn that calls `echo` with the given tool-call id.
+QByteArray toolCallTurn(const QByteArray &toolId)
+{
+    return "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"" + toolId
+        + "\",\"function\":{\"name\":\"echo\",\"arguments\":\"{}\"}}]}}]}\n\n"
+          "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n"
+          "data: [DONE]\n\n";
+}
+
+QByteArray finalTurn(const QByteArray &text)
+{
+    return "data: {\"choices\":[{\"delta\":{\"content\":\"" + text + "\"}}]}\n\n"
+           "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"
+           "data: [DONE]\n\n";
+}
+
+// Tool completion reaches the loop through a queued QFutureWatcher signal, so
+// an outcome that sends no further request has to be waited for explicitly.
+void pump(int rounds = 20)
+{
+    for (int i = 0; i < rounds; ++i)
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
+}
+
+} // namespace
+
+TEST(ToolRounds, RepeatedToolCallIdInTheNextRoundStillExecutes)
+{
+    FakeHttpTransport transport;
+    OpenAIClient client("http://fake.local/v1", "sk-test", "gpt-test", &transport);
+    auto *tool = new CountingTool(&client);
+    client.tools()->addTool(tool);
+
+    QSignalSpy completed(&client, &BaseClient::requestCompleted);
+
+    const RequestID id = client.ask(QStringLiteral("go"));
+    ASSERT_EQ(transport.streamCount(), 1);
+
+    // The model calls the same id twice in a row -- exactly what a small local
+    // model does. A per-request dedup swallows the second call and the loop hangs.
+    transport.lastStream()->sendAll(toolCallTurn("call_same"));
+    ASSERT_TRUE(LLMQoreTest::waitForStreams(transport, 2)) << "round 1 did not continue";
+    EXPECT_EQ(client.toolRounds(id), 1);
+
+    transport.lastStream()->sendAll(toolCallTurn("call_same"));
+    ASSERT_TRUE(LLMQoreTest::waitForStreams(transport, 3))
+        << "round 2 reused the tool-call id and was swallowed by the dedup";
+    EXPECT_EQ(client.toolRounds(id), 2);
+    EXPECT_EQ(tool->calls, 2) << "the repeated id must run again in the new round";
+
+    transport.lastStream()->sendAll(finalTurn("done"));
+    ASSERT_EQ(completed.count(), 1);
+    EXPECT_EQ(client.toolRounds(id), 0) << "the ledger dies with the request";
+}
+
+TEST(ToolRounds, ResultsHandedToTheLoopAreScopedToTheClosingRound)
+{
+    FakeHttpTransport transport;
+    OpenAIClient client("http://fake.local/v1", "sk-test", "gpt-test", &transport);
+    client.tools()->addTool(new CountingTool(&client));
+
+    client.ask(QStringLiteral("go"));
+    transport.lastStream()->sendAll(toolCallTurn("call_a"));
+    ASSERT_TRUE(LLMQoreTest::waitForStreams(transport, 2));
+
+    transport.lastStream()->sendAll(toolCallTurn("call_b"));
+    ASSERT_TRUE(LLMQoreTest::waitForStreams(transport, 3));
+
+    const QJsonArray messages = transport.streamRequest(2).payload().value("messages").toArray();
+    int toolMessages = 0;
+    for (const QJsonValue &m : messages) {
+        if (m.toObject().value("role").toString() == QLatin1String("tool"))
+            ++toolMessages;
+    }
+    EXPECT_EQ(toolMessages, 2) << "history keeps both rounds";
+
+    const QJsonObject lastToolMessage = messages.last().toObject();
+    EXPECT_EQ(lastToolMessage.value("tool_call_id").toString(), QStringLiteral("call_b"))
+        << "the closing round must contribute its own result, not a replay of round 1";
+}
+
+TEST(ToolRounds, ParallelRequestsSharingAToolCallIdDoNotCollide)
+{
+    FakeHttpTransport transport;
+    OpenAIClient client("http://fake.local/v1", "sk-test", "gpt-test", &transport);
+    auto *tool = new CountingTool(&client);
+    client.tools()->addTool(tool);
+
+    const RequestID first = client.ask(QStringLiteral("one"));
+    const RequestID second = client.ask(QStringLiteral("two"));
+    ASSERT_EQ(transport.streamCount(), 2);
+    ASSERT_NE(first, second);
+
+    // Both turns use "toolu_1" -- providers mint ids per request, not globally.
+    transport.streamAt(0)->sendAll(toolCallTurn("toolu_1"));
+    transport.streamAt(1)->sendAll(toolCallTurn("toolu_1"));
+
+    ASSERT_TRUE(LLMQoreTest::waitForStreams(transport, 4))
+        << "one of the two requests never continued";
+    EXPECT_EQ(tool->calls, 2) << "each request must run its own tool call";
+    EXPECT_EQ(client.toolRounds(first), 1);
+    EXPECT_EQ(client.toolRounds(second), 1);
+}
+
+TEST(ToolRounds, RoundLimitAbortsTheRequest)
+{
+    FakeHttpTransport transport;
+    OpenAIClient client("http://fake.local/v1", "sk-test", "gpt-test", &transport);
+    client.tools()->addTool(new CountingTool(&client));
+    client.setMaxToolContinuations(2);
+
+    QSignalSpy failed(&client, &BaseClient::requestFailed);
+
+    const RequestID id = client.ask(QStringLiteral("go"));
+
+    transport.lastStream()->sendAll(toolCallTurn("call_1"));
+    ASSERT_TRUE(LLMQoreTest::waitForStreams(transport, 2));
+    transport.lastStream()->sendAll(toolCallTurn("call_2"));
+    ASSERT_TRUE(LLMQoreTest::waitForStreams(transport, 3));
+
+    transport.lastStream()->sendAll(toolCallTurn("call_3"));
+    pump();
+
+    ASSERT_EQ(failed.count(), 1);
+    EXPECT_EQ(failed.first().at(0).toString(), id);
+    EXPECT_EQ(failed.first().at(1).toString(), QStringLiteral("Tool continuation limit reached"));
+    EXPECT_EQ(transport.streamCount(), 3) << "no fourth turn may be sent";
+    EXPECT_EQ(client.toolRounds(id), 0);
+}
+
+TEST(ToolRounds, TwoLoopsAdvanceIndependently)
+{
+    FakeHttpTransport transport;
+    OpenAIClient client("http://fake.local/v1", "sk-test", "gpt-test", &transport);
+    client.tools()->addTool(new CountingTool(&client));
+    client.setMaxToolContinuations(2);
+
+    QSignalSpy failed(&client, &BaseClient::requestFailed);
+
+    const RequestID first = client.ask(QStringLiteral("one"));
+    const RequestID second = client.ask(QStringLiteral("two"));
+    ASSERT_EQ(transport.streamCount(), 2);
+
+    auto advance = [&](int streamIndex, const QByteArray &toolId, int expectedStreams) {
+        transport.streamAt(streamIndex)->sendAll(toolCallTurn(toolId));
+        ASSERT_TRUE(LLMQoreTest::waitForStreams(transport, expectedStreams));
+    };
+
+    advance(0, "a1", 3);
+    advance(1, "b1", 4);
+    EXPECT_EQ(client.toolRounds(first), 1);
+    EXPECT_EQ(client.toolRounds(second), 1);
+
+    advance(2, "a2", 5);
+    EXPECT_EQ(client.toolRounds(first), 2);
+    EXPECT_EQ(client.toolRounds(second), 1) << "the second loop must not advance with the first";
+
+    // The first loop hits its limit; the second is still free to continue.
+    transport.streamAt(4)->sendAll(toolCallTurn("a3"));
+    pump();
+    ASSERT_EQ(failed.count(), 1);
+    EXPECT_EQ(failed.first().at(0).toString(), first);
+
+    advance(3, "b2", 6);
+    EXPECT_EQ(client.toolRounds(second), 2);
+}
+
+TEST(ToolRounds, MaxToolContinuationsIsClampedToAtLeastOne)
+{
+    FakeHttpTransport transport;
+    OpenAIClient client("http://fake.local/v1", "sk-test", "gpt-test", &transport);
+
+    EXPECT_EQ(client.maxToolContinuations(), BaseClient::kDefaultMaxToolRounds);
+
+    client.setMaxToolContinuations(5);
+    EXPECT_EQ(client.maxToolContinuations(), 5);
+
+    client.setMaxToolContinuations(0);
+    EXPECT_EQ(client.maxToolContinuations(), 1);
+}
+
+TEST(ToolRounds, ASecondRequestStartsItsOwnRoundCount)
+{
+    FakeHttpTransport transport;
+    OpenAIClient client("http://fake.local/v1", "sk-test", "gpt-test", &transport);
+    client.tools()->addTool(new CountingTool(&client));
+
+    const RequestID first = client.ask(QStringLiteral("one"));
+    transport.lastStream()->sendAll(toolCallTurn("call_1"));
+    ASSERT_TRUE(LLMQoreTest::waitForStreams(transport, 2));
+    transport.lastStream()->sendAll(toolCallTurn("call_2"));
+    ASSERT_TRUE(LLMQoreTest::waitForStreams(transport, 3));
+    EXPECT_EQ(client.toolRounds(first), 2);
+
+    transport.lastStream()->sendAll(finalTurn("done"));
+    EXPECT_EQ(client.toolRounds(first), 0);
+
+    const RequestID second = client.ask(QStringLiteral("two"));
+    transport.lastStream()->sendAll(toolCallTurn("call_1"));
+    ASSERT_TRUE(LLMQoreTest::waitForStreams(transport, 5));
+    EXPECT_EQ(client.toolRounds(second), 1)
+        << "the round count is the request's own, not a counter carried over by ToolsManager";
+}
+
+TEST(ToolRounds, CancelClearsTheLedger)
+{
+    FakeHttpTransport transport;
+    OpenAIClient client("http://fake.local/v1", "sk-test", "gpt-test", &transport);
+    client.tools()->addTool(new CountingTool(&client));
+
+    const RequestID id = client.ask(QStringLiteral("go"));
+    transport.lastStream()->sendAll(toolCallTurn("call_1"));
+    ASSERT_TRUE(LLMQoreTest::waitForStreams(transport, 2));
+    EXPECT_EQ(client.toolRounds(id), 1);
+
+    client.cancelRequest(id);
+    EXPECT_EQ(client.toolRounds(id), 0);
+}
+
+#include "tst_ToolRounds.moc"

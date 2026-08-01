@@ -35,7 +35,7 @@ flowchart TD
 
     subgraph Framers["Framing helpers"]
         F1["SSEParser<br/>(SSE events)"]
-        F2["LineBuffer<br/>(JSON lines)"]
+        F2["Rpc::LineFramer<br/>(JSON lines)"]
     end
 
     subgraph Qt["Qt underlayer"]
@@ -60,9 +60,9 @@ flowchart TD
 
 The abstract seam every request passes through. It declares exactly what the layer above needs: a **buffered** send returning a future of `HttpResponse`, a **streaming** `openStream` returning an `HttpStreamHandle`, and the transfer timeout. Nothing else -- proxies, network managers, and reply objects belong to implementations.
 
-`BaseClient` takes an `HttpTransport *` as an optional constructor argument (every provider client forwards it). A null transport means "create a private `HttpClient`"; a supplied transport stays owned by the caller. That is the only injection point -- there is no setter, so the transport cannot change under an in-flight request.
+`BaseClient` takes an `HttpTransport *` as an optional constructor argument (every provider client forwards it), and `McpHttpTransport` takes one on the same terms. A null transport means "create a private `HttpClient`"; a supplied transport stays owned by the caller. That is the only injection point -- there is no setter, so the transport cannot change under an in-flight request.
 
-Tests use it to drive provider clients end to end without a socket: `tests/FakeHttpTransport.hpp` records the outgoing `QNetworkRequest` and body, and hands back a stream the test writes arbitrary bytes, statuses, and terminal events into.
+Tests use it to drive provider clients and MCP-over-HTTP end to end without a socket: `tests/FakeHttpTransport.hpp` records the outgoing `QNetworkRequest` and body, and hands back a stream the test writes arbitrary bytes, statuses, and terminal events into.
 
 ---
 
@@ -92,9 +92,9 @@ Used by all providers except Ollama.
 
 ---
 
-## LineBuffer
+## Rpc::LineFramer
 
-Newline-framed buffer for Ollama's JSON-lines protocol. Accepts byte chunks and returns complete lines as `QByteArray`, holding any incomplete trailing bytes across calls. Intentionally separate from `SSEParser` by design.
+Newline framing for every JSON-lines protocol in the library: Ollama's REST stream, JSON-RPC over stdio (stdout and stderr), and the stdio MCP server transport. Accepts byte chunks and returns complete lines as `QByteArray`, holding any incomplete trailing bytes across calls, stripping CRLF and skipping blank lines. Intentionally separate from `SSEParser` by design. A configurable buffer size limit (default 16 MiB) drops a runaway line that never terminates.
 
 Framing happens on bytes, never on decoded text. Both framers buffer `QByteArray` and hand raw bytes to the JSON parser, so a multi-byte UTF-8 sequence split across two network reads survives; decoding a partial chunk first would replace the split character with U+FFFD and lose it permanently.
 

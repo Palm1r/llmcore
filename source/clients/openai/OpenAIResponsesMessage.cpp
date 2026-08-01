@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Petr Mironychev
 // SPDX-License-Identifier: MIT
 
+#include <LLMQore/BaseTool.hpp>
 #include "OpenAIResponsesMessage.hpp"
 
 #include <LLMQore/Log.hpp>
@@ -8,6 +9,30 @@
 #include <QJsonArray>
 
 namespace LLMQore {
+
+namespace {
+
+class OpenAIResponsesToolDialect : public ToolDialect
+{
+public:
+    QJsonObject wrapDefinition(const BaseTool &tool) const override
+    {
+        return QJsonObject{
+            {"type", "function"},
+            {"name", tool.id()},
+            {"description", tool.description()},
+            {"parameters", tool.parametersSchema()}};
+    }
+};
+
+} // namespace
+
+const ToolDialect &OpenAIResponsesMessage::toolDialect()
+{
+    static const OpenAIResponsesToolDialect dialect;
+    return dialect;
+}
+
 
 OpenAIResponsesMessage::OpenAIResponsesMessage(QObject *parent)
     : BaseMessage(parent)
@@ -153,45 +178,28 @@ QJsonObject toResponsesInnerBlock(const ToolContent &block)
     return QJsonObject{{"type", "input_text"}, {"text", QString()}};
 }
 
-bool hasOnlyText(const ToolResult &r)
-{
-    for (const ToolContent &b : r.content) {
-        if (b.type != ToolContent::Text)
-            return false;
-    }
-    return true;
-}
-
 } // namespace
 
 QJsonArray OpenAIResponsesMessage::createToolResultItems(
     const QHash<QString, ToolResult> &toolResults) const
 {
-    QJsonArray items;
+    return mapToolResults(
+        toolResults, [](const ToolUseContent &use, const ToolResult &r, QJsonArray &out) {
+            QJsonObject item;
+            item["type"] = "function_call_output";
+            item["call_id"] = use.id();
 
-    for (const auto *toolContent : getCurrentToolUseContent()) {
-        if (!toolResults.contains(toolContent->id()))
-            continue;
+            if (r.hasOnlyText()) {
+                item["output"] = toolResultText(r);
+            } else {
+                QJsonArray blocks;
+                for (const ToolContent &block : r.content)
+                    blocks.append(toResponsesInnerBlock(block));
+                item["output"] = blocks;
+            }
 
-        const ToolResult &r = toolResults[toolContent->id()];
-
-        QJsonObject toolResultItem;
-        toolResultItem["type"] = "function_call_output";
-        toolResultItem["call_id"] = toolContent->id();
-
-        if (hasOnlyText(r)) {
-            toolResultItem["output"] = r.asText();
-        } else {
-            QJsonArray blocks;
-            for (const ToolContent &block : r.content)
-                blocks.append(toResponsesInnerBlock(block));
-            toolResultItem["output"] = blocks;
-        }
-
-        items.append(toolResultItem);
-    }
-
-    return items;
+            out.append(item);
+        });
 }
 
 QString OpenAIResponsesMessage::accumulatedText() const

@@ -4,15 +4,19 @@
 #pragma once
 
 #include <LLMQore/BaseMessage.hpp>
+#include <LLMQore/ToolDialect.hpp>
 #include <LLMQore/ToolResult.hpp>
 
 namespace LLMQore {
 
-class LLMQORE_EXPORT OpenAIResponsesMessage : public BaseMessage
+class OpenAIResponsesMessage : public BaseMessage
 {
     Q_OBJECT
 public:
     explicit OpenAIResponsesMessage(QObject *parent = nullptr);
+
+    // How this provider spells tool schemas on the way out.
+    static const ToolDialect &toolDialect();
 
     void handleContentDelta(const QString &text);
     void handleToolCallStart(const QString &callId, const QString &name);
@@ -22,6 +26,8 @@ public:
     void handleReasoningDelta(const QString &itemId, const QString &text);
     void handleReasoningComplete(const QString &itemId);
     void handleStatus(const QString &status);
+
+    QString stopReason() const override { return m_status; }
 
     QList<QJsonObject> toItemsFormat() const;
     QJsonArray createToolResultItems(const QHash<QString, ToolResult> &toolResults) const;

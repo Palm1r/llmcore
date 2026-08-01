@@ -17,11 +17,10 @@ enable_testing()
 add_executable(LLMQoreUnitTests
     main.cpp
     tst_ContentBlocks.cpp
-    tst_LineBuffer.cpp
     tst_SSEParser.cpp
     tst_ToolsManager.cpp
     tst_ToolHandler.cpp
-    tst_ToolLoopRunner.cpp
+    tst_ToolRounds.cpp
     tst_ClaudeMessage.cpp
     tst_OpenAIMessage.cpp
     tst_OpenAIResponsesMessage.cpp
@@ -46,6 +45,7 @@ add_executable(LLMQoreUnitTests
     tst_ClientTransport.cpp
     tst_RequestHeaders.cpp
     tst_ThinkingBlocks.cpp
+    tst_ReviewRegressions.cpp
 )
 
 set_target_properties(LLMQoreUnitTests PROPERTIES

@@ -6,7 +6,9 @@
 #include <QJsonArray>
 #include <QJsonObject>
 
+#include <LLMQore/McpProvisioning.hpp>
 #include <LLMQore/McpTypes.hpp>
+#include <LLMQore/RpcStdioTransport.hpp>
 
 using namespace LLMQore::Mcp;
 
@@ -435,4 +437,55 @@ TEST(McpTypesTest, ElicitResultDeclineOmitsContent)
     const QJsonObject obj = r.toJson();
     EXPECT_EQ(obj.value("action").toString(), "decline");
     EXPECT_FALSE(obj.contains("content"));
+}
+
+// --- provisioning: one place decides the wire spellings ---
+
+TEST(McpProvisioning, HttpSpecStringsMapToTheRightWireSpec)
+{
+    EXPECT_EQ(LLMQore::Mcp::parseHttpSpec(QString()), LLMQore::Mcp::McpHttpSpec::Latest);
+    EXPECT_EQ(LLMQore::Mcp::parseHttpSpec("2024-11-05"), LLMQore::Mcp::McpHttpSpec::V2024_11_05);
+    EXPECT_EQ(LLMQore::Mcp::parseHttpSpec("2025-03-26"), LLMQore::Mcp::McpHttpSpec::V2025_03_26);
+    EXPECT_EQ(LLMQore::Mcp::parseHttpSpec("2025-11-25"), LLMQore::Mcp::McpHttpSpec::V2025_03_26);
+    EXPECT_EQ(LLMQore::Mcp::parseHttpSpec("latest"), LLMQore::Mcp::McpHttpSpec::Latest);
+    EXPECT_EQ(LLMQore::Mcp::parseHttpSpec("nonsense"), LLMQore::Mcp::McpHttpSpec::Latest);
+}
+
+TEST(McpProvisioning, UrlEndpointBuildsAnHttpTransport)
+{
+    QObject owner;
+
+    LLMQore::Mcp::ServerEndpoint endpoint;
+    endpoint.name = "remote";
+    endpoint.url = QUrl("http://mcp.local/mcp");
+    endpoint.httpSpec = "2024-11-05";
+
+    auto *transport = LLMQore::Mcp::makeTransport(endpoint, &owner);
+    ASSERT_NE(transport, nullptr);
+
+    auto *http = qobject_cast<LLMQore::Mcp::McpHttpTransport *>(transport);
+    ASSERT_NE(http, nullptr);
+    EXPECT_EQ(http->config().endpoint, endpoint.url);
+    EXPECT_EQ(http->config().spec, LLMQore::Mcp::McpHttpSpec::V2024_11_05);
+    EXPECT_EQ(transport->parent(), &owner);
+}
+
+TEST(McpProvisioning, CommandEndpointBuildsAStdioTransport)
+{
+    QObject owner;
+
+    LLMQore::Mcp::ServerEndpoint endpoint;
+    endpoint.name = "local";
+    endpoint.command = "some-server";
+    endpoint.arguments = QStringList{"--stdio"};
+
+    auto *transport = LLMQore::Mcp::makeTransport(endpoint, &owner);
+    ASSERT_NE(transport, nullptr);
+    EXPECT_NE(qobject_cast<LLMQore::Rpc::StdioClientTransport *>(transport), nullptr);
+}
+
+TEST(McpProvisioning, AnEmptyEndpointBuildsNothing)
+{
+    QObject owner;
+    EXPECT_EQ(LLMQore::Mcp::makeTransport(LLMQore::Mcp::ServerEndpoint{}, &owner), nullptr);
 }

@@ -5,7 +5,7 @@
 
 #include <LLMQore/Log.hpp>
 
-#include "RpcLineFramer.hpp"
+#include <LLMQore/RpcLineFramer.hpp>
 
 #include <QFileInfo>
 #include <QJsonDocument>
@@ -15,7 +15,7 @@ namespace LLMQore::Rpc {
 struct StdioClientTransport::Impl
 {
     LineFramer stdoutFramer;
-    QByteArray stderrBuffer;
+    LineFramer stderrFramer;
 };
 
 StdioClientTransport::StdioClientTransport(Rpc::StdioLaunchConfig config, QObject *parent)
@@ -101,7 +101,7 @@ void StdioClientTransport::stop()
     m_process->deleteLater();
     m_process = nullptr;
     m_impl->stdoutFramer.clear();
-    m_impl->stderrBuffer.clear();
+    m_impl->stderrFramer.clear();
 
     setState(State::Disconnected);
     emit closed();
@@ -146,15 +146,8 @@ void StdioClientTransport::onReadyReadStderr()
 {
     if (!m_process)
         return;
-    m_impl->stderrBuffer.append(m_process->readAllStandardError());
-    int nl;
-    while ((nl = m_impl->stderrBuffer.indexOf('\n')) >= 0) {
-        QByteArray line = m_impl->stderrBuffer.left(nl);
-        m_impl->stderrBuffer.remove(0, nl + 1);
-        if (line.endsWith('\r'))
-            line.chop(1);
-        if (line.isEmpty())
-            continue;
+    const QByteArrayList lines = m_impl->stderrFramer.append(m_process->readAllStandardError());
+    for (const QByteArray &line : lines) {
         const QString text = QString::fromUtf8(line);
         qCInfo(llmRpcLog).noquote() << "stderr:" << text;
         emit stderrLine(text);

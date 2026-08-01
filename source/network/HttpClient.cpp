@@ -3,6 +3,7 @@
 
 #include <LLMQore/HttpClient.hpp>
 
+#include <algorithm>
 #include <memory>
 
 #include <QNetworkAccessManager>
@@ -53,6 +54,7 @@ QNetworkReply *dispatchVerb(
 struct HttpClient::Impl
 {
     QNetworkAccessManager *manager = nullptr;
+    QList<QPointer<HttpStream>> streams;
 };
 
 HttpClient::HttpClient(QObject *parent)
@@ -62,7 +64,16 @@ HttpClient::HttpClient(QObject *parent)
     m_impl->manager = new QNetworkAccessManager(this);
 }
 
-HttpClient::~HttpClient() = default;
+HttpClient::~HttpClient()
+{
+    // A stream the caller never took would otherwise leak itself and the
+    // QNetworkReply it adopted. Tearing them down here -- rather than parenting
+    // them -- keeps the manager alive for the aborts their destructors issue.
+    for (const QPointer<HttpStream> &stream : std::as_const(m_impl->streams)) {
+        if (stream)
+            delete stream.data();
+    }
+}
 
 QFuture<HttpResponse> HttpClient::send(
     const QNetworkRequest &request, QByteArrayView verb, const QByteArray &body)
@@ -121,7 +132,17 @@ HttpStream *HttpClient::openStream(
     req.setTransferTimeout(transferTimeoutMs());
 
     QNetworkReply *reply = dispatchVerb(m_impl->manager, req, verb, body);
-    return new HttpStream(reply);
+    auto *stream = new HttpStream(reply);
+
+    auto &streams = m_impl->streams;
+    streams.erase(
+        std::remove_if(
+            streams.begin(),
+            streams.end(),
+            [](const QPointer<HttpStream> &s) { return s.isNull(); }),
+        streams.end());
+    streams.append(stream);
+    return stream;
 }
 
 void HttpClient::setProxy(const QNetworkProxy &proxy)

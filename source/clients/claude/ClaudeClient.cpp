@@ -15,6 +15,17 @@
 
 namespace LLMQore {
 
+namespace {
+
+const UsageSchema kClaudeUsage{
+    QLatin1String("usage"),
+    {{}, QLatin1String("input_tokens")},
+    {{}, QLatin1String("output_tokens")},
+    {{}, QLatin1String("cache_read_input_tokens")},
+    {}};
+
+} // namespace
+
 ClaudeClient::ClaudeClient(QObject *parent)
     : ClaudeClient({}, {}, {}, parent)
 {}
@@ -32,6 +43,7 @@ ClaudeClient::ClaudeClient(
     QObject *parent)
     : BaseClient(url, apiKey, model, transport, parent)
 {
+    setLogCategory(llmClaudeLog());
     setAuthScheme({.placement = AuthScheme::Placement::Header, .name = QStringLiteral("x-api-key")});
     setHeaders(
         {{QStringLiteral("Content-Type"), QStringLiteral("application/json")},
@@ -63,84 +75,29 @@ RequestID ClaudeClient::ask(const QString &prompt, RequestMode mode)
     return sendMessage(payload, {}, mode);
 }
 
+const ToolDialect &ClaudeClient::toolDialect() const
+{
+    return ClaudeMessage::toolDialect();
+}
+
+const UsageSchema &ClaudeClient::usageSchema() const
+{
+    return kClaudeUsage;
+}
+
 QFuture<QList<QString>> ClaudeClient::listModels(const QString &endpoint)
 {
-    const QString resolved = endpoint.isEmpty() ? QStringLiteral("/v1/models") : endpoint;
-    QUrl url(m_url + resolved);
+    QUrl url = endpointUrl(endpoint, QStringLiteral("/v1/models"));
     QUrlQuery query;
     query.addQueryItem("limit", "1000");
     url.setQuery(query);
 
-    QNetworkRequest request = prepareNetworkRequest(url);
-
-    return LLMQore::compat(transport()->send(request, QByteArrayView("GET")))
-        .then(this, [](const HttpResponse &response) {
-            QList<QString> models;
-            if (!response.isSuccess()) {
-                qCDebug(llmClaudeLog).noquote()
-                    << QString("Error fetching models: HTTP %1").arg(response.statusCode);
-                return models;
-            }
-
-            QJsonObject json = QJsonDocument::fromJson(response.body).object();
-            if (json.contains("data")) {
-                QJsonArray modelArray = json["data"].toArray();
-                for (const QJsonValue &value : modelArray) {
-                    QJsonObject modelObject = value.toObject();
-                    if (modelObject.contains("id"))
-                        models.append(modelObject["id"].toString());
-                }
-            }
-            return models;
-        })
-        .onFailed(this, [](const std::exception &e) {
-            qCDebug(llmClaudeLog).noquote() << QString("Error fetching models: %1").arg(e.what());
-            return QList<QString>{};
-        });
+    return fetchModelList(url);
 }
 
 QString ClaudeClient::parseHttpError(const HttpResponse &response) const
 {
-    const QJsonDocument doc = QJsonDocument::fromJson(response.body);
-    if (doc.isObject()) {
-        const QJsonObject root = doc.object();
-        const QJsonObject error = root.value("error").toObject();
-        const QString message = error.value("message").toString();
-        const QString type = error.value("type").toString();
-        if (!message.isEmpty()) {
-            if (!type.isEmpty())
-                return QString("HTTP %1: %2 (%3)")
-                    .arg(QString::number(response.statusCode), message, type);
-            return QString("HTTP %1: %2").arg(QString::number(response.statusCode), message);
-        }
-    }
-    return BaseClient::parseHttpError(response);
-}
-
-void ClaudeClient::processData(const RequestID &id, const QByteArray &data)
-{
-    if (!hasRequest(id))
-        return;
-
-    const QList<SSEEvent> events = requestSSEParser(id).append(data);
-    for (const SSEEvent &ev : events) {
-        if (ev.data.isEmpty() || ev.data == "[DONE]")
-            continue;
-        const QJsonObject json = QJsonDocument::fromJson(ev.data).object();
-        if (!json.isEmpty())
-            processStreamEvent(id, json);
-    }
-}
-
-BaseMessage *ClaudeClient::messageForRequest(const RequestID &id) const
-{
-    return m_messages.value(id, nullptr);
-}
-
-void ClaudeClient::cleanupDerivedData(const RequestID &id)
-{
-    if (auto *msg = m_messages.take(id))
-        msg->deleteLater();
+    return parseErrorObject(response, {{{}, QStringLiteral("type")}});
 }
 
 QJsonObject ClaudeClient::buildContinuationPayload(
@@ -166,41 +123,33 @@ QJsonObject ClaudeClient::buildContinuationPayload(
     return request;
 }
 
-void ClaudeClient::processStreamEvent(const RequestID &id, const QJsonObject &event)
+void ClaudeClient::processSseEvent(
+    const RequestID &id, const SSEEvent &, const QJsonObject &event)
 {
     QString eventType = event["type"].toString();
 
     if (eventType == "message_stop")
         return;
 
-    ClaudeMessage *message = m_messages.value(id);
+    ClaudeMessage *message = messageAs<ClaudeMessage>(id);
     if (!message) {
-        if (eventType == "message_start") {
-            message = new ClaudeMessage(this);
-            m_messages[id] = message;
-            qCDebug(llmClaudeLog).noquote()
-                << QString("Created ClaudeMessage for request %1").arg(id);
-        } else {
+        if (eventType != "message_start") {
             qCWarning(llmClaudeLog).noquote()
                 << QString("Dropping event '%1' for request %2: no active message (missing "
                            "message_start?)")
                        .arg(eventType, id);
             return;
         }
+        message = ensureMessage<ClaudeMessage>(id);
+        qCDebug(llmClaudeLog).noquote()
+            << QString("Created ClaudeMessage for request %1").arg(id);
     }
 
     if (eventType == "message_start") {
         message->startNewContinuation();
         qCDebug(llmClaudeLog).noquote() << QString("Starting continuation for request %1").arg(id);
 
-        const QJsonObject usage = event["message"].toObject().value("usage").toObject();
-        if (!usage.isEmpty()) {
-            TokenUsage u;
-            u.promptTokens = usage.value("input_tokens").toInt();
-            u.completionTokens = usage.value("output_tokens").toInt();
-            u.cachedPromptTokens = usage.value("cache_read_input_tokens").toInt();
-            setUsage(id, u);
-        }
+        applyUsage(id, event["message"].toObject());
 
     } else if (eventType == "content_block_start") {
         int index = event["index"].toInt();
@@ -224,11 +173,7 @@ void ClaudeClient::processStreamEvent(const RequestID &id, const QJsonObject &ev
     } else if (eventType == "content_block_stop") {
         int index = event["index"].toInt();
 
-        if (auto *tc = dynamic_cast<ThinkingContent *>(message->blockAt(index))) {
-            emit thinkingBlockReceived(id, tc->thinking(), tc->signature());
-        } else if (auto *rc = dynamic_cast<RedactedThinkingContent *>(message->blockAt(index))) {
-            emit thinkingBlockReceived(id, QString(), rc->signature());
-        }
+        notifyPendingThinkingBlocks(id);
 
         message->handleContentBlockStop(index);
 
@@ -238,17 +183,7 @@ void ClaudeClient::processStreamEvent(const RequestID &id, const QJsonObject &ev
             message->handleStopReason(delta["stop_reason"].toString());
             executeToolsFromMessage(id);
         }
-        const QJsonObject usage = event.value("usage").toObject();
-        if (!usage.isEmpty()) {
-            TokenUsage u = currentUsage(id).value_or(TokenUsage{});
-            if (usage.contains("output_tokens"))
-                u.completionTokens = usage.value("output_tokens").toInt();
-            if (usage.contains("input_tokens"))
-                u.promptTokens = usage.value("input_tokens").toInt();
-            if (usage.contains("cache_read_input_tokens"))
-                u.cachedPromptTokens = usage.value("cache_read_input_tokens").toInt();
-            setUsage(id, u);
-        }
+        applyUsage(id, event);
     }
 }
 
@@ -268,8 +203,7 @@ void ClaudeClient::processBufferedResponse(const RequestID &id, const QByteArray
         return;
     }
 
-    auto *message = new ClaudeMessage(this);
-    m_messages[id] = message;
+    auto *message = ensureMessage<ClaudeMessage>(id);
     message->startNewContinuation();
 
     QJsonArray content = response["content"].toArray();
@@ -298,11 +232,9 @@ void ClaudeClient::processBufferedResponse(const RequestID &id, const QByteArray
                     QStringLiteral("signature_delta"),
                     QJsonObject{{"signature", block["signature"].toString()}});
             }
-            if (auto *tc = dynamic_cast<ThinkingContent *>(message->blockAt(i)))
-                emit thinkingBlockReceived(id, tc->thinking(), tc->signature());
+            notifyPendingThinkingBlocks(id);
         } else if (blockType == "redacted_thinking") {
-            if (auto *rc = dynamic_cast<RedactedThinkingContent *>(message->blockAt(i)))
-                emit thinkingBlockReceived(id, QString(), rc->signature());
+            notifyPendingThinkingBlocks(id);
         }
 
         message->handleContentBlockStop(i);
@@ -314,14 +246,7 @@ void ClaudeClient::processBufferedResponse(const RequestID &id, const QByteArray
         executeToolsFromMessage(id);
     }
 
-    const QJsonObject usage = response.value("usage").toObject();
-    if (!usage.isEmpty()) {
-        TokenUsage u;
-        u.promptTokens = usage.value("input_tokens").toInt();
-        u.completionTokens = usage.value("output_tokens").toInt();
-        u.cachedPromptTokens = usage.value("cache_read_input_tokens").toInt();
-        setUsage(id, u);
-    }
+    applyUsage(id, response);
 }
 
 } // namespace LLMQore

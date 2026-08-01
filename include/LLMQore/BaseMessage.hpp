@@ -3,9 +3,15 @@
 
 #pragma once
 
+#include <functional>
+
+#include <QHash>
+#include <QJsonArray>
+
 #include <LLMQore/LLMQore_global.h>
 
 #include <LLMQore/ContentBlocks.hpp>
+#include <LLMQore/ToolResult.hpp>
 
 namespace LLMQore {
 
@@ -35,6 +41,19 @@ public:
     virtual void startNewContinuation();
 
 protected:
+    // Walks this turn's tool uses, skipping any without a result, and lets the
+    // dialect append whatever the provider's wire format wants for each pair.
+    // The only thing that differs between providers is `emitFor`.
+    using ToolResultEmitter
+        = std::function<void(const ToolUseContent &, const ToolResult &, QJsonArray &)>;
+    [[nodiscard]] QJsonArray mapToolResults(
+        const QHash<QString, ToolResult> &toolResults, const ToolResultEmitter &emitFor) const;
+
+    // The text a provider sends back for one tool result. Carries
+    // `structuredContent` alongside the rendered blocks -- every builder used to
+    // drop it, so a tool's machine-readable output never reached the model.
+    [[nodiscard]] static QString toolResultText(const ToolResult &result);
+
     MessageState m_state = MessageState::Building;
     QList<ContentBlock *> m_currentBlocks;
 
