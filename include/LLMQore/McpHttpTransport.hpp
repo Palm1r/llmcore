@@ -13,7 +13,7 @@
 #include <LLMQore/RpcTransport.hpp>
 
 namespace LLMQore {
-class HttpClient;
+class HttpTransport;
 }
 
 namespace LLMQore::Mcp {
@@ -38,7 +38,7 @@ class LLMQORE_EXPORT McpHttpTransport : public Rpc::Transport
 public:
     explicit McpHttpTransport(
         HttpTransportConfig config,
-        LLMQore::HttpClient *httpClient = nullptr,
+        LLMQore::HttpTransport *transport = nullptr,
         QObject *parent = nullptr);
     ~McpHttpTransport() override;
 

@@ -60,9 +60,9 @@ flowchart TD
 
 The abstract seam every request passes through. It declares exactly what the layer above needs: a **buffered** send returning a future of `HttpResponse`, a **streaming** `openStream` returning an `HttpStreamHandle`, and the transfer timeout. Nothing else -- proxies, network managers, and reply objects belong to implementations.
 
-`BaseClient` takes an `HttpTransport *` as an optional constructor argument (every provider client forwards it). A null transport means "create a private `HttpClient`"; a supplied transport stays owned by the caller. That is the only injection point -- there is no setter, so the transport cannot change under an in-flight request.
+`BaseClient` takes an `HttpTransport *` as an optional constructor argument (every provider client forwards it), and `McpHttpTransport` takes one on the same terms. A null transport means "create a private `HttpClient`"; a supplied transport stays owned by the caller. That is the only injection point -- there is no setter, so the transport cannot change under an in-flight request.
 
-Tests use it to drive provider clients end to end without a socket: `tests/FakeHttpTransport.hpp` records the outgoing `QNetworkRequest` and body, and hands back a stream the test writes arbitrary bytes, statuses, and terminal events into.
+Tests use it to drive provider clients and MCP-over-HTTP end to end without a socket: `tests/FakeHttpTransport.hpp` records the outgoing `QNetworkRequest` and body, and hands back a stream the test writes arbitrary bytes, statuses, and terminal events into.
 
 ---
 

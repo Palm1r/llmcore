@@ -5,7 +5,7 @@
 
 #include <LLMQore/HttpClient.hpp>
 #include <LLMQore/HttpResponse.hpp>
-#include <LLMQore/HttpStream.hpp>
+#include <LLMQore/HttpTransport.hpp>
 #include <LLMQore/HttpTransportError.hpp>
 #include <LLMQore/Log.hpp>
 #include <LLMQore/SSEParser.hpp>
@@ -25,14 +25,14 @@ struct McpHttpTransport::Impl
     McpHttpTransport *q = nullptr;
     HttpTransportConfig config;
 
-    LLMQore::HttpClient *http = nullptr;
+    LLMQore::HttpTransport *http = nullptr;
     bool ownsHttp = false;
 
     bool open = false;
 
     QString sessionId;
 
-    LLMQore::HttpStream *sseStream = nullptr;
+    LLMQore::HttpStreamHandle *sseStream = nullptr;
     SSEParser sseParser;
     QUrl v2024PostEndpoint;
     QList<QJsonObject> pendingSends;
@@ -53,12 +53,12 @@ struct McpHttpTransport::Impl
         sseStream = http->openStream(req, QByteArrayView("GET"));
 
         QObject::connect(
-            sseStream, &HttpStream::chunkReceived, q, [this](const QByteArray &chunk) {
+            sseStream, &HttpStreamHandle::chunkReceived, q, [this](const QByteArray &chunk) {
                 onSseChunk(chunk);
             });
-        QObject::connect(sseStream, &HttpStream::finished, q, [this]() { onSseFinished(); });
+        QObject::connect(sseStream, &HttpStreamHandle::finished, q, [this]() { onSseFinished(); });
         QObject::connect(
-            sseStream, &HttpStream::errorOccurred, q, [this](const HttpTransportError &e) {
+            sseStream, &HttpStreamHandle::errorOccurred, q, [this](const HttpTransportError &e) {
                 const QString reason = QString("SSE stream error: %1").arg(e.message());
                 qCWarning(llmMcpLog).noquote() << reason;
                 emit q->errorOccurred(reason);
@@ -218,15 +218,15 @@ struct McpHttpTransport::Impl
 };
 
 McpHttpTransport::McpHttpTransport(
-    HttpTransportConfig config, LLMQore::HttpClient *httpClient, QObject *parent)
+    HttpTransportConfig config, LLMQore::HttpTransport *transport, QObject *parent)
     : Rpc::Transport(parent)
     , m_impl(std::make_unique<Impl>())
 {
     m_impl->q = this;
     m_impl->config = std::move(config);
 
-    if (httpClient) {
-        m_impl->http = httpClient;
+    if (transport) {
+        m_impl->http = transport;
         m_impl->ownsHttp = false;
     } else {
         m_impl->http = new LLMQore::HttpClient(this);
