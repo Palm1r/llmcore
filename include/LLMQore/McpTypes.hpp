@@ -32,6 +32,41 @@ inline constexpr const char *kKnownProtocolVersions[] = {
     kProtocolVersion2024_11_05,
 };
 
+// JSON-RPC method names (client -> server unless noted).
+namespace Method {
+inline constexpr const char *Initialize             = "initialize";
+inline constexpr const char *Ping                   = "ping";
+inline constexpr const char *ToolsList              = "tools/list";
+inline constexpr const char *ToolsCall              = "tools/call";
+inline constexpr const char *ResourcesList          = "resources/list";
+inline constexpr const char *ResourcesTemplatesList = "resources/templates/list";
+inline constexpr const char *ResourcesRead          = "resources/read";
+inline constexpr const char *ResourcesSubscribe     = "resources/subscribe";
+inline constexpr const char *ResourcesUnsubscribe   = "resources/unsubscribe";
+inline constexpr const char *PromptsList            = "prompts/list";
+inline constexpr const char *PromptsGet             = "prompts/get";
+inline constexpr const char *CompletionComplete     = "completion/complete";
+inline constexpr const char *LoggingSetLevel        = "logging/setLevel";
+// server -> client
+inline constexpr const char *RootsList              = "roots/list";
+inline constexpr const char *SamplingCreateMessage  = "sampling/createMessage";
+inline constexpr const char *ElicitationCreate      = "elicitation/create";
+// notifications
+inline constexpr const char *Initialized                 = "notifications/initialized";
+inline constexpr const char *LoggingMessage              = "notifications/message";
+inline constexpr const char *ToolsListChanged            = "notifications/tools/list_changed";
+inline constexpr const char *ResourcesListChanged        = "notifications/resources/list_changed";
+inline constexpr const char *ResourcesUpdated            = "notifications/resources/updated";
+inline constexpr const char *PromptsListChanged          = "notifications/prompts/list_changed";
+inline constexpr const char *RootsListChanged            = "notifications/roots/list_changed";
+} // namespace Method
+
+// Completion reference kinds (`completion/complete` -> `ref.type`).
+namespace RefType {
+inline constexpr const char *Prompt   = "ref/prompt";
+inline constexpr const char *Resource = "ref/resource";
+} // namespace RefType
+
 struct LLMQORE_EXPORT IconInfo
 {
     QString src;

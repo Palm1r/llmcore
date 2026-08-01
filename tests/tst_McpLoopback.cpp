@@ -882,7 +882,7 @@ TEST_F(McpLoopbackTest, RootsListRoundTripsFromServerToClient)
 
     // Server calls roots/list on the client over the same session.
     QFuture<QJsonValue> raw
-        = server.session()->sendRequest(QStringLiteral("roots/list"), QJsonObject{});
+        = server.session()->sendRequest(QLatin1String(Mcp::Method::RootsList), QJsonObject{});
     const QJsonValue value = waitForFuture(raw);
     const QJsonArray arr = value.toObject().value("roots").toArray();
     ASSERT_EQ(arr.size(), 1);

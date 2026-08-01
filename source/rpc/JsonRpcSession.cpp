@@ -54,7 +54,7 @@ JsonRpcSession::JsonRpcSession(Transport *transport, QObject *parent)
     }
 
     setNotificationHandler(
-        QStringLiteral("notifications/cancelled"), [this](const QJsonObject &params) {
+        QLatin1String(Method::Cancelled), [this](const QJsonObject &params) {
             const QJsonValue idVal = params.value("requestId");
             QString id;
             if (idVal.isString())
@@ -85,7 +85,7 @@ JsonRpcSession::JsonRpcSession(Transport *transport, QObject *parent)
         });
 
     setNotificationHandler(
-        QStringLiteral("notifications/progress"), [this](const QJsonObject &params) {
+        QLatin1String(Method::Progress), [this](const QJsonObject &params) {
             const QJsonValue tokVal = params.value("progressToken");
             QString token;
             if (tokVal.isString())
@@ -208,7 +208,7 @@ void JsonRpcSession::cancelRequest(const QString &id, const QString &reason)
     QJsonObject params{{"requestId", id}};
     if (!reason.isEmpty())
         params.insert("reason", reason);
-    sendNotification(QStringLiteral("notifications/cancelled"), params);
+    sendNotification(QLatin1String(Method::Cancelled), params);
 
     auto p = it->promise;
     if (it->timer) {
@@ -285,7 +285,7 @@ void JsonRpcSession::sendProgress(
         params.insert("total", total);
     if (!message.isEmpty())
         params.insert("message", message);
-    sendNotification(QStringLiteral("notifications/progress"), params);
+    sendNotification(QLatin1String(Method::Progress), params);
 }
 
 bool JsonRpcSession::isRequestCancelled(const QString &requestId) const
