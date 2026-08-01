@@ -141,10 +141,8 @@ QString LlamaCppClient::parseHttpError(const HttpResponse &response) const
         if (!message.isEmpty()) {
             if (!type.isEmpty())
                 return QString("HTTP %1: %2 (%3)")
-                    .arg(response.statusCode)
-                    .arg(message)
-                    .arg(type);
-            return QString("HTTP %1: %2").arg(response.statusCode).arg(message);
+                    .arg(QString::number(response.statusCode), message, type);
+            return QString("HTTP %1: %2").arg(QString::number(response.statusCode), message);
         }
     }
     return BaseClient::parseHttpError(response);
@@ -241,9 +239,21 @@ void LlamaCppClient::onStreamFinished(const RequestID &id, std::optional<QString
                 const QString content = chunk["content"].toString();
                 if (!content.isEmpty())
                     addChunk(id, content);
+
+                if (chunk["stop"].toBool()
+                    && (chunk.contains("tokens_evaluated") || chunk.contains("tokens_predicted"))) {
+                    TokenUsage u;
+                    u.promptTokens = chunk.value("tokens_evaluated").toInt();
+                    u.completionTokens = chunk.value("tokens_predicted").toInt();
+                    setUsage(id, u);
+                }
             } else if (chunk.contains("choices")) {
                 processStreamChunk(id, chunk);
             }
+
+            const QJsonObject usage = chunk.value("usage").toObject();
+            if (!usage.isEmpty())
+                setUsage(id, parseOpenAIUsage(usage));
         }
     }
 

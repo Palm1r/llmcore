@@ -42,6 +42,7 @@ add_executable(LLMQoreUnitTests
     tst_HttpRequestParser.cpp
     tst_TokenUsage.cpp
     FakeHttpTransport.hpp
+    tst_ClientLifecycle.cpp
     tst_ClientTransport.cpp
     tst_RequestHeaders.cpp
     tst_ThinkingBlocks.cpp

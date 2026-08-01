@@ -118,7 +118,7 @@ void OllamaClient::processData(const RequestID &id, const QByteArray &data)
 
         QJsonParseError error;
         QJsonDocument doc = QJsonDocument::fromJson(line, &error);
-        if (doc.isNull()) {
+        if (doc.isNull() || !doc.isObject()) {
             qCDebug(llmOllamaLog).noquote()
                 << QString("Failed to parse JSON: %1").arg(error.errorString());
             continue;

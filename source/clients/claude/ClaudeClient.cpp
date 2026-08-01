@@ -110,10 +110,8 @@ QString ClaudeClient::parseHttpError(const HttpResponse &response) const
         if (!message.isEmpty()) {
             if (!type.isEmpty())
                 return QString("HTTP %1: %2 (%3)")
-                    .arg(response.statusCode)
-                    .arg(message)
-                    .arg(type);
-            return QString("HTTP %1: %2").arg(response.statusCode).arg(message);
+                    .arg(QString::number(response.statusCode), message, type);
+            return QString("HTTP %1: %2").arg(QString::number(response.statusCode), message);
         }
     }
     return BaseClient::parseHttpError(response);

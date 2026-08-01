@@ -19,6 +19,10 @@
 
 namespace LLMQore {
 
+namespace {
+constexpr qsizetype kMaxErrorBodyBytes = 64 * 1024;
+} // namespace
+
 BaseClient::BaseClient(QObject *parent)
     : LLMQore::BaseClient({}, {}, {}, parent)
 {}
@@ -44,10 +48,11 @@ BaseClient::BaseClient(
 BaseClient::~BaseClient()
 {
     for (auto it = m_requests.begin(); it != m_requests.end(); ++it) {
-        if (it->stream) {
-            it->stream->disconnect();
-            it->stream->abort();
-        }
+        if (!it->stream)
+            continue;
+        it->stream->disconnect();
+        it->stream->abort();
+        delete it->stream;
     }
     m_requests.clear();
 }
@@ -160,11 +165,6 @@ QNetworkRequest BaseClient::prepareNetworkRequest(const QUrl &url) const
 }
 
 HttpTransport *BaseClient::transport() const
-{
-    return m_transport;
-}
-
-HttpTransport *BaseClient::httpClient() const
 {
     return m_transport;
 }
@@ -299,6 +299,17 @@ void BaseClient::startHttpRequest(
     }
 
     HttpStreamHandle *stream = m_transport->openStream(request, QByteArrayView("POST"), body);
+
+    it = m_requests.find(id);
+    if (it == m_requests.end()) {
+        delete stream;
+        return;
+    }
+    if (!stream) {
+        onStreamFinished(id, QStringLiteral("Transport returned no stream"));
+        return;
+    }
+
     it->stream = stream;
     it->errorMode = false;
     it->errorBody.clear();
@@ -323,7 +334,9 @@ void BaseClient::startHttpRequest(
         if (it == m_requests.end() || it->stream != guardedStream)
             return;
         if (it->errorMode) {
-            it->errorBody.append(chunk);
+            const qsizetype room = kMaxErrorBodyBytes - it->errorBody.size();
+            if (room > 0)
+                it->errorBody.append(chunk.left(room));
             return;
         }
         processData(id, chunk);
@@ -409,9 +422,12 @@ void BaseClient::addChunk(const RequestID &id, const QString &chunk)
         return;
 
     it->buffers.responseContent += chunk;
+    const QString accumulated = it->buffers.responseContent;
 
     emit chunkReceived(id, chunk);
-    emit accumulatedReceived(id, it->buffers.responseContent);
+    if (!m_requests.contains(id))
+        return;
+    emit accumulatedReceived(id, accumulated);
 }
 
 void BaseClient::completeRequest(const RequestID &id)
@@ -642,18 +658,19 @@ void BaseClient::notifyPendingThinkingBlocks(const RequestID &id)
     if (it == m_requests.end())
         return;
 
-    int alreadyEmitted = it->emittedThinkingBlocksCount;
-    int totalBlocks = thinkingBlocks.size();
+    const int alreadyEmitted = it->emittedThinkingBlocksCount;
+    const int totalBlocks = thinkingBlocks.size();
+
+    it->emittedThinkingBlocksCount = totalBlocks;
 
     for (int i = alreadyEmitted; i < totalBlocks; ++i) {
         auto *thinkingContent = thinkingBlocks[i];
-        if (!thinkingContent->thinking().trimmed().isEmpty()) {
-            emit thinkingBlockReceived(
-                id, thinkingContent->thinking(), thinkingContent->signature());
-        }
+        if (thinkingContent->thinking().trimmed().isEmpty())
+            continue;
+        emit thinkingBlockReceived(id, thinkingContent->thinking(), thinkingContent->signature());
+        if (!m_requests.contains(id))
+            return;
     }
-
-    it->emittedThinkingBlocksCount = totalBlocks;
 }
 
 void BaseClient::storeRequestContext(const RequestID &id, const QUrl &url, const QJsonObject &payload)
@@ -710,6 +727,7 @@ void BaseClient::cleanupRequest(const RequestID &id)
 
     if (it->stream) {
         it->stream->disconnect();
+        it->stream->abort();
         it->stream->deleteLater();
         it->stream = nullptr;
     }

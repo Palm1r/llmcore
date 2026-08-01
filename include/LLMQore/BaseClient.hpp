@@ -14,6 +14,7 @@
 #include <QMetaType>
 #include <QNetworkRequest>
 #include <QObject>
+#include <QPointer>
 #include <QString>
 #include <QUrl>
 
@@ -80,7 +81,7 @@ struct DataBuffers
 
 struct ActiveRequest
 {
-    HttpStreamHandle *stream = nullptr;
+    QPointer<HttpStreamHandle> stream;
 
     bool errorMode = false;
     QByteArray errorBody = {};
@@ -195,8 +196,7 @@ protected:
 
     virtual void onStreamFinished(const RequestID &id, std::optional<QString> error);
 
-    HttpTransport *transport() const;
-    HttpTransport *httpClient() const;
+    [[nodiscard]] HttpTransport *transport() const;
     [[nodiscard]] QNetworkRequest prepareNetworkRequest(const QUrl &url) const;
     [[nodiscard]] RequestID createRequest();
     void sendRequest(
