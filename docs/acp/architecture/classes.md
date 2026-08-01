@@ -6,7 +6,7 @@ classDiagram
         <<abstract>>
         // transport lifecycle + message I/O
         // start() stop() isOpen() send(QJsonObject)
-        // messageReceived() closed() stateChanged()
+        // messageReceived() closed() errorOccurred()
     }
 
     class StdioClientTransport {
@@ -99,7 +99,7 @@ classDiagram
 
 - **`Rpc::JsonRpcSession`** — owned by `AcpClient`. Never outlives its owner.
 - **`Rpc::Transport`** — passed via constructor, NOT reparented. Caller owns lifetime
-  (same rule as `McpTransport` today). For stdio, `AcpClient::shutdown()` stops the
+  (same rule as `Rpc::Transport` today). For stdio, `AcpClient::shutdown()` stops the
   transport, which terminates the agent child process gracefully then `kill()`s.
 - **Providers** (`AcpPermissionProvider`, `AcpFileSystemProvider`,
   `AcpTerminalProvider`) — held by `AcpClient` as `QPointer`. Caller owns; they must

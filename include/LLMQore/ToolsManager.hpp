@@ -79,9 +79,6 @@ public:
         const QJsonObject &input);
     void cleanupRequest(const QString &requestId);
 
-    void setToolExecutionDelay(int delayMs);
-    int toolExecutionDelay() const;
-
     // Asked before a tool runs. Only consulted for tools that declare
     // ToolSafety::Mutating -- a read-only tool has nothing to approve.
     using ExecutionGate = std::function<QFuture<bool>(
@@ -125,7 +122,6 @@ private:
     const ToolDialect &m_dialect;
     QHash<QString, ToolRound> m_toolRounds;
     ExecutionGate m_executionGate;
-    int m_toolExecutionDelayMs = 0;
 
     Mcp::McpToolBinder *m_binder = nullptr;
 };

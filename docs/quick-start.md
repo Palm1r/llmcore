@@ -248,13 +248,13 @@ For tools that integrate with Claude Desktop, Cursor, VS Code, etc.:
 ```cpp
 #include <LLMQore/Mcp>
 
-auto *transport = new LLMQore::McpStdioServerTransport(&app);
+auto *transport = new LLMQore::Mcp::McpStdioServerTransport(&app);
 
-LLMQore::McpServerConfig cfg;
+LLMQore::Mcp::McpServerConfig cfg;
 cfg.serverInfo = {"my-server", "1.0.0"};
 cfg.instructions = "My MCP server with custom tools";
 
-auto *server = new LLMQore::McpServer(transport, cfg, &app);
+auto *server = new LLMQore::Mcp::McpServer(transport, cfg, &app);
 server->addTool(new MyCustomTool(server));
 server->start();
 ```
@@ -270,12 +270,12 @@ LLMQore::HttpServerConfig httpCfg;
 httpCfg.port = 8080;
 httpCfg.path = "/mcp";
 
-auto *transport = new LLMQore::McpHttpServerTransport(httpCfg, &app);
+auto *transport = new LLMQore::Mcp::McpHttpServerTransport(httpCfg, &app);
 
-LLMQore::McpServerConfig cfg;
+LLMQore::Mcp::McpServerConfig cfg;
 cfg.serverInfo = {"my-server", "1.0.0"};
 
-auto *server = new LLMQore::McpServer(transport, cfg, &app);
+auto *server = new LLMQore::Mcp::McpServer(transport, cfg, &app);
 server->addTool(new MyCustomTool(server));
 server->start();
 ```
@@ -333,7 +333,7 @@ Config format (compatible with Claude Desktop):
 ### Share one MCP server across multiple LLM providers
 
 ```cpp
-auto *mcpClient = new LLMQore::McpClient(transport, {"my-app", "1.0.0"}, &app);
+auto *mcpClient = new LLMQore::Mcp::McpClient(transport, {"my-app", "1.0.0"}, &app);
 mcpClient->connectAndInitialize();
 
 claudeClient->tools()->addMcpClient(mcpClient);
@@ -343,24 +343,24 @@ openaiClient->tools()->addMcpClient(mcpClient);
 ### Use the MCP client directly
 
 ```cpp
-auto *transport = new LLMQore::McpStdioClientTransport(
+auto *transport = new LLMQore::Rpc::StdioClientTransport(
     {.program = "my-mcp-server", .arguments = {"--verbose"}}, &app);
-auto *mcpClient = new LLMQore::McpClient(transport, {"my-app", "1.0.0"}, &app);
+auto *mcpClient = new LLMQore::Mcp::McpClient(transport, {"my-app", "1.0.0"}, &app);
 
-mcpClient->connectAndInitialize().then([mcpClient]() {
+mcpClient->connectAndInitialize().then([mcpClient](const LLMQore::Mcp::InitializeResult &) {
     // List available tools
-    mcpClient->listTools().then([](QList<LLMQore::ToolInfo> tools) {
+    mcpClient->listTools().then([](const QList<LLMQore::Mcp::ToolInfo> &tools) {
         for (const auto &tool : tools)
             qDebug() << tool.name << "-" << tool.description;
     });
 
     // Call a tool directly
-    mcpClient->callTool("get_datetime", {}).then([](LLMQore::ToolResult r) {
+    mcpClient->callTool("get_datetime", {}).then([](const LLMQore::ToolResult &r) {
         qDebug() << "Result:" << r.asText();
     });
 
     // List resources
-    mcpClient->listResources().then([](QList<LLMQore::ResourceInfo> resources) {
+    mcpClient->listResources().then([](const QList<LLMQore::Mcp::ResourceInfo> &resources) {
         for (const auto &r : resources)
             qDebug() << r.uri << "-" << r.name;
     });

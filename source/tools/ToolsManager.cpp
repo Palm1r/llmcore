@@ -7,7 +7,6 @@
 #include <LLMQore/McpClient.hpp>
 #include <LLMQore/McpToolBinder.hpp>
 #include <LLMQore/ToolsManager.hpp>
-#include <QTimer>
 
 namespace LLMQore {
 
@@ -260,13 +259,7 @@ void ToolsManager::finalizePendingTool(
 
     emit toolExecutionResult(requestId, toolId, pendingTool.name, pendingTool.resultText);
 
-    if (m_toolExecutionDelayMs > 0 && !queue.queue.isEmpty()) {
-        QTimer::singleShot(m_toolExecutionDelayMs, this, [this, requestId]() {
-            executeNextTool(requestId);
-        });
-    } else {
-        executeNextTool(requestId);
-    }
+    executeNextTool(requestId);
 }
 
 QHash<QString, ToolResult> ToolsManager::getToolResults(const QString &requestId) const
@@ -282,16 +275,6 @@ QHash<QString, ToolResult> ToolsManager::getToolResults(const QString &requestId
     }
 
     return results;
-}
-
-void ToolsManager::setToolExecutionDelay(int delayMs)
-{
-    m_toolExecutionDelayMs = delayMs;
-}
-
-int ToolsManager::toolExecutionDelay() const
-{
-    return m_toolExecutionDelayMs;
 }
 
 } // namespace LLMQore

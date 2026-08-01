@@ -111,6 +111,7 @@ target_sources(LLMQore PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/mcp/BasePromptProvider.cpp
 
     # --- ACP (Agent Client Protocol, host side) ---
+    ${PROJECT_SOURCE_DIR}/include/LLMQore/Acp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/AcpTypes.hpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/AcpPermissionProvider.hpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/AcpFileSystemProvider.hpp

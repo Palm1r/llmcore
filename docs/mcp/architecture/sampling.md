@@ -10,7 +10,7 @@ Register a sampling client and payload builder on McpClient. This enables the `s
 
 1. Server sends `sampling/createMessage`.
 2. McpClient parses params, runs host builder to produce a provider-specific payload.
-3. Sends the payload through the sampling BaseClient -- completion resolves a promise, failure rejects with McpRemoteError.
+3. Sends the payload through the sampling BaseClient -- completion resolves a promise, failure rejects with Rpc::RemoteError.
 4. BaseClient streams normally. Tools execute via ToolsManager (local + MCP tools indistinguishable), up to 10 continuations.
 5. Final turn produces `{fullText, model, stopReason}`.
 6. Result is wrapped into CreateMessageResult and returned as a JSON-RPC response to the server.
@@ -21,7 +21,7 @@ Comes for free. Whatever tools are on `BaseClient`'s `ToolsManager` (local + rem
 
 ## Server side
 
-McpServer short-circuits with McpProtocolError when not initialized or client lacks `sampling` capability. Otherwise sends a normal session request.
+McpServer short-circuits with Rpc::ProtocolError when not initialized or client lacks `sampling` capability. Otherwise sends a normal session request.
 
 ## Flow over HTTP
 

@@ -68,24 +68,6 @@ void ToolRegistry::removeAllTools()
     emit toolsChanged();
 }
 
-void ToolRegistry::removeToolsIf(std::function<bool(const BaseTool *)> predicate)
-{
-    assertOwningThread(this);
-    bool changed = false;
-    for (auto it = m_tools.begin(); it != m_tools.end();) {
-        if (predicate(it.value())) {
-            qCDebug(llmToolsLog).noquote() << QString("Removed tool '%1'").arg(it.key());
-            it.value()->deleteLater();
-            it = m_tools.erase(it);
-            changed = true;
-        } else {
-            ++it;
-        }
-    }
-    if (changed)
-        emit toolsChanged();
-}
-
 BaseTool *ToolRegistry::tool(const QString &name) const
 {
     assertOwningThread(this);
