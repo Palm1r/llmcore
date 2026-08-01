@@ -21,8 +21,6 @@ target_sources(LLMQore PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/network/HttpClient.cpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/HttpRequestParser.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/network/HttpRequestParser.cpp
-    ${PROJECT_SOURCE_DIR}/include/LLMQore/LineBuffer.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/network/LineBuffer.cpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/SSEParser.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/network/SSEParser.cpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/RequestMode.hpp
@@ -76,7 +74,8 @@ target_sources(LLMQore PRIVATE
     ${PROJECT_SOURCE_DIR}/include/LLMQore/JsonRpcSession.hpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/RpcStdioTransport.hpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/RpcPipeTransport.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/rpc/RpcLineFramer.hpp
+    ${PROJECT_SOURCE_DIR}/include/LLMQore/RpcLineFramer.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/rpc/RpcLineFramer.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/rpc/RpcTransport.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/rpc/JsonRpcSession.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/rpc/RpcStdioClientTransport.cpp

@@ -35,7 +35,7 @@ flowchart TD
 
     subgraph Framers["Framing helpers"]
         F1["SSEParser<br/>(SSE events)"]
-        F2["LineBuffer<br/>(JSON lines)"]
+        F2["Rpc::LineFramer<br/>(JSON lines)"]
     end
 
     subgraph Qt["Qt underlayer"]
@@ -92,9 +92,9 @@ Used by all providers except Ollama.
 
 ---
 
-## LineBuffer
+## Rpc::LineFramer
 
-Newline-framed buffer for Ollama's JSON-lines protocol. Accepts byte chunks and returns complete lines as `QByteArray`, holding any incomplete trailing bytes across calls. Intentionally separate from `SSEParser` by design.
+Newline framing for every JSON-lines protocol in the library: Ollama's REST stream, JSON-RPC over stdio (stdout and stderr), and the stdio MCP server transport. Accepts byte chunks and returns complete lines as `QByteArray`, holding any incomplete trailing bytes across calls, stripping CRLF and skipping blank lines. Intentionally separate from `SSEParser` by design. A configurable buffer size limit (default 16 MiB) drops a runaway line that never terminates.
 
 Framing happens on bytes, never on decoded text. Both framers buffer `QByteArray` and hand raw bytes to the JSON parser, so a multi-byte UTF-8 sequence split across two network reads survives; decoding a partial chunk first would replace the split character with U+FFFD and lose it permanently.
 

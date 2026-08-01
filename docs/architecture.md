@@ -53,7 +53,7 @@ flowchart TD
 | [`architecture/clients/providers.md`](architecture/clients/providers.md) | Per-provider parser / payload shape cheatsheet. |
 | [`architecture/messages-and-content.md`](architecture/messages-and-content.md) | `BaseMessage`, `MessageState`, `ContentBlock` hierarchy. |
 | [`architecture/tools.md`](architecture/tools.md) | `BaseTool` / `ToolRegistry` / `ToolsManager` / `ToolResult`, execution queue, rich content in continuations. |
-| [`architecture/networking.md`](architecture/networking.md) | `HttpTransport` seam, `HttpClient`, `HttpStream`, `SSEParser`, `LineBuffer`, error taxonomy. |
+| [`architecture/networking.md`](architecture/networking.md) | `HttpTransport` seam, `HttpClient`, `HttpStream`, `SSEParser`, `Rpc::LineFramer`, error taxonomy. |
 
 ### MCP stack
 

@@ -12,7 +12,7 @@ The **default auth** column is what each client seeds in its constructor. None o
 | Google AI (Gemini) | `GoogleAIClient` | `GoogleMessage` | SSE (query param) | API key in query string |
 | Mistral | `MistralClient` | reuses `OpenAIMessage` | SSE | Bearer token |
 | DeepSeek | `OpenAIClient` (direct) | reuses `OpenAIMessage` | SSE | Bearer token |
-| Ollama | `OllamaClient` | `OllamaMessage` | JSON-lines (`LineBuffer`) | Bearer token (optional) |
+| Ollama | `OllamaClient` | `OllamaMessage` | JSON-lines (`Rpc::LineFramer`) | Bearer token (optional) |
 | llama.cpp | `LlamaCppClient` | reuses `OpenAIMessage` | SSE | Bearer token (optional) |
 
 ---
@@ -47,7 +47,7 @@ OpenAI-compatible with no dedicated client class -- instantiate `OpenAIClient` d
 
 ## Ollama (`source/clients/ollama/`)
 
-Uses JSON-lines framing instead of SSE, processed through `LineBuffer`. Each line is a complete JSON object with a done flag. Defaults to `/api/chat`; pass `/api/generate` as the `endpoint` argument to `sendMessage` when building a prompt-based generation payload. Tool results are text-only. Auth is optional. Streaming is enabled by default; buffered mode disables it in the payload.
+Uses JSON-lines framing instead of SSE, processed through `Rpc::LineFramer`. Each line is a complete JSON object with a done flag. Defaults to `/api/chat`; pass `/api/generate` as the `endpoint` argument to `sendMessage` when building a prompt-based generation payload. Tool results are text-only. Auth is optional. Streaming is enabled by default; buffered mode disables it in the payload.
 
 ## llama.cpp (`source/clients/llamacpp/`)
 

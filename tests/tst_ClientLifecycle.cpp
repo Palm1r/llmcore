@@ -6,12 +6,14 @@
 #include <memory>
 
 #include <QCoreApplication>
+#include <QJsonDocument>
 #include <QJsonObject>
 #include <QSignalSpy>
 
-#include <LLMQore/LineBuffer.hpp>
 #include <LLMQore/LlamaCppClient.hpp>
+#include <LLMQore/OllamaClient.hpp>
 #include <LLMQore/OpenAIClient.hpp>
+#include <LLMQore/RpcLineFramer.hpp>
 
 #include "FakeHttpTransport.hpp"
 
@@ -124,15 +126,43 @@ TEST(ClientLifecycle, LlamaCppKeepsUsageWhenStreamEndsWithoutBlankLine)
     EXPECT_EQ(info.usage->completionTokens, 22);
 }
 
-TEST(ClientLifecycle, LineBufferDropsUnterminatedRunawayBuffer)
+TEST(ClientLifecycle, LineFramerDropsUnterminatedRunawayBuffer)
 {
-    LineBuffer buffer;
-    buffer.setMaxBufferBytes(1024);
+    Rpc::LineFramer framer;
+    framer.setMaxBufferBytes(1024);
 
-    const QByteArrayList none = buffer.processData(QByteArray(4096, 'x'));
+    const QByteArrayList none = framer.append(QByteArray(4096, 'x'));
     EXPECT_TRUE(none.isEmpty());
-    EXPECT_FALSE(buffer.hasIncompleteData()) << "runaway buffer with no newline must be dropped";
+    EXPECT_FALSE(framer.hasIncompleteData()) << "runaway buffer with no newline must be dropped";
 
-    const QByteArrayList lines = buffer.processData("a\nb\n");
+    const QByteArrayList lines = framer.append("a\nb\n");
     EXPECT_EQ(lines, (QByteArrayList{"a", "b"}));
+}
+
+TEST(ClientLifecycle, OllamaStreamKeepsMultibyteTextSplitAcrossChunks)
+{
+    const QString reply = QStringLiteral("Привет 🙂 мир");
+    const QByteArray line
+        = QJsonDocument(
+              QJsonObject{{"message", QJsonObject{{"content", reply}}}, {"done", false}})
+              .toJson(QJsonDocument::Compact)
+        + "\n";
+
+    for (int split = 1; split < line.size(); ++split) {
+        FakeHttpTransport transport;
+        OllamaClient client("http://fake.local", "", "llama-test", &transport);
+
+        QSignalSpy completed(&client, &BaseClient::requestCompleted);
+        client.ask(QStringLiteral("hi"));
+        ASSERT_EQ(transport.streamCount(), 1) << "split at byte " << split;
+
+        auto *stream = transport.lastStream();
+        stream->sendHeaders(200);
+        stream->sendChunk(line.left(split));
+        stream->sendChunk(line.mid(split));
+        stream->sendFinished();
+
+        ASSERT_EQ(completed.count(), 1) << "split at byte " << split;
+        EXPECT_EQ(completed.at(0).at(1).toString(), reply) << "split at byte " << split;
+    }
 }

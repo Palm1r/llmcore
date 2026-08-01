@@ -22,8 +22,8 @@
 #include <LLMQore/LLMQore_global.h>
 
 #include <LLMQore/BaseMessage.hpp>
-#include <LLMQore/LineBuffer.hpp>
 #include <LLMQore/RequestMode.hpp>
+#include <LLMQore/RpcLineFramer.hpp>
 #include <LLMQore/SSEParser.hpp>
 #include <LLMQore/ToolResult.hpp>
 #include <LLMQore/ToolSchemaFormat.hpp>
@@ -67,13 +67,13 @@ struct LLMQORE_EXPORT CompletionInfo
 
 struct DataBuffers
 {
-    LineBuffer lineBuffer;
+    Rpc::LineFramer lineFramer;
     SSEParser sseParser;
     QString responseContent;
 
     void clear()
     {
-        lineBuffer.clear();
+        lineFramer.clear();
         sseParser.clear();
         responseContent.clear();
     }
@@ -222,7 +222,7 @@ protected:
     void storeRequestContext(const RequestID &id, const QUrl &url, const QJsonObject &payload);
 
     bool hasRequest(const RequestID &id) const noexcept;
-    LineBuffer &requestLineBuffer(const RequestID &id);
+    Rpc::LineFramer &requestLineFramer(const RequestID &id);
     SSEParser &requestSSEParser(const RequestID &id);
     QString responseContent(const RequestID &id) const;
     void setResponseContent(const RequestID &id, const QString &content);

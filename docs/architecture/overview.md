@@ -33,7 +33,7 @@ flowchart TD
         HT["HttpTransport<br/><small>injectable transport seam</small>"]
         HC["HttpClient<br/><small>async HTTP transport</small>"]
         HS["HttpStreamHandle / HttpStream<br/><small>streaming reply handle</small>"]
-        SSE["SSEParser + LineBuffer<br/><small>event-stream framing</small>"]
+        SSE["SSEParser + Rpc::LineFramer<br/><small>event-stream framing</small>"]
     end
 
     subgraph MCP["MCP stack (optional)"]
@@ -76,7 +76,7 @@ include/LLMQore/
 ├── HttpResponse.hpp             ← buffered reply value
 ├── HttpTransportError.hpp       ← typed transport error
 ├── SSEParser.hpp                ← Server-Sent Events framer
-├── LineBuffer.hpp               ← JSON-lines framer (Ollama)
+├── RpcLineFramer.hpp            ← JSON-lines framer (Ollama, JSON-RPC stdio)
 ├── ToolRegistry.hpp             ← tool storage base class
 ├── ToolsManager.hpp             ← extends ToolRegistry + schema + exec queue
 ├── ToolResult.hpp               ← rich tool result envelope
@@ -91,7 +91,7 @@ source/
 ├── core/          BaseClient.cpp, BaseMessage.cpp, Log.cpp
 ├── clients/       claude/, openai/, google/, ollama/, llamacpp/
 ├── network/       HttpTransport.cpp, HttpClient.cpp, HttpStream.cpp,
-│                  SSEParser.cpp, LineBuffer.cpp, HttpRequestParser.cpp,
+│                  SSEParser.cpp, HttpRequestParser.cpp,
 │                  HttpResponse.cpp, HttpTransportError.cpp
 ├── tools/         BaseTool.cpp, ToolRegistry.cpp, ToolsManager.cpp, ToolResult.cpp,
 │                  ToolHandler.{hpp,cpp}

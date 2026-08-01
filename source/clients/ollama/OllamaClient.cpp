@@ -9,7 +9,7 @@
 #include "OllamaMessage.hpp"
 #include <LLMQore/FutureUtils.hpp>
 #include <LLMQore/HttpTransport.hpp>
-#include <LLMQore/LineBuffer.hpp>
+#include <LLMQore/RpcLineFramer.hpp>
 #include <LLMQore/Log.hpp>
 
 namespace LLMQore {
@@ -110,7 +110,7 @@ void OllamaClient::processData(const RequestID &id, const QByteArray &data)
     if (!hasRequest(id))
         return;
 
-    const QByteArrayList lines = requestLineBuffer(id).processData(data);
+    const QByteArrayList lines = requestLineFramer(id).append(data);
 
     for (const QByteArray &line : lines) {
         if (line.trimmed().isEmpty())
@@ -167,10 +167,10 @@ QJsonObject OllamaClient::buildContinuationPayload(
 void OllamaClient::onStreamFinished(const RequestID &id, std::optional<QString> error)
 {
     if (!error && hasRequest(id)) {
-        LineBuffer &buffer = requestLineBuffer(id);
-        if (buffer.hasIncompleteData()) {
-            const QByteArray remaining = buffer.currentBuffer().trimmed();
-            buffer.clear();
+        Rpc::LineFramer &framer = requestLineFramer(id);
+        if (framer.hasIncompleteData()) {
+            const QByteArray remaining = framer.currentBuffer().trimmed();
+            framer.clear();
 
             if (!remaining.isEmpty()) {
                 QJsonParseError parseError;

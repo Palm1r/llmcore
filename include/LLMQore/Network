@@ -8,6 +8,6 @@
 #include <LLMQore/HttpStream.hpp>
 #include <LLMQore/HttpTransport.hpp>
 #include <LLMQore/HttpTransportError.hpp>
-#include <LLMQore/LineBuffer.hpp>
+#include <LLMQore/RpcLineFramer.hpp>
 #include <LLMQore/RequestMode.hpp>
 #include <LLMQore/SSEParser.hpp>

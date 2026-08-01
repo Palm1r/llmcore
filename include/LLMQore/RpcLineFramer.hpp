@@ -8,16 +8,16 @@
 
 #include <LLMQore/LLMQore_global.h>
 
-namespace LLMQore {
+namespace LLMQore::Rpc {
 
-class LLMQORE_EXPORT LineBuffer
+class LLMQORE_EXPORT LineFramer
 {
 public:
     static constexpr qsizetype kDefaultMaxBufferBytes = 16 * 1024 * 1024;
 
-    LineBuffer() = default;
+    LineFramer() = default;
 
-    QByteArrayList processData(const QByteArray &data);
+    QByteArrayList append(const QByteArray &data);
 
     void clear();
 
@@ -32,4 +32,4 @@ private:
     qsizetype m_maxBufferBytes = kDefaultMaxBufferBytes;
 };
 
-} // namespace LLMQore
+} // namespace LLMQore::Rpc

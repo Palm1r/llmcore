@@ -17,7 +17,6 @@ enable_testing()
 add_executable(LLMQoreUnitTests
     main.cpp
     tst_ContentBlocks.cpp
-    tst_LineBuffer.cpp
     tst_SSEParser.cpp
     tst_ToolsManager.cpp
     tst_ToolHandler.cpp

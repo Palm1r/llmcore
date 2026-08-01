@@ -681,7 +681,7 @@ void BaseClient::storeRequestContext(const RequestID &id, const QUrl &url, const
 
     it->url = url;
     it->originalPayload = payload;
-    it->buffers.lineBuffer.clear();
+    it->buffers.lineFramer.clear();
     it->buffers.sseParser.clear();
 }
 
@@ -690,11 +690,11 @@ bool BaseClient::hasRequest(const RequestID &id) const noexcept
     return m_requests.contains(id);
 }
 
-LineBuffer &BaseClient::requestLineBuffer(const RequestID &id)
+Rpc::LineFramer &BaseClient::requestLineFramer(const RequestID &id)
 {
     auto it = m_requests.find(id);
     Q_ASSERT(it != m_requests.end());
-    return it->buffers.lineBuffer;
+    return it->buffers.lineFramer;
 }
 
 SSEParser &BaseClient::requestSSEParser(const RequestID &id)
