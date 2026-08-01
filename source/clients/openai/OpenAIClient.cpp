@@ -40,6 +40,11 @@ OpenAIClient::OpenAIClient(
     setHeaders({{QStringLiteral("Content-Type"), QStringLiteral("application/json")}});
 }
 
+const ToolDialect &OpenAIClient::toolDialect() const
+{
+    return OpenAIMessage::toolDialect();
+}
+
 const QLoggingCategory &OpenAIClient::logCategory() const
 {
     return llmOpenAILog();
@@ -126,7 +131,12 @@ void OpenAIClient::processStreamEvent(const RequestID &id, const QJsonObject &ch
     if (chunk.contains("choices"))
         processStreamChunk(id, chunk);
 
-    const QJsonObject usage = chunk.value("usage").toObject();
+    applyUsage(id, chunk);
+}
+
+void OpenAIClient::applyUsage(const RequestID &id, const QJsonObject &responseObject)
+{
+    const QJsonObject usage = responseObject.value("usage").toObject();
     if (!usage.isEmpty())
         setUsage(id, parseOpenAIUsage(usage));
 }
@@ -265,9 +275,7 @@ void OpenAIClient::processBufferedResponse(const RequestID &id, const QByteArray
         executeToolsFromMessage(id);
     }
 
-    const QJsonObject usage = response.value("usage").toObject();
-    if (!usage.isEmpty())
-        setUsage(id, parseOpenAIUsage(usage));
+    applyUsage(id, response);
 }
 
 } // namespace LLMQore

@@ -66,6 +66,11 @@ RequestID GoogleAIClient::ask(const QString &prompt, RequestMode mode)
     return sendMessage(payload, {}, mode);
 }
 
+const ToolDialect &GoogleAIClient::toolDialect() const
+{
+    return GoogleMessage::toolDialect();
+}
+
 const QLoggingCategory &GoogleAIClient::logCategory() const
 {
     return llmGoogleLog();

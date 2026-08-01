@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Petr Mironychev
 // SPDX-License-Identifier: MIT
 
+#include <LLMQore/BaseTool.hpp>
 #include "GoogleMessage.hpp"
 
 #include <QJsonDocument>
@@ -10,6 +11,82 @@
 #include <LLMQore/Log.hpp>
 
 namespace LLMQore {
+
+namespace {
+
+QJsonValue sanitizeSchemaValueForGoogle(const QJsonValue &value);
+
+// Gemini rejects most of JSON Schema's composition and reference vocabulary.
+QJsonObject sanitizeSchemaForGoogle(const QJsonObject &schema)
+{
+    static const QSet<QString> kUnsupported{
+        QStringLiteral("$schema"),
+        QStringLiteral("$id"),
+        QStringLiteral("$ref"),
+        QStringLiteral("$defs"),
+        QStringLiteral("definitions"),
+        QStringLiteral("additionalProperties"),
+        QStringLiteral("patternProperties"),
+        QStringLiteral("unevaluatedProperties"),
+        QStringLiteral("dependencies"),
+        QStringLiteral("dependentSchemas"),
+        QStringLiteral("dependentRequired"),
+        QStringLiteral("allOf"),
+        QStringLiteral("oneOf"),
+        QStringLiteral("not"),
+        QStringLiteral("const"),
+    };
+
+    QJsonObject result;
+    for (auto it = schema.begin(); it != schema.end(); ++it) {
+        if (kUnsupported.contains(it.key()))
+            continue;
+        result.insert(it.key(), sanitizeSchemaValueForGoogle(it.value()));
+    }
+    return result;
+}
+
+QJsonValue sanitizeSchemaValueForGoogle(const QJsonValue &value)
+{
+    if (value.isObject())
+        return sanitizeSchemaForGoogle(value.toObject());
+    if (value.isArray()) {
+        QJsonArray out;
+        const QJsonArray arr = value.toArray();
+        for (const auto &item : arr)
+            out.append(sanitizeSchemaValueForGoogle(item));
+        return out;
+    }
+    return value;
+}
+
+class GoogleToolDialect : public ToolDialect
+{
+public:
+    QJsonObject wrapDefinition(const BaseTool &tool) const override
+    {
+        return QJsonObject{
+            {"name", tool.id()},
+            {"description", tool.description()},
+            {"parameters", sanitizeSchemaForGoogle(tool.parametersSchema())}};
+    }
+
+    QJsonArray finalizeDefinitions(QJsonArray definitions) const override
+    {
+        if (definitions.isEmpty())
+            return definitions;
+        return QJsonArray{QJsonObject{{"function_declarations", definitions}}};
+    }
+};
+
+} // namespace
+
+const ToolDialect &GoogleMessage::toolDialect()
+{
+    static const GoogleToolDialect dialect;
+    return dialect;
+}
+
 
 GoogleMessage::GoogleMessage(QObject *parent)
     : BaseMessage(parent)
@@ -193,34 +270,20 @@ QString buildGeminiResponseText(const ToolResult &r)
     return chunks.join('\n');
 }
 
-bool hasOnlyText(const ToolResult &r)
-{
-    for (const ToolContent &b : r.content) {
-        if (b.type != ToolContent::Text)
-            return false;
-    }
-    return true;
-}
-
 } // namespace
 
 QJsonArray GoogleMessage::createToolResultParts(
     const QHash<QString, ToolResult> &toolResults) const
 {
-    QJsonArray parts;
-
-    for (const auto *toolContent : getCurrentToolUseContent()) {
-        if (!toolResults.contains(toolContent->id()))
-            continue;
-
-        const ToolResult &r = toolResults[toolContent->id()];
+    return mapToolResults(
+        toolResults, [](const ToolUseContent &use, const ToolResult &r, QJsonArray &parts) {
         QJsonObject functionResponse;
-        functionResponse["name"] = toolContent->name();
+        functionResponse["name"] = use.name();
 
-        if (hasOnlyText(r)) {
-            functionResponse["response"] = QJsonObject{{"result", r.asText()}};
+        if (r.hasOnlyText()) {
+            functionResponse["response"] = QJsonObject{{"result", toolResultText(r)}};
             parts.append(QJsonObject{{"functionResponse", functionResponse}});
-            continue;
+            return;
         }
 
         // Binary blocks ride as sibling inlineData parts in the same function
@@ -238,9 +301,7 @@ QJsonArray GoogleMessage::createToolResultParts(
             if (!inlinePart.isEmpty())
                 parts.append(inlinePart);
         }
-    }
-
-    return parts;
+        });
 }
 
 void GoogleMessage::startNewContinuation()

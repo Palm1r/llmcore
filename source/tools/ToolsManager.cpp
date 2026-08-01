@@ -15,59 +15,10 @@
 
 namespace LLMQore {
 
-namespace {
-
-QJsonValue sanitizeSchemaValueForGoogle(const QJsonValue &value);
-
-QJsonObject sanitizeSchemaForGoogle(const QJsonObject &schema)
-{
-    static const QSet<QString> kUnsupported{
-        QStringLiteral("$schema"),
-        QStringLiteral("$id"),
-        QStringLiteral("$ref"),
-        QStringLiteral("$defs"),
-        QStringLiteral("definitions"),
-        QStringLiteral("additionalProperties"),
-        QStringLiteral("patternProperties"),
-        QStringLiteral("unevaluatedProperties"),
-        QStringLiteral("dependencies"),
-        QStringLiteral("dependentSchemas"),
-        QStringLiteral("dependentRequired"),
-        QStringLiteral("allOf"),
-        QStringLiteral("oneOf"),
-        QStringLiteral("not"),
-        QStringLiteral("const"),
-    };
-
-    QJsonObject result;
-    for (auto it = schema.begin(); it != schema.end(); ++it) {
-        if (kUnsupported.contains(it.key()))
-            continue;
-        result.insert(it.key(), sanitizeSchemaValueForGoogle(it.value()));
-    }
-    return result;
-}
-
-QJsonValue sanitizeSchemaValueForGoogle(const QJsonValue &value)
-{
-    if (value.isObject())
-        return sanitizeSchemaForGoogle(value.toObject());
-    if (value.isArray()) {
-        QJsonArray out;
-        const QJsonArray arr = value.toArray();
-        for (const auto &item : arr)
-            out.append(sanitizeSchemaValueForGoogle(item));
-        return out;
-    }
-    return value;
-}
-
-} // namespace
-
-ToolsManager::ToolsManager(ToolSchemaFormat format, QObject *parent)
+ToolsManager::ToolsManager(const ToolDialect &dialect, QObject *parent)
     : ToolRegistry(parent)
     , m_toolHandler(new ToolHandler(this))
-    , m_format(format)
+    , m_dialect(dialect)
 {
     initConnections();
 }
@@ -351,51 +302,6 @@ QJsonArray ToolsManager::getToolsDefinitions() const
     return buildToolsDefinitions();
 }
 
-QJsonObject ToolsManager::wrapDefinition(const BaseTool *tool) const
-{
-    QJsonObject schema = tool->parametersSchema();
-
-    switch (m_format) {
-    case ToolSchemaFormat::OpenAI:
-    case ToolSchemaFormat::Ollama: {
-        QJsonObject function;
-        function["name"] = tool->id();
-        function["description"] = tool->description();
-        function["parameters"] = schema;
-
-        QJsonObject wrapped;
-        wrapped["type"] = "function";
-        wrapped["function"] = function;
-        return wrapped;
-    }
-    case ToolSchemaFormat::OpenAIResponses: {
-        QJsonObject wrapped;
-        wrapped["type"] = "function";
-        wrapped["name"] = tool->id();
-        wrapped["description"] = tool->description();
-        wrapped["parameters"] = schema;
-        return wrapped;
-    }
-    case ToolSchemaFormat::Claude: {
-        QJsonObject wrapped;
-        wrapped["name"] = tool->id();
-        wrapped["description"] = tool->description();
-        wrapped["input_schema"] = schema;
-        return wrapped;
-    }
-    case ToolSchemaFormat::Google: {
-        QJsonObject functionDeclaration;
-        functionDeclaration["name"] = tool->id();
-        functionDeclaration["description"] = tool->description();
-        functionDeclaration["parameters"] = sanitizeSchemaForGoogle(schema);
-        return functionDeclaration;
-    }
-    }
-
-    Q_UNREACHABLE();
-    return {};
-}
-
 QJsonArray ToolsManager::buildToolsDefinitions() const
 {
     QJsonArray toolsArray;
@@ -406,21 +312,10 @@ QJsonArray ToolsManager::buildToolsDefinitions() const
             continue;
         }
 
-        toolsArray.append(wrapDefinition(t));
+        toolsArray.append(m_dialect.wrapDefinition(*t));
     }
 
-    if (m_format == ToolSchemaFormat::Google && !toolsArray.isEmpty()) {
-        QJsonArray functionDeclarations;
-        for (const auto &item : toolsArray)
-            functionDeclarations.append(item);
-
-        QJsonObject wrapper;
-        wrapper["function_declarations"] = functionDeclarations;
-
-        return QJsonArray{wrapper};
-    }
-
-    return toolsArray;
+    return m_dialect.finalizeDefinitions(std::move(toolsArray));
 }
 
 void ToolsManager::cleanupRequest(const QString &requestId)

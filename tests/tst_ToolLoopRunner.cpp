@@ -12,6 +12,8 @@
 #include <LLMQore/BaseMessage.hpp>
 #include <LLMQore/ToolLoopRunner.hpp>
 
+#include "clients/openai/OpenAIMessage.hpp"
+
 using namespace LLMQore;
 
 namespace {
@@ -51,7 +53,7 @@ public:
     QFuture<QList<QString>> listModels(const QString & = {}) override { return {}; }
 
 protected:
-    ToolSchemaFormat toolSchemaFormat() const override { return ToolSchemaFormat::OpenAI; }
+    const ToolDialect &toolDialect() const override { return OpenAIMessage::toolDialect(); }
     void processData(const RequestID &, const QByteArray &) override {}
     void processBufferedResponse(const RequestID &, const QByteArray &) override {}
     QJsonObject buildContinuationPayload(

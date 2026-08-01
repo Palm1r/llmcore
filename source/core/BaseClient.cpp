@@ -234,7 +234,7 @@ void BaseClient::setTransferTimeout(int milliseconds)
 ToolsManager *BaseClient::tools()
 {
     if (!m_impl->toolsManager) {
-        m_impl->toolsManager = new ToolsManager(toolSchemaFormat(), this);
+        m_impl->toolsManager = new ToolsManager(toolDialect(), this);
 
         connect(
             m_impl->toolsManager, &ToolsManager::toolExecutionStarted,

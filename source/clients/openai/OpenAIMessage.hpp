@@ -6,11 +6,12 @@
 #include <QJsonValue>
 
 #include <LLMQore/BaseMessage.hpp>
+#include <LLMQore/ToolDialect.hpp>
 #include <LLMQore/ToolResult.hpp>
 
 namespace LLMQore {
 
-class LLMQORE_EXPORT OpenAIMessage : public BaseMessage
+class OpenAIMessage : public BaseMessage
 {
     Q_OBJECT
 public:
@@ -25,6 +26,9 @@ public:
     [[nodiscard]] static ContentParts splitContentParts(const QJsonValue &content);
 
     explicit OpenAIMessage(QObject *parent = nullptr);
+
+    // How this provider spells tool schemas on the way out.
+    static const ToolDialect &toolDialect();
 
     void handleContentDelta(const QString &content);
     void handleReasoningDelta(const QString &reasoning);

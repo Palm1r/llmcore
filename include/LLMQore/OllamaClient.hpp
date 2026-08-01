@@ -34,11 +34,11 @@ public:
         RequestMode mode = RequestMode::Streaming) override;
     RequestID ask(
         const QString &prompt, RequestMode mode = RequestMode::Streaming) override;
-    ToolSchemaFormat toolSchemaFormat() const override { return ToolSchemaFormat::Ollama; }
 
     QFuture<QList<QString>> listModels(const QString &endpoint = {}) override;
 
 protected:
+    [[nodiscard]] const ToolDialect &toolDialect() const override;
     void processData(const RequestID &id, const QByteArray &data) override;
     void processBufferedResponse(const RequestID &id, const QByteArray &data) override;
     void onStreamFinished(const RequestID &id, std::optional<QString> error) override;

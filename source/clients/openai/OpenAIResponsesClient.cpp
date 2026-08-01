@@ -63,6 +63,11 @@ RequestID OpenAIResponsesClient::ask(const QString &prompt, RequestMode mode)
     return sendMessage(payload, {}, mode);
 }
 
+const ToolDialect &OpenAIResponsesClient::toolDialect() const
+{
+    return OpenAIResponsesMessage::toolDialect();
+}
+
 const QLoggingCategory &OpenAIResponsesClient::logCategory() const
 {
     return llmOpenAILog();

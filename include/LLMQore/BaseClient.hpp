@@ -27,7 +27,7 @@
 #include <LLMQore/RpcLineFramer.hpp>
 #include <LLMQore/SSEParser.hpp>
 #include <LLMQore/ToolResult.hpp>
-#include <LLMQore/ToolSchemaFormat.hpp>
+#include <LLMQore/ToolDialect.hpp>
 
 namespace LLMQore {
 
@@ -149,7 +149,8 @@ signals:
         const QString &result);
 
 protected:
-    virtual ToolSchemaFormat toolSchemaFormat() const = 0;
+    // The provider's tool dialect, supplied by its message translator.
+    virtual const ToolDialect &toolDialect() const = 0;
 
     virtual void processData(const RequestID &id, const QByteArray &data) = 0;
     virtual void processBufferedResponse(const RequestID &id, const QByteArray &data) = 0;

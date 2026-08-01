@@ -17,7 +17,7 @@
 #include <LLMQore/LLMQore_global.h>
 #include <LLMQore/ToolRegistry.hpp>
 #include <LLMQore/ToolResult.hpp>
-#include <LLMQore/ToolSchemaFormat.hpp>
+#include <LLMQore/ToolDialect.hpp>
 
 namespace LLMQore::Mcp {
 class McpClient;
@@ -70,7 +70,7 @@ class LLMQORE_EXPORT ToolsManager : public ToolRegistry
     Q_OBJECT
 
 public:
-    explicit ToolsManager(ToolSchemaFormat format, QObject *parent = nullptr);
+    explicit ToolsManager(const ToolDialect &dialect, QObject *parent = nullptr);
 
     void addMcpServer(const McpServerEntry &entry);
     void loadMcpServers(const QJsonObject &config);
@@ -126,10 +126,9 @@ private:
         const QString &requestId, const QString &toolId, const ToolResult &rich, bool success);
     QHash<QString, ToolResult> getToolResults(const QString &requestId) const;
     QJsonArray buildToolsDefinitions() const;
-    QJsonObject wrapDefinition(const BaseTool *tool) const;
 
     ToolHandler *m_toolHandler;
-    ToolSchemaFormat m_format;
+    const ToolDialect &m_dialect;
     QHash<QString, ToolQueue> m_toolQueues;
     ExecutionGate m_executionGate;
     int m_toolExecutionDelayMs = 0;

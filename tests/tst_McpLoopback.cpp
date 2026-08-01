@@ -26,7 +26,8 @@
 #include <LLMQore/RpcPipeTransport.hpp>
 #include <LLMQore/McpServer.hpp>
 #include <LLMQore/JsonRpcSession.hpp>
-#include <LLMQore/ToolSchemaFormat.hpp>
+#include "clients/claude/ClaudeMessage.hpp"
+#include "clients/openai/OpenAIMessage.hpp"
 #include <LLMQore/ToolsManager.hpp>
 
 using namespace LLMQore;
@@ -364,10 +365,7 @@ public:
     }
 
 protected:
-    ToolSchemaFormat toolSchemaFormat() const override
-    {
-        return ToolSchemaFormat::OpenAI;
-    }
+    const ToolDialect &toolDialect() const override { return OpenAIMessage::toolDialect(); }
     void processData(const RequestID &, const QByteArray &) override {}
     void processBufferedResponse(const RequestID &, const QByteArray &) override {}
     QJsonObject buildContinuationPayload(
@@ -560,7 +558,7 @@ TEST_F(McpLoopbackTest, AddMcpClientRegistersToolsInToolsManager)
     server.addTool(new EchoTool(&server));
 
     McpClient client(clientTransport);
-    ToolsManager manager(ToolSchemaFormat::Claude);
+    ToolsManager manager(ClaudeMessage::toolDialect());
 
     server.start();
     waitForFuture(client.connectAndInitialize());
@@ -596,7 +594,7 @@ TEST_F(McpLoopbackTest, ToolsChangedNotificationRefreshesTools)
     server.addTool(new EchoTool(&server));
 
     McpClient client(clientTransport);
-    ToolsManager manager(ToolSchemaFormat::Claude);
+    ToolsManager manager(ClaudeMessage::toolDialect());
 
     server.start();
     waitForFuture(client.connectAndInitialize());

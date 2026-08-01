@@ -62,6 +62,11 @@ RequestID OllamaClient::ask(const QString &prompt, RequestMode mode)
     return sendMessage(payload, {}, mode);
 }
 
+const ToolDialect &OllamaClient::toolDialect() const
+{
+    return OllamaMessage::toolDialect();
+}
+
 const QLoggingCategory &OllamaClient::logCategory() const
 {
     return llmOllamaLog();

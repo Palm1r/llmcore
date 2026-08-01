@@ -63,6 +63,11 @@ RequestID ClaudeClient::ask(const QString &prompt, RequestMode mode)
     return sendMessage(payload, {}, mode);
 }
 
+const ToolDialect &ClaudeClient::toolDialect() const
+{
+    return ClaudeMessage::toolDialect();
+}
+
 const QLoggingCategory &ClaudeClient::logCategory() const
 {
     return llmClaudeLog();

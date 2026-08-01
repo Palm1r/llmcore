@@ -66,7 +66,8 @@ target_sources(LLMQore PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/tools/ToolRegistry.cpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/ToolsManager.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tools/ToolsManager.cpp
-    ${PROJECT_SOURCE_DIR}/include/LLMQore/ToolSchemaFormat.hpp
+    ${PROJECT_SOURCE_DIR}/include/LLMQore/ToolDialect.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/tools/ToolDialect.cpp
 
     # --- RPC (shared JSON-RPC layer: transport + session) ---
     ${PROJECT_SOURCE_DIR}/include/LLMQore/RpcExceptions.hpp

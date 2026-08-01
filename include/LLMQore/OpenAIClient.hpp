@@ -37,11 +37,11 @@ public:
         RequestMode mode = RequestMode::Streaming) override;
     RequestID ask(
         const QString &prompt, RequestMode mode = RequestMode::Streaming) override;
-    ToolSchemaFormat toolSchemaFormat() const override { return ToolSchemaFormat::OpenAI; }
 
     QFuture<QList<QString>> listModels(const QString &endpoint = {}) override;
 
 protected:
+    [[nodiscard]] const ToolDialect &toolDialect() const override;
     void processData(const RequestID &id, const QByteArray &data) override;
     void processBufferedResponse(const RequestID &id, const QByteArray &data) override;
     QJsonObject buildContinuationPayload(
@@ -58,6 +58,9 @@ protected:
     // One framed event. Override to recognise a provider-specific chunk shape,
     // and delegate here for anything OpenAI-compatible.
     virtual void processStreamEvent(const RequestID &id, const QJsonObject &chunk);
+
+    // Reads `usage` off any response object -- streamed chunk or buffered body.
+    void applyUsage(const RequestID &id, const QJsonObject &responseObject);
 
     // Which category the shared code logs under, so an OpenAI-compatible
     // provider still reports under its own name.

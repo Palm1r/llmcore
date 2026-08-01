@@ -13,6 +13,12 @@
 #include <LLMQore/ToolResult.hpp>
 #include <LLMQore/ToolsManager.hpp>
 
+#include "clients/claude/ClaudeMessage.hpp"
+#include "clients/google/GoogleMessage.hpp"
+#include "clients/ollama/OllamaMessage.hpp"
+#include "clients/openai/OpenAIMessage.hpp"
+#include "clients/openai/OpenAIResponsesMessage.hpp"
+
 using namespace LLMQore;
 
 class FakeTool : public BaseTool
@@ -72,7 +78,7 @@ protected:
 
 TEST_F(ToolsManagerTest, AddAndRetrieveTool)
 {
-    ToolsManager mgr(ToolSchemaFormat::OpenAI);
+    ToolsManager mgr(OpenAIMessage::toolDialect());
     auto *tool = new FakeTool("read_file", "Read File");
     mgr.addTool(tool);
 
@@ -82,14 +88,14 @@ TEST_F(ToolsManagerTest, AddAndRetrieveTool)
 
 TEST_F(ToolsManagerTest, AddNullTool)
 {
-    ToolsManager mgr(ToolSchemaFormat::OpenAI);
+    ToolsManager mgr(OpenAIMessage::toolDialect());
     mgr.addTool(nullptr);
     EXPECT_EQ(mgr.registeredTools().size(), 0);
 }
 
 TEST_F(ToolsManagerTest, RemoveTool)
 {
-    ToolsManager mgr(ToolSchemaFormat::OpenAI);
+    ToolsManager mgr(OpenAIMessage::toolDialect());
     mgr.addTool(new FakeTool("t1", "T1"));
     EXPECT_NE(mgr.tool("t1"), nullptr);
 
@@ -100,14 +106,14 @@ TEST_F(ToolsManagerTest, RemoveTool)
 
 TEST_F(ToolsManagerTest, RemoveNonexistentTool)
 {
-    ToolsManager mgr(ToolSchemaFormat::OpenAI);
+    ToolsManager mgr(OpenAIMessage::toolDialect());
     mgr.removeTool("nonexistent");
     EXPECT_EQ(mgr.registeredTools().size(), 0);
 }
 
 TEST_F(ToolsManagerTest, ReplaceExistingTool)
 {
-    ToolsManager mgr(ToolSchemaFormat::OpenAI);
+    ToolsManager mgr(OpenAIMessage::toolDialect());
     mgr.addTool(new FakeTool("t1", "Original"));
     auto *replacement = new FakeTool("t1", "Replacement");
     mgr.addTool(replacement);
@@ -118,20 +124,20 @@ TEST_F(ToolsManagerTest, ReplaceExistingTool)
 
 TEST_F(ToolsManagerTest, DisplayName_Known)
 {
-    ToolsManager mgr(ToolSchemaFormat::OpenAI);
+    ToolsManager mgr(OpenAIMessage::toolDialect());
     mgr.addTool(new FakeTool("t1", "My Tool"));
     EXPECT_EQ(mgr.displayName("t1"), "My Tool");
 }
 
 TEST_F(ToolsManagerTest, DisplayName_Unknown)
 {
-    ToolsManager mgr(ToolSchemaFormat::OpenAI);
+    ToolsManager mgr(OpenAIMessage::toolDialect());
     EXPECT_EQ(mgr.displayName("nonexistent"), "Unknown tool");
 }
 
 TEST_F(ToolsManagerTest, ToolLookup_NotFound)
 {
-    ToolsManager mgr(ToolSchemaFormat::OpenAI);
+    ToolsManager mgr(OpenAIMessage::toolDialect());
     EXPECT_EQ(mgr.tool("missing"), nullptr);
 }
 
@@ -139,24 +145,50 @@ TEST_F(ToolsManagerTest, GetToolsDefinitions_AllFormats)
 {
     auto makeTool = []() { return new FakeTool("t1", "T1"); };
 
-    ToolsManager claudeMgr(ToolSchemaFormat::Claude);
+    ToolsManager claudeMgr(ClaudeMessage::toolDialect());
     claudeMgr.addTool(makeTool());
     QJsonArray claudeDefs = claudeMgr.getToolsDefinitions();
     EXPECT_EQ(claudeDefs.size(), 1);
     EXPECT_EQ(claudeDefs[0].toObject()["name"].toString(), "t1");
     EXPECT_TRUE(claudeDefs[0].toObject().contains("input_schema"));
 
-    ToolsManager openaiMgr(ToolSchemaFormat::OpenAI);
+    ToolsManager openaiMgr(OpenAIMessage::toolDialect());
     openaiMgr.addTool(makeTool());
     QJsonArray openaiDefs = openaiMgr.getToolsDefinitions();
     EXPECT_EQ(openaiDefs.size(), 1);
     EXPECT_EQ(openaiDefs[0].toObject()["type"].toString(), "function");
 
-    ToolsManager googleMgr(ToolSchemaFormat::Google);
+    ToolsManager googleMgr(GoogleMessage::toolDialect());
     googleMgr.addTool(makeTool());
     QJsonArray googleDefs = googleMgr.getToolsDefinitions();
     EXPECT_EQ(googleDefs.size(), 1);
     EXPECT_TRUE(googleDefs[0].toObject().contains("function_declarations"));
+
+    ToolsManager ollamaMgr(OllamaMessage::toolDialect());
+    ollamaMgr.addTool(makeTool());
+    QJsonArray ollamaDefs = ollamaMgr.getToolsDefinitions();
+    ASSERT_EQ(ollamaDefs.size(), 1);
+    const QJsonObject ollamaDef = ollamaDefs[0].toObject();
+    EXPECT_EQ(ollamaDef["type"].toString(), "function");
+    EXPECT_EQ(ollamaDef["function"].toObject()["name"].toString(), "t1");
+    EXPECT_TRUE(ollamaDef["function"].toObject().contains("parameters"));
+
+    ToolsManager responsesMgr(OpenAIResponsesMessage::toolDialect());
+    responsesMgr.addTool(makeTool());
+    QJsonArray responsesDefs = responsesMgr.getToolsDefinitions();
+    ASSERT_EQ(responsesDefs.size(), 1);
+    const QJsonObject responsesDef = responsesDefs[0].toObject();
+    EXPECT_EQ(responsesDef["type"].toString(), "function");
+    EXPECT_EQ(responsesDef["name"].toString(), "t1")
+        << "the Responses shape is flat -- no nested \"function\" object";
+    EXPECT_FALSE(responsesDef.contains("function"));
+    EXPECT_TRUE(responsesDef.contains("parameters"));
+}
+
+TEST_F(ToolsManagerTest, GetToolsDefinitions_GoogleEnvelopeIsOmittedWhenEmpty)
+{
+    ToolsManager googleMgr(GoogleMessage::toolDialect());
+    EXPECT_TRUE(googleMgr.getToolsDefinitions().isEmpty());
 }
 
 TEST_F(ToolsManagerTest, GetToolsDefinitions_GoogleStripsUnsupportedSchemaKeys)
@@ -190,7 +222,7 @@ TEST_F(ToolsManagerTest, GetToolsDefinitions_GoogleStripsUnsupportedSchemaKeys)
     auto *googleTool = new FakeTool("read_file", "Read File");
     googleTool->setParametersSchema(dirtySchema);
 
-    ToolsManager googleMgr(ToolSchemaFormat::Google);
+    ToolsManager googleMgr(GoogleMessage::toolDialect());
     googleMgr.addTool(googleTool);
     QJsonArray googleDefs = googleMgr.getToolsDefinitions();
     ASSERT_EQ(googleDefs.size(), 1);
@@ -217,7 +249,7 @@ TEST_F(ToolsManagerTest, GetToolsDefinitions_GoogleStripsUnsupportedSchemaKeys)
     // Claude format must keep the schema untouched (its API accepts meta keys).
     auto *claudeTool = new FakeTool("read_file", "Read File");
     claudeTool->setParametersSchema(dirtySchema);
-    ToolsManager claudeMgr(ToolSchemaFormat::Claude);
+    ToolsManager claudeMgr(ClaudeMessage::toolDialect());
     claudeMgr.addTool(claudeTool);
     QJsonObject claudeSchema
         = claudeMgr.getToolsDefinitions()[0].toObject()["input_schema"].toObject();
@@ -227,7 +259,7 @@ TEST_F(ToolsManagerTest, GetToolsDefinitions_GoogleStripsUnsupportedSchemaKeys)
 
 TEST_F(ToolsManagerTest, GetToolsDefinitions_DisabledToolExcluded)
 {
-    ToolsManager mgr(ToolSchemaFormat::Claude);
+    ToolsManager mgr(ClaudeMessage::toolDialect());
     auto *tool = new FakeTool("t1", "T1");
     tool->setEnabled(false);
     mgr.addTool(tool);
@@ -238,7 +270,7 @@ TEST_F(ToolsManagerTest, GetToolsDefinitions_DisabledToolExcluded)
 
 TEST_F(ToolsManagerTest, ExecuteToolCall_UnknownTool)
 {
-    ToolsManager mgr(ToolSchemaFormat::OpenAI);
+    ToolsManager mgr(OpenAIMessage::toolDialect());
     QSignalSpy completeSpy(&mgr, &ToolsManager::toolExecutionComplete);
 
     mgr.executeToolCall("req-1", "tool-1", "nonexistent", {});
@@ -252,7 +284,7 @@ TEST_F(ToolsManagerTest, ExecuteToolCall_UnknownTool)
 
 TEST_F(ToolsManagerTest, ExecuteToolCall_Success)
 {
-    ToolsManager mgr(ToolSchemaFormat::OpenAI);
+    ToolsManager mgr(OpenAIMessage::toolDialect());
     mgr.addTool(new FakeTool("fake", "Fake"));
 
     QSignalSpy startSpy(&mgr, &ToolsManager::toolExecutionStarted);
@@ -272,7 +304,7 @@ TEST_F(ToolsManagerTest, ExecuteToolCall_Success)
 
 TEST_F(ToolsManagerTest, CleanupRequest)
 {
-    ToolsManager mgr(ToolSchemaFormat::OpenAI);
+    ToolsManager mgr(OpenAIMessage::toolDialect());
     mgr.addTool(new FakeTool("fake", "Fake"));
     QSignalSpy completeSpy(&mgr, &ToolsManager::toolExecutionComplete);
 
@@ -296,3 +328,57 @@ TEST_F(ToolsManagerTest, BaseTool_EnableDisable)
 }
 
 #include "tst_ToolsManager.moc"
+
+// --- structuredContent used to be dropped by every continuation builder ---
+
+namespace {
+
+ToolResult structuredResult()
+{
+    ToolResult r;
+    r.content = {ToolContent::makeText("rendered")};
+    r.structuredContent = QJsonObject{{"celsius", 21}};
+    return r;
+}
+
+} // namespace
+
+TEST(ToolResultText, CarriesStructuredContentAlongsideTheRenderedText)
+{
+    OpenAIMessage msg;
+    msg.handleToolCallStart(0, QStringLiteral("call_1"), QStringLiteral("weather"));
+    msg.handleToolCallDelta(0, QStringLiteral("{}"));
+    msg.handleToolCallComplete(0);
+
+    const QJsonArray messages = msg.createToolResultMessages({{"call_1", structuredResult()}});
+    ASSERT_EQ(messages.size(), 1);
+
+    const QString content = messages.first().toObject().value("content").toString();
+    EXPECT_TRUE(content.contains(QStringLiteral("rendered")));
+    EXPECT_TRUE(content.contains(QStringLiteral("\"celsius\":21")))
+        << "a tool's machine-readable output never reached the model: " << qPrintable(content);
+}
+
+TEST(ToolResultText, PlainResultIsUnchanged)
+{
+    OpenAIMessage msg;
+    msg.handleToolCallStart(0, QStringLiteral("call_1"), QStringLiteral("weather"));
+    msg.handleToolCallDelta(0, QStringLiteral("{}"));
+    msg.handleToolCallComplete(0);
+
+    const QJsonArray messages
+        = msg.createToolResultMessages({{"call_1", ToolResult::text("just text")}});
+    ASSERT_EQ(messages.size(), 1);
+    EXPECT_EQ(messages.first().toObject().value("content").toString(),
+              QStringLiteral("just text"));
+}
+
+TEST(ToolResultText, HasOnlyTextIsFalseWhenABlockIsBinary)
+{
+    ToolResult r;
+    r.content = {ToolContent::makeText("a"), ToolContent::makeImage("bytes", "image/png")};
+    EXPECT_FALSE(r.hasOnlyText());
+
+    EXPECT_TRUE(ToolResult::text("a").hasOnlyText());
+    EXPECT_TRUE(ToolResult::empty().hasOnlyText());
+}

@@ -121,9 +121,7 @@ void LlamaCppClient::processStreamEvent(const RequestID &id, const QJsonObject &
         return;
     }
 
-    const QJsonObject usage = chunk.value("usage").toObject();
-    if (!usage.isEmpty())
-        OpenAIClient::processStreamEvent(id, chunk);
+    applyUsage(id, chunk);
 }
 
 void LlamaCppClient::onStreamFinished(const RequestID &id, std::optional<QString> error)

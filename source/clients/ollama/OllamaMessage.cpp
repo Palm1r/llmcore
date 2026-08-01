@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Petr Mironychev
 // SPDX-License-Identifier: MIT
 
+#include <LLMQore/BaseTool.hpp>
 #include "OllamaMessage.hpp"
 #include <LLMQore/Log.hpp>
 
@@ -10,6 +11,32 @@
 #include <QRegularExpression>
 
 namespace LLMQore {
+
+namespace {
+
+class OllamaToolDialect : public ToolDialect
+{
+public:
+    QJsonObject wrapDefinition(const BaseTool &tool) const override
+    {
+        return QJsonObject{
+            {"type", "function"},
+            {"function",
+             QJsonObject{
+                 {"name", tool.id()},
+                 {"description", tool.description()},
+                 {"parameters", tool.parametersSchema()}}}};
+    }
+};
+
+} // namespace
+
+const ToolDialect &OllamaMessage::toolDialect()
+{
+    static const OllamaToolDialect dialect;
+    return dialect;
+}
+
 
 OllamaMessage::OllamaMessage(QObject *parent)
     : BaseMessage(parent)
@@ -276,24 +303,16 @@ QJsonObject OllamaMessage::toProviderFormat() const
 QJsonArray OllamaMessage::createToolResultMessages(
     const QHash<QString, ToolResult> &toolResults) const
 {
-    QJsonArray messages;
-
-    for (const auto *toolContent : getCurrentToolUseContent()) {
-        if (toolResults.contains(toolContent->id())) {
-            const QString text = toolResults[toolContent->id()].asText();
-            QJsonObject toolMessage;
-            toolMessage["role"] = "tool";
-            toolMessage["content"] = text;
-            messages.append(toolMessage);
+    return mapToolResults(
+        toolResults, [](const ToolUseContent &use, const ToolResult &r, QJsonArray &out) {
+            const QString text = toolResultText(r);
+            out.append(QJsonObject{{"role", "tool"}, {"content", text}});
 
             qCDebug(llmOllamaLog).noquote()
                 << QString("Created tool result message for tool %1 (id=%2), content length=%3")
-                       .arg(toolContent->name(), toolContent->id())
+                       .arg(use.name(), use.id())
                        .arg(text.length());
-        }
-    }
-
-    return messages;
+        });
 }
 
 bool OllamaMessage::isAccumulatingToolCall() const
