@@ -14,6 +14,17 @@
 
 namespace LLMQore {
 
+namespace {
+
+constexpr UsageSchema kOllamaUsage{
+    {},
+    {{}, QLatin1String("prompt_eval_count")},
+    {{}, QLatin1String("eval_count")},
+    {},
+    {}};
+
+} // namespace
+
 OllamaClient::OllamaClient(QObject *parent)
     : OllamaClient({}, {}, {}, parent)
 {}
@@ -66,6 +77,11 @@ RequestID OllamaClient::ask(const QString &prompt, RequestMode mode)
 const ToolDialect &OllamaClient::toolDialect() const
 {
     return OllamaMessage::toolDialect();
+}
+
+const UsageSchema &OllamaClient::usageSchema() const
+{
+    return kOllamaUsage;
 }
 
 QFuture<QList<QString>> OllamaClient::listModels(const QString &endpoint)
@@ -203,12 +219,7 @@ void OllamaClient::processStreamData(const RequestID &id, const QJsonObject &dat
 
         message->handleDone(true, data.value("done_reason").toString());
 
-        if (data.contains("prompt_eval_count") || data.contains("eval_count")) {
-            TokenUsage u;
-            u.promptTokens = data.value("prompt_eval_count").toInt();
-            u.completionTokens = data.value("eval_count").toInt();
-            setUsage(id, u);
-        }
+        applyUsage(id, data);
 
         notifyPendingThinkingBlocks(id);
         executeToolsFromMessage(id);

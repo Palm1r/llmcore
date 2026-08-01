@@ -40,6 +40,7 @@ public:
 
 protected:
     [[nodiscard]] const ToolDialect &toolDialect() const override;
+    [[nodiscard]] const UsageSchema &usageSchema() const override;
     void processSseEvent(
         const RequestID &id, const SSEEvent &event, const QJsonObject &json) override;
     void processBufferedResponse(const RequestID &id, const QByteArray &data) override;

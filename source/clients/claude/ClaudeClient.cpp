@@ -15,6 +15,17 @@
 
 namespace LLMQore {
 
+namespace {
+
+constexpr UsageSchema kClaudeUsage{
+    QLatin1String("usage"),
+    {{}, QLatin1String("input_tokens")},
+    {{}, QLatin1String("output_tokens")},
+    {{}, QLatin1String("cache_read_input_tokens")},
+    {}};
+
+} // namespace
+
 ClaudeClient::ClaudeClient(QObject *parent)
     : ClaudeClient({}, {}, {}, parent)
 {}
@@ -67,6 +78,11 @@ RequestID ClaudeClient::ask(const QString &prompt, RequestMode mode)
 const ToolDialect &ClaudeClient::toolDialect() const
 {
     return ClaudeMessage::toolDialect();
+}
+
+const UsageSchema &ClaudeClient::usageSchema() const
+{
+    return kClaudeUsage;
 }
 
 QFuture<QList<QString>> ClaudeClient::listModels(const QString &endpoint)
@@ -133,14 +149,7 @@ void ClaudeClient::processSseEvent(
         message->startNewContinuation();
         qCDebug(llmClaudeLog).noquote() << QString("Starting continuation for request %1").arg(id);
 
-        const QJsonObject usage = event["message"].toObject().value("usage").toObject();
-        if (!usage.isEmpty()) {
-            TokenUsage u;
-            u.promptTokens = usage.value("input_tokens").toInt();
-            u.completionTokens = usage.value("output_tokens").toInt();
-            u.cachedPromptTokens = usage.value("cache_read_input_tokens").toInt();
-            setUsage(id, u);
-        }
+        applyUsage(id, event["message"].toObject());
 
     } else if (eventType == "content_block_start") {
         int index = event["index"].toInt();
@@ -174,17 +183,7 @@ void ClaudeClient::processSseEvent(
             message->handleStopReason(delta["stop_reason"].toString());
             executeToolsFromMessage(id);
         }
-        const QJsonObject usage = event.value("usage").toObject();
-        if (!usage.isEmpty()) {
-            TokenUsage u = currentUsage(id).value_or(TokenUsage{});
-            if (usage.contains("output_tokens"))
-                u.completionTokens = usage.value("output_tokens").toInt();
-            if (usage.contains("input_tokens"))
-                u.promptTokens = usage.value("input_tokens").toInt();
-            if (usage.contains("cache_read_input_tokens"))
-                u.cachedPromptTokens = usage.value("cache_read_input_tokens").toInt();
-            setUsage(id, u);
-        }
+        applyUsage(id, event);
     }
 }
 
@@ -247,14 +246,7 @@ void ClaudeClient::processBufferedResponse(const RequestID &id, const QByteArray
         executeToolsFromMessage(id);
     }
 
-    const QJsonObject usage = response.value("usage").toObject();
-    if (!usage.isEmpty()) {
-        TokenUsage u;
-        u.promptTokens = usage.value("input_tokens").toInt();
-        u.completionTokens = usage.value("output_tokens").toInt();
-        u.cachedPromptTokens = usage.value("cache_read_input_tokens").toInt();
-        setUsage(id, u);
-    }
+    applyUsage(id, response);
 }
 
 } // namespace LLMQore

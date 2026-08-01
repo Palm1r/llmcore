@@ -18,6 +18,8 @@ Abstract base for every LLM provider client. Owns HTTP transport, request bookke
 
 **Thinking blocks.** `notifyPendingThinkingBlocks(id)` is the only path that emits `thinkingBlockReceived`. It walks the message's current blocks in wire order and announces each unannounced one exactly once, covering both `ThinkingContent` (text plus signature) and `RedactedThinkingContent` (signature only). The "already announced" mark lives on the block itself (`isNotified()` / `markNotified()`), i.e. in the translator -- there is no per-request counter in the client, and nothing resets across continuations because a new round produces new blocks. Providers accumulate reasoning into their message object and call the hook when a block is complete: when answer text starts arriving, and again at the finish reason.
 
+**Token accounting.** Providers never build a `TokenUsage` themselves. They hand a response object to `applyUsage(id, root)`, which reads it through the provider's `UsageSchema` and merges what it found into the turn's snapshot. A counter the object did not mention is left alone, so the second usage report of a turn -- Claude's `message_delta`, every Gemini chunk, OpenAI's final chunk -- cannot zero a field the first one set. `applyUsage` returns without touching anything when the object says nothing about usage at all, which is what keeps `CompletionInfo::usage` a `nullopt` rather than a zeroed struct. The turn's snapshot is folded into the request total at each continuation, and the total is what reaches `requestFinalized`.
+
 **Signal dispatch.** Text deltas, thinking blocks, tool start/result events, final completion, and errors are delivered as Qt signals (`chunkReceived`, `accumulatedReceived`, `thinkingBlockReceived`, `toolStarted`, `toolResultReady`, `requestCompleted`, `requestFinalized`, `requestFailed`). All signals are emitted on the `BaseClient`'s owning thread; Qt's default `AutoConnection` queues cross-thread delivery safely.
 
 ---
@@ -35,6 +37,7 @@ Public, the caller-facing surface:
 Protected, the format-facing surface:
 
 - `toolDialect()` -- the provider's `ToolDialect`, returned from its message translator (`FooMessage::toolDialect()`). This is what `ToolsManager` serializes tool definitions through. It is a method on the client rather than something read off the message object because `tools()` may be called before any request, i.e. before a translator exists.
+- `usageSchema()` -- where the provider's token counters live: the name of the container object (empty for counters at the root), and for each of the four counters an optional nesting object plus a field name. A client that reports no usage returns `kNoUsageSchema`. Being pure virtual is the point: a new provider does not compile until it says how it spells usage.
 - `processBufferedResponse(id, data)` -- a whole non-streamed body.
 - `buildContinuationPayload(originalPayload, message, toolResults)` -- the assistant turn plus the tool results, in the provider's wire format. `appendChatContinuation<FooMessage>` is the whole method for any provider whose turns are a plain `messages` array.
 
@@ -69,8 +72,8 @@ Each step re-checks that the request is still alive, because any of them can emi
 
 - `fetchModelList(url, arrayKey, idKey, idMapper)` and `endpointUrl(endpoint, defaultPath)` -- model listing without a hand-rolled `QFuture`.
 - `createRequest`, `sendRequest`, `hasRequest`, `storeRequestContext`.
-- `addChunk`, `completeRequest`, `failRequest`, `captureStopReason`, `finalizeTurn`.
-- `setUsage`, `accumulateUsage`, `currentUsage`, `totalUsage`.
+- `addChunk`, `completeRequest`, `failRequest`, `captureStopReason`.
+- `applyUsage` -- the whole of token accounting, see below.
 - `executeToolsFromMessage`, `notifyPendingThinkingBlocks`, `cleanupFullRequest`.
 
 ### Typical sendMessage pattern
@@ -123,7 +126,7 @@ Errors reach the caller through three paths:
 1. Create a new folder under `source/clients/` with the client and message translator files.
 2. Add a public header under `include/LLMQore/`, and list it in the `include/LLMQore/Clients` umbrella header.
 3. In the translator's `.cpp`, define the provider's `ToolDialect` subclass (anonymous namespace) and expose it through a static `FooMessage::toolDialect()`. Both directions of the format -- schema out, tool results back -- belong in this one file.
-4. Implement the pure virtuals: `sendMessage`, `ask`, `listModels`, `toolDialect`, `processBufferedResponse`, `buildContinuationPayload`. Seed the default `AuthScheme` and header map in the constructor -- there is no request-building hook to override.
+4. Implement the pure virtuals: `sendMessage`, `ask`, `listModels`, `toolDialect`, `usageSchema`, `processBufferedResponse`, `buildContinuationPayload`. The usage schema is a `constexpr UsageSchema` next to the client, like the dialect is next to the translator. Seed the default `AuthScheme` and header map in the constructor -- there is no request-building hook to override.
 5. Override `processSseEvent()` for the streaming path, and call `setLogCategory()` in the constructor so the shared base code logs under the new provider's name. A provider that is not SSE-framed overrides `processData()` and `flushStreamBuffers()` instead.
 6. Use `ensureMessage<FooMessage>(id)` in the stream handler; do not keep a message map in the client.
 7. Add unit tests: constructor sanity and header shape (`tst_RequestHeaders` is parameterised over every provider), the tool schema shape in `tst_ToolsManager`, model listing over `FakeHttpTransport` in `ListModels`, error rendering in `ParseHttpError`, and translator behaviour in a `tst_FooMessage` suite that needs no event loop.

@@ -42,6 +42,7 @@ public:
 
 protected:
     [[nodiscard]] const ToolDialect &toolDialect() const override;
+    [[nodiscard]] const UsageSchema &usageSchema() const override;
     void processBufferedResponse(const RequestID &id, const QByteArray &data) override;
     QJsonObject buildContinuationPayload(
         const QJsonObject &originalPayload,
@@ -51,9 +52,6 @@ protected:
 
     void processSseEvent(
         const RequestID &id, const SSEEvent &event, const QJsonObject &json) override;
-
-    // Reads `usage` off any response object -- streamed chunk or buffered body.
-    void applyUsage(const RequestID &id, const QJsonObject &responseObject);
 
 private:
     static QString takeReasoningAndText(OpenAIMessage *message, const QJsonObject &source);

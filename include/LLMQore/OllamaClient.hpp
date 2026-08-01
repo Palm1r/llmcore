@@ -39,6 +39,7 @@ public:
 
 protected:
     [[nodiscard]] const ToolDialect &toolDialect() const override;
+    [[nodiscard]] const UsageSchema &usageSchema() const override;
     void processData(const RequestID &id, const QByteArray &data) override;
     void processBufferedResponse(const RequestID &id, const QByteArray &data) override;
     void flushStreamBuffers(const RequestID &id) override;

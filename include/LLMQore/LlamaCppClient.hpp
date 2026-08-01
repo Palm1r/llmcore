@@ -45,7 +45,6 @@ protected:
 private:
     // llama.cpp's own /completion shape: bare text, no `choices` envelope.
     static bool isNativeCompletionChunk(const QJsonObject &chunk);
-    void applyNativeUsage(const RequestID &id, const QJsonObject &chunk);
 };
 
 } // namespace LLMQore

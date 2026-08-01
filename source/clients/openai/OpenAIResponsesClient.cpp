@@ -15,6 +15,17 @@
 
 namespace LLMQore {
 
+namespace {
+
+constexpr UsageSchema kResponsesUsage{
+    QLatin1String("usage"),
+    {{}, QLatin1String("input_tokens")},
+    {{}, QLatin1String("output_tokens")},
+    {QLatin1String("input_tokens_details"), QLatin1String("cached_tokens")},
+    {QLatin1String("output_tokens_details"), QLatin1String("reasoning_tokens")}};
+
+} // namespace
+
 OpenAIResponsesClient::OpenAIResponsesClient(QObject *parent)
     : OpenAIResponsesClient({}, {}, {}, parent)
 {}
@@ -67,6 +78,11 @@ RequestID OpenAIResponsesClient::ask(const QString &prompt, RequestMode mode)
 const ToolDialect &OpenAIResponsesClient::toolDialect() const
 {
     return OpenAIResponsesMessage::toolDialect();
+}
+
+const UsageSchema &OpenAIResponsesClient::usageSchema() const
+{
+    return kResponsesUsage;
 }
 
 QFuture<QList<QString>> OpenAIResponsesClient::listModels(const QString &endpoint)
@@ -218,17 +234,7 @@ void OpenAIResponsesClient::processSseEvent(
 
         message->handleStatus(statusStr);
 
-        const QJsonObject usage = responseObj.value("usage").toObject();
-        if (!usage.isEmpty()) {
-            TokenUsage u;
-            u.promptTokens = usage.value("input_tokens").toInt();
-            u.completionTokens = usage.value("output_tokens").toInt();
-            const QJsonObject itd = usage.value("input_tokens_details").toObject();
-            u.cachedPromptTokens = itd.value("cached_tokens").toInt();
-            const QJsonObject otd = usage.value("output_tokens_details").toObject();
-            u.reasoningTokens = otd.value("reasoning_tokens").toInt();
-            setUsage(id, u);
-        }
+        applyUsage(id, responseObj);
 
         notifyPendingThinkingBlocks(id);
         executeToolsFromMessage(id);
@@ -379,17 +385,7 @@ void OpenAIResponsesClient::processBufferedResponse(const RequestID &id, const Q
         executeToolsFromMessage(id);
     }
 
-    const QJsonObject usage = response.value("usage").toObject();
-    if (!usage.isEmpty()) {
-        TokenUsage u;
-        u.promptTokens = usage.value("input_tokens").toInt();
-        u.completionTokens = usage.value("output_tokens").toInt();
-        const QJsonObject itd = usage.value("input_tokens_details").toObject();
-        u.cachedPromptTokens = itd.value("cached_tokens").toInt();
-        const QJsonObject otd = usage.value("output_tokens_details").toObject();
-        u.reasoningTokens = otd.value("reasoning_tokens").toInt();
-        setUsage(id, u);
-    }
+    applyUsage(id, response);
 }
 
 } // namespace LLMQore

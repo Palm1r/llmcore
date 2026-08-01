@@ -10,6 +10,7 @@
 #include <QUrlQuery>
 #include <QUuid>
 
+#include "Usage.hpp"
 #include <LLMQore/FutureUtils.hpp>
 #include <LLMQore/HttpClient.hpp>
 #include <LLMQore/HttpTransport.hpp>
@@ -678,38 +679,19 @@ std::optional<TokenUsage> BaseClient::currentUsage(const RequestID &id) const
     return it->turnUsage;
 }
 
-std::optional<TokenUsage> BaseClient::totalUsage(const RequestID &id) const
+void BaseClient::applyUsage(const RequestID &id, const QJsonObject &root)
 {
-    auto it = m_impl->requests.find(id);
-    if (it == m_impl->requests.end())
-        return std::nullopt;
-
-    if (!it->turnUsage)
-        return it->usage;
-    if (!it->usage)
-        return it->turnUsage;
-
-    TokenUsage combined = *it->usage;
-    combined.promptTokens += it->turnUsage->promptTokens;
-    combined.completionTokens += it->turnUsage->completionTokens;
-    combined.cachedPromptTokens += it->turnUsage->cachedPromptTokens;
-    combined.reasoningTokens += it->turnUsage->reasoningTokens;
-    return combined;
+    applyUsage(id, root, usageSchema());
 }
 
-void BaseClient::accumulateUsage(const RequestID &id, const TokenUsage &delta)
+void BaseClient::applyUsage(
+    const RequestID &id, const QJsonObject &root, const UsageSchema &schema)
 {
-    Q_ASSERT_X(thread() == QThread::currentThread(), Q_FUNC_INFO,
-               "BaseClient::accumulateUsage called from non-owning thread");
-    auto it = m_impl->requests.find(id);
-    if (it == m_impl->requests.end())
+    const UsageDelta delta = parseUsage(root, schema);
+    if (delta.isEmpty())
         return;
-    if (!it->turnUsage)
-        it->turnUsage = TokenUsage{};
-    it->turnUsage->promptTokens += delta.promptTokens;
-    it->turnUsage->completionTokens += delta.completionTokens;
-    it->turnUsage->cachedPromptTokens += delta.cachedPromptTokens;
-    it->turnUsage->reasoningTokens += delta.reasoningTokens;
+
+    setUsage(id, applyTo(delta, currentUsage(id).value_or(TokenUsage{})));
 }
 
 void BaseClient::finalizeTurn(const RequestID &id)

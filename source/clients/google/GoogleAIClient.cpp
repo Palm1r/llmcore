@@ -14,6 +14,17 @@
 
 namespace LLMQore {
 
+namespace {
+
+constexpr UsageSchema kGoogleUsage{
+    QLatin1String("usageMetadata"),
+    {{}, QLatin1String("promptTokenCount")},
+    {{}, QLatin1String("candidatesTokenCount")},
+    {{}, QLatin1String("cachedContentTokenCount")},
+    {{}, QLatin1String("thoughtsTokenCount")}};
+
+} // namespace
+
 GoogleAIClient::GoogleAIClient(QObject *parent)
     : GoogleAIClient({}, {}, {}, parent)
 {}
@@ -70,6 +81,11 @@ RequestID GoogleAIClient::ask(const QString &prompt, RequestMode mode)
 const ToolDialect &GoogleAIClient::toolDialect() const
 {
     return GoogleMessage::toolDialect();
+}
+
+const UsageSchema &GoogleAIClient::usageSchema() const
+{
+    return kGoogleUsage;
 }
 
 QFuture<QList<QString>> GoogleAIClient::listModels(const QString &endpoint)
@@ -165,15 +181,7 @@ void GoogleAIClient::onStreamDrained(const RequestID &id)
 
 void GoogleAIClient::processStreamChunk(const RequestID &id, const QJsonObject &chunk)
 {
-    const QJsonObject usageMeta = chunk.value("usageMetadata").toObject();
-    if (!usageMeta.isEmpty()) {
-        TokenUsage u;
-        u.promptTokens = usageMeta.value("promptTokenCount").toInt();
-        u.completionTokens = usageMeta.value("candidatesTokenCount").toInt();
-        u.cachedPromptTokens = usageMeta.value("cachedContentTokenCount").toInt();
-        u.reasoningTokens = usageMeta.value("thoughtsTokenCount").toInt();
-        setUsage(id, u);
-    }
+    applyUsage(id, chunk);
 
     if (!chunk.contains("candidates"))
         return;

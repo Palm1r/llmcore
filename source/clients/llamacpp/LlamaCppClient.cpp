@@ -12,6 +12,17 @@
 
 namespace LLMQore {
 
+namespace {
+
+constexpr UsageSchema kLlamaCppNativeUsage{
+    {},
+    {{}, QLatin1String("tokens_evaluated")},
+    {{}, QLatin1String("tokens_predicted")},
+    {},
+    {}};
+
+} // namespace
+
 LlamaCppClient::LlamaCppClient(QObject *parent)
     : LlamaCppClient({}, {}, {}, parent)
 {}
@@ -89,17 +100,6 @@ bool LlamaCppClient::isNativeCompletionChunk(const QJsonObject &chunk)
     return chunk.contains("content") && !chunk.contains("choices");
 }
 
-void LlamaCppClient::applyNativeUsage(const RequestID &id, const QJsonObject &chunk)
-{
-    if (!chunk.contains("tokens_evaluated") && !chunk.contains("tokens_predicted"))
-        return;
-
-    TokenUsage u;
-    u.promptTokens = chunk.value("tokens_evaluated").toInt();
-    u.completionTokens = chunk.value("tokens_predicted").toInt();
-    setUsage(id, u);
-}
-
 void LlamaCppClient::processSseEvent(
     const RequestID &id, const SSEEvent &event, const QJsonObject &chunk)
 {
@@ -112,14 +112,12 @@ void LlamaCppClient::processSseEvent(
     if (!content.isEmpty())
         addChunk(id, content);
 
+    applyUsage(id, chunk, kLlamaCppNativeUsage);
+
     if (chunk["stop"].toBool()) {
-        applyNativeUsage(id, chunk);
         cleanupFullRequest(id);
         completeRequest(id);
-        return;
     }
-
-    applyUsage(id, chunk);
 }
 
 void LlamaCppClient::processBufferedResponse(const RequestID &id, const QByteArray &data)
@@ -132,7 +130,7 @@ void LlamaCppClient::processBufferedResponse(const RequestID &id, const QByteArr
         if (!content.isEmpty())
             addChunk(id, content);
 
-        applyNativeUsage(id, response);
+        applyUsage(id, response, kLlamaCppNativeUsage);
 
         cleanupFullRequest(id);
         completeRequest(id);

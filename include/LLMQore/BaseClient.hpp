@@ -28,6 +28,7 @@
 #include <LLMQore/SSEParser.hpp>
 #include <LLMQore/ToolResult.hpp>
 #include <LLMQore/ToolDialect.hpp>
+#include <LLMQore/UsageSchema.hpp>
 
 namespace LLMQore {
 
@@ -150,6 +151,10 @@ protected:
     // The provider's tool dialect, supplied by its message translator.
     virtual const ToolDialect &toolDialect() const = 0;
 
+    // How the provider spells token usage. `kNoUsageSchema` for a client that
+    // reports none.
+    virtual const UsageSchema &usageSchema() const = 0;
+
     virtual void processData(const RequestID &id, const QByteArray &data);
     virtual void processBufferedResponse(const RequestID &id, const QByteArray &data) = 0;
     virtual QJsonObject buildContinuationPayload(
@@ -266,11 +271,10 @@ protected:
 
     void captureStopReason(const RequestID &id);
 
-    void setUsage(const RequestID &id, const TokenUsage &usage);
-    void accumulateUsage(const RequestID &id, const TokenUsage &delta);
-    std::optional<TokenUsage> currentUsage(const RequestID &id) const;
-    std::optional<TokenUsage> totalUsage(const RequestID &id) const;
-    void finalizeTurn(const RequestID &id);
+    // Reads whatever `root` says about token usage and merges it into the
+    // turn's snapshot, leaving counters the response did not mention alone.
+    void applyUsage(const RequestID &id, const QJsonObject &root);
+    void applyUsage(const RequestID &id, const QJsonObject &root, const UsageSchema &schema);
 
     void executeToolsFromMessage(const RequestID &id);
     void cleanupFullRequest(const RequestID &id);
@@ -293,6 +297,10 @@ private:
     // of the surface a caller drives.
     void handleToolsCompleted(
         const RequestID &id, const QHash<QString, ToolResult> &toolResults);
+    void setUsage(const RequestID &id, const TokenUsage &usage);
+    [[nodiscard]] std::optional<TokenUsage> currentUsage(const RequestID &id) const;
+    void finalizeTurn(const RequestID &id);
+
     void continueRequest(const RequestID &id, const QJsonObject &payload);
     void abortRequest(const RequestID &id, const QString &error);
     [[nodiscard]] QJsonObject buildReplayContinuation(

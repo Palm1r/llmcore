@@ -8,13 +8,23 @@
 #include <QJsonValue>
 
 #include "OpenAIMessage.hpp"
-#include "OpenAIUsage.hpp"
 #include <LLMQore/FutureUtils.hpp>
 #include <LLMQore/HttpTransport.hpp>
 #include <LLMQore/Log.hpp>
 #include <LLMQore/SSEParser.hpp>
 
 namespace LLMQore {
+
+namespace {
+
+constexpr UsageSchema kOpenAIUsage{
+    QLatin1String("usage"),
+    {{}, QLatin1String("prompt_tokens")},
+    {{}, QLatin1String("completion_tokens")},
+    {QLatin1String("prompt_tokens_details"), QLatin1String("cached_tokens")},
+    {QLatin1String("completion_tokens_details"), QLatin1String("reasoning_tokens")}};
+
+} // namespace
 
 OpenAIClient::OpenAIClient(QObject *parent)
     : OpenAIClient({}, {}, {}, parent)
@@ -44,6 +54,11 @@ OpenAIClient::OpenAIClient(
 const ToolDialect &OpenAIClient::toolDialect() const
 {
     return OpenAIMessage::toolDialect();
+}
+
+const UsageSchema &OpenAIClient::usageSchema() const
+{
+    return kOpenAIUsage;
 }
 
 RequestID OpenAIClient::sendMessage(
@@ -96,13 +111,6 @@ void OpenAIClient::processSseEvent(
         processStreamChunk(id, chunk);
 
     applyUsage(id, chunk);
-}
-
-void OpenAIClient::applyUsage(const RequestID &id, const QJsonObject &responseObject)
-{
-    const QJsonObject usage = responseObject.value("usage").toObject();
-    if (!usage.isEmpty())
-        setUsage(id, parseOpenAIUsage(usage));
 }
 
 QJsonObject OpenAIClient::buildContinuationPayload(
