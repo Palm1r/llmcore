@@ -15,26 +15,12 @@
 #include <LLMQore/McpStdioServerTransport.hpp>
 #include <LLMQore/RpcStdioTransport.hpp>
 
+#include "TestHelpers.hpp"
+
 using namespace LLMQore;
 using namespace LLMQore::Mcp;
 
 namespace {
-
-void pumpEventLoop(int ms)
-{
-    QEventLoop loop;
-    QTimer::singleShot(ms, &loop, &QEventLoop::quit);
-    loop.exec();
-}
-
-bool waitForSignal(QSignalSpy &spy, int count, int timeoutMs = 5000)
-{
-    QElapsedTimer timer;
-    timer.start();
-    while (spy.count() < count && timer.elapsed() < timeoutMs)
-        pumpEventLoop(20);
-    return spy.count() >= count;
-}
 
 // Two QBuffer views over one byte array: the transport reads from `reader`
 // while the test appends through `writer` and pokes readyRead, emulating an
@@ -52,9 +38,11 @@ struct DevicePair
         reader.setBuffer(&inBytes);
         writer.setBuffer(&inBytes);
         out.setBuffer(&outBytes);
-        reader.open(QIODevice::ReadOnly);
-        writer.open(QIODevice::WriteOnly | QIODevice::Append);
-        out.open(QIODevice::WriteOnly);
+        const bool opened = reader.open(QIODevice::ReadOnly)
+            && writer.open(QIODevice::WriteOnly | QIODevice::Append)
+            && out.open(QIODevice::WriteOnly);
+        if (!opened)
+            ADD_FAILURE() << "failed to open QBuffer devices";
     }
 
     void feed(const QByteArray &chunk)
@@ -96,10 +84,10 @@ TEST_F(McpStdioServerTransportTest, FramesPartialChunksAcrossFeeds)
     ASSERT_TRUE(transport.isOpen());
 
     pair.feed(R"({"jsonrpc":"2.0","met)");
-    EXPECT_EQ(received.count(), 0);
+    EXPECT_EQ(received.size(), 0);
 
     pair.feed("hod\":\"ping\"}\n");
-    ASSERT_EQ(received.count(), 1);
+    ASSERT_EQ(received.size(), 1);
     const QJsonObject msg = received.takeFirst().at(0).toJsonObject();
     EXPECT_EQ(msg.value("method").toString(), "ping");
 }
@@ -113,7 +101,7 @@ TEST_F(McpStdioServerTransportTest, HandlesCrlfAndEmptyLines)
     transport.start();
     pair.feed("\r\n\n{\"id\":\"1\"}\r\n{\"id\":\"2\"}\n\r\n");
 
-    ASSERT_EQ(received.count(), 2);
+    ASSERT_EQ(received.size(), 2);
     EXPECT_EQ(received.at(0).at(0).toJsonObject().value("id").toString(), "1");
     EXPECT_EQ(received.at(1).at(0).toJsonObject().value("id").toString(), "2");
 }
@@ -127,7 +115,7 @@ TEST_F(McpStdioServerTransportTest, DropsInvalidJsonLinesAndRecovers)
     transport.start();
     pair.feed("this is not json\n{\"id\":\"ok\"}\n[1,2,3]\n");
 
-    ASSERT_EQ(received.count(), 1);
+    ASSERT_EQ(received.size(), 1);
     EXPECT_EQ(received.at(0).at(0).toJsonObject().value("id").toString(), "ok");
 }
 
@@ -140,7 +128,7 @@ TEST_F(McpStdioServerTransportTest, DrainsInputAlreadyBufferedBeforeStart)
     QSignalSpy received(&transport, &Rpc::Transport::messageReceived);
 
     transport.start();
-    ASSERT_EQ(received.count(), 1);
+    ASSERT_EQ(received.size(), 1);
     EXPECT_EQ(received.at(0).at(0).toJsonObject().value("id").toString(), "early");
 }
 
@@ -175,15 +163,15 @@ TEST_F(McpStdioServerTransportTest, LifecycleOpenClose)
 
     transport.stop();
     EXPECT_FALSE(transport.isOpen());
-    EXPECT_EQ(closedSpy.count(), 1);
+    EXPECT_EQ(closedSpy.size(), 1);
 
     transport.send(QJsonObject{{"id", "dropped-too"}});
     EXPECT_TRUE(pair.outBytes.isEmpty());
 
     pair.feed("{\"id\":\"late\"}\n");
     QSignalSpy received(&transport, &Rpc::Transport::messageReceived);
-    pumpEventLoop(20);
-    EXPECT_EQ(received.count(), 0);
+    pumpEventLoop(std::chrono::milliseconds(20));
+    EXPECT_EQ(received.size(), 0);
 }
 
 #ifndef Q_OS_WIN
@@ -207,6 +195,6 @@ TEST_F(McpStdioServerTransportTest, ClientTransportEchoesThroughChildProcess)
 
     transport.stop();
     EXPECT_FALSE(transport.isOpen());
-    EXPECT_GE(closedSpy.count(), 1);
+    EXPECT_GE(closedSpy.size(), 1);
 }
 #endif

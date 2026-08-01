@@ -11,12 +11,6 @@
 
 namespace LLMQore::Mcp {
 
-McpRemoteTool::McpRemoteTool(McpClient *client, ToolInfo info, QObject *parent)
-    : LLMQore::BaseTool(parent)
-    , m_client(client)
-    , m_info(std::move(info))
-{}
-
 McpRemoteTool::McpRemoteTool(
     McpClient *client, const QString &serverName, ToolInfo info, QObject *parent)
     : LLMQore::BaseTool(parent)
@@ -25,11 +19,16 @@ McpRemoteTool::McpRemoteTool(
     , m_info(std::move(info))
 {}
 
+QString McpRemoteTool::composeId(const QString &serverName, const QString &toolName)
+{
+    return serverName.isEmpty()
+               ? toolName
+               : QStringLiteral("%1_%2").arg(serverName, toolName);
+}
+
 QString McpRemoteTool::id() const
 {
-    return m_serverName.isEmpty()
-               ? m_info.name
-               : QStringLiteral("%1_%2").arg(m_serverName, m_info.name);
+    return composeId(m_serverName, m_info.name);
 }
 
 QString McpRemoteTool::displayName() const

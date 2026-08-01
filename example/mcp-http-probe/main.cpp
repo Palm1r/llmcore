@@ -73,6 +73,13 @@ int main(int argc, char *argv[])
         parser.showHelp(1);
 
     const QString specStr = parser.value(specOpt);
+    static const QStringList knownSpecs{
+        "2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25", "latest"};
+    if (!knownSpecs.contains(specStr)) {
+        qCritical().noquote() << "Unknown --spec value:" << specStr
+                              << "\nSupported:" << knownSpecs.join(", ");
+        return 1;
+    }
     HttpTransportConfig cfg;
     cfg.endpoint = QUrl(positional.first());
     cfg.spec = Mcp::parseHttpSpec(specStr);

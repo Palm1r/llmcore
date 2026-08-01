@@ -72,6 +72,19 @@ private:
     QMutex m_mutex;
 };
 
+std::shared_ptr<StdioTrace> sharedTrace()
+{
+    static QMutex mutex;
+    static std::weak_ptr<StdioTrace> cache;
+    QMutexLocker locker(&mutex);
+    auto trace = cache.lock();
+    if (!trace) {
+        trace = std::make_shared<StdioTrace>();
+        cache = trace;
+    }
+    return trace;
+}
+
 class StdinReaderThread : public QThread
 {
 public:
@@ -112,9 +125,10 @@ protected:
                 m_trace->note(QStringLiteral("stdin read error"));
                 break;
             }
-            m_trace->log(
-                QStringLiteral("RAW<"), QByteArray(buf, static_cast<int>(n)));
-            const QByteArrayList frames = framer.append(QByteArray(buf, static_cast<int>(n)));
+            const QByteArray chunk(buf, static_cast<int>(n));
+            if (m_trace->isEnabled())
+                m_trace->log(QStringLiteral("RAW<"), chunk);
+            const QByteArrayList frames = framer.append(chunk);
             for (const QByteArray &frame : frames) {
                 m_trace->log(QStringLiteral("IN <"), frame);
                 QJsonParseError err{};
@@ -178,7 +192,7 @@ McpStdioServerTransport::McpStdioServerTransport(
 {
     m_impl->in = input;
     m_impl->out = output;
-    m_impl->trace = std::make_shared<StdioTrace>();
+    m_impl->trace = sharedTrace();
 }
 
 McpStdioServerTransport::~McpStdioServerTransport()
@@ -198,6 +212,8 @@ void McpStdioServerTransport::start()
         connect(m_impl->in, &QIODevice::readChannelFinished, this, [this]() {
             readFromDevice();
             m_impl->trace->note(QStringLiteral("input channel finished"));
+            m_impl->open = false;
+            disconnect(m_impl->in, nullptr, this, nullptr);
             emit closed();
         });
         readFromDevice();
@@ -249,17 +265,30 @@ void McpStdioServerTransport::send(const QJsonObject &message)
 {
     if (!m_impl->open)
         return;
-    QMutexLocker locker(&m_impl->writeMutex);
-    const QByteArray payload = QJsonDocument(message).toJson(QJsonDocument::Compact);
-    m_impl->trace->log(QStringLiteral("OUT>"), payload);
-    if (m_impl->out) {
-        m_impl->out->write(payload);
-        m_impl->out->write("\n", 1);
-        return;
+    QString writeError;
+    {
+        QMutexLocker locker(&m_impl->writeMutex);
+        const QByteArray payload = QJsonDocument(message).toJson(QJsonDocument::Compact);
+        m_impl->trace->log(QStringLiteral("OUT>"), payload);
+        if (m_impl->out) {
+            const qint64 written = m_impl->out->write(payload);
+            const qint64 newline = m_impl->out->write("\n", 1);
+            if (written != payload.size() || newline != 1) {
+                writeError = m_impl->out->errorString();
+                if (writeError.isEmpty())
+                    writeError = QStringLiteral("Short write to output device");
+            }
+        } else {
+            std::fwrite(payload.constData(), 1, static_cast<size_t>(payload.size()), stdout);
+            std::fputc('\n', stdout);
+            std::fflush(stdout);
+        }
     }
-    std::fwrite(payload.constData(), 1, static_cast<size_t>(payload.size()), stdout);
-    std::fputc('\n', stdout);
-    std::fflush(stdout);
+    if (!writeError.isEmpty()) {
+        qCWarning(llmMcpLog).noquote()
+            << QString("Stdio server transport write failed: %1").arg(writeError);
+        emit errorOccurred(writeError);
+    }
 }
 
 void McpStdioServerTransport::readFromDevice()
@@ -273,7 +302,7 @@ void McpStdioServerTransport::readFromDevice()
     const QByteArrayList frames = m_impl->framer.append(data);
     for (const QByteArray &frame : frames) {
         m_impl->trace->log(QStringLiteral("IN <"), frame);
-        QJsonParseError err{};
+        QJsonParseError err = {};
         const QJsonDocument doc = QJsonDocument::fromJson(frame, &err);
         if (err.error != QJsonParseError::NoError || !doc.isObject()) {
             m_impl->trace->note(QString("PARSE FAIL: %1").arg(err.errorString()));

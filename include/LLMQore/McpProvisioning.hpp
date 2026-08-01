@@ -36,9 +36,16 @@ struct LLMQORE_EXPORT ServerEndpoint
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
     QString workingDirectory;
 
+    [[nodiscard]] bool hasHttpEndpoint() const
+    {
+        const QString scheme = url.scheme();
+        return (scheme == QLatin1String("http") || scheme == QLatin1String("https"))
+               && url.isValid();
+    }
+
     [[nodiscard]] bool isValid() const
     {
-        return (url.isValid() && !url.isEmpty()) || !command.isEmpty();
+        return hasHttpEndpoint() || !command.isEmpty();
     }
 
     [[nodiscard]] static ServerEndpoint fromJson(const QString &name, const QJsonObject &entry);

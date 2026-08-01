@@ -25,16 +25,34 @@ ServerEndpoint ServerEndpoint::fromJson(const QString &name, const QJsonObject &
                 endpoint.httpSpec = entry.value(QLatin1String("httpSpec")).toString();
         }
         const QJsonObject headers = entry.value(QLatin1String("headers")).toObject();
-        for (auto it = headers.begin(); it != headers.end(); ++it)
+        for (auto it = headers.begin(); it != headers.end(); ++it) {
+            if (!it.value().isString()) {
+                qCWarning(llmMcpLog).noquote() << QString(
+                    "MCP server '%1': skipping non-string header '%2'").arg(name, it.key());
+                continue;
+            }
             endpoint.headers.insert(it.key(), it.value().toString());
+        }
     } else {
         endpoint.command = entry.value(QLatin1String("command")).toString();
         const QJsonArray args = entry.value(QLatin1String("args")).toArray();
-        for (const QJsonValue &arg : args)
+        for (const QJsonValue &arg : args) {
+            if (!arg.isString()) {
+                qCWarning(llmMcpLog).noquote() << QString(
+                    "MCP server '%1': skipping non-string args entry").arg(name);
+                continue;
+            }
             endpoint.arguments.append(arg.toString());
+        }
         const QJsonObject envObj = entry.value(QLatin1String("env")).toObject();
-        for (auto it = envObj.begin(); it != envObj.end(); ++it)
+        for (auto it = envObj.begin(); it != envObj.end(); ++it) {
+            if (!it.value().isString()) {
+                qCWarning(llmMcpLog).noquote() << QString(
+                    "MCP server '%1': skipping non-string env value '%2'").arg(name, it.key());
+                continue;
+            }
             endpoint.env.insert(it.key(), it.value().toString());
+        }
         endpoint.workingDirectory = entry.value(QLatin1String("workingDirectory")).toString();
     }
 
@@ -55,7 +73,7 @@ QList<ServerEndpoint> parseServerMap(const QJsonObject &config)
         ServerEndpoint endpoint = ServerEndpoint::fromJson(it.key(), entry);
         if (!endpoint.isValid()) {
             qCWarning(llmMcpLog).noquote()
-                << QString("Skipping MCP server '%1': neither a valid url nor a command")
+                << QString("Skipping MCP server '%1': neither a usable http(s) url nor a command")
                        .arg(it.key());
             continue;
         }
@@ -81,7 +99,7 @@ McpHttpSpec parseHttpSpec(const QString &spec)
 
 Rpc::Transport *makeTransport(const ServerEndpoint &endpoint, QObject *parent)
 {
-    if (endpoint.url.isValid()) {
+    if (endpoint.hasHttpEndpoint()) {
         HttpTransportConfig cfg;
         cfg.endpoint = endpoint.url;
         cfg.headers = endpoint.headers;
@@ -99,7 +117,7 @@ Rpc::Transport *makeTransport(const ServerEndpoint &endpoint, QObject *parent)
     }
 
     qCWarning(llmMcpLog).noquote()
-        << QString("MCP server '%1': neither a url nor a command was given")
+        << QString("MCP server '%1': neither a usable http(s) url nor a command was given")
                .arg(endpoint.name);
     return nullptr;
 }

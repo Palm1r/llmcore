@@ -13,19 +13,15 @@
 #include <QSet>
 #include <QTimer>
 
+#include <chrono>
+
 namespace LLMQore::Mcp {
 
 namespace {
 
 constexpr int kInitialBackoffMs = 1000;
 constexpr int kMaxBackoffMs = 30000;
-
-QString prefixedToolId(const QString &serverName, const QString &toolName)
-{
-    return serverName.isEmpty()
-               ? toolName
-               : QStringLiteral("%1_%2").arg(serverName, toolName);
-}
+constexpr auto kInitializeTimeout = std::chrono::seconds(30);
 
 } // namespace
 
@@ -42,6 +38,7 @@ McpToolBinder::~McpToolBinder()
     for (auto it = m_bindings.begin(); it != m_bindings.end(); ++it) {
         if (it.key())
             disconnect(it.key(), nullptr, this, nullptr);
+        clearTools(it.value());
     }
 }
 
@@ -58,7 +55,7 @@ bool McpToolBinder::addServer(const ServerEndpoint &endpoint)
 
     auto *client = new McpClient(transport, m_clientInfo, this);
     attach(client, endpoint.name, /*owned*/ true, /*autoReconnect*/ true);
-    initializeClient(client, /*isReconnect*/ false);
+    initializeClient(client);
     return true;
 }
 
@@ -100,9 +97,11 @@ void McpToolBinder::removeClient(McpClient *client)
 void McpToolBinder::shutdown()
 {
     m_stopping = true;
-    for (auto it = m_bindings.begin(); it != m_bindings.end(); ++it) {
-        if (it->owned && it.key())
-            it.key()->shutdown();
+    const QList<McpClient *> clients = m_bindings.keys();
+    for (McpClient *client : clients) {
+        const auto it = m_bindings.constFind(client);
+        if (it != m_bindings.cend() && it->owned && client)
+            client->shutdown();
     }
 }
 
@@ -123,8 +122,7 @@ void McpToolBinder::attach(McpClient *client, const QString &name, bool owned, b
         auto it = m_bindings.find(client);
         if (it == m_bindings.end())
             return;
-        for (const QString &id : std::as_const(it->toolIds))
-            m_registry->removeTool(id);
+        clearTools(it.value());
         m_bindings.erase(it);
     });
 
@@ -140,12 +138,13 @@ void McpToolBinder::attach(McpClient *client, const QString &name, bool owned, b
     });
 }
 
-void McpToolBinder::initializeClient(McpClient *client, bool isReconnect)
+void McpToolBinder::initializeClient(McpClient *client)
 {
     QPointer<McpClient> guard(client);
-    const QString name = m_bindings.value(client).name;
+    const auto bindingIt = m_bindings.constFind(client);
+    const QString name = bindingIt != m_bindings.cend() ? bindingIt->name : QString();
 
-    (void)LLMQore::compat(client->connectAndInitialize(std::chrono::seconds(30)))
+    (void)LLMQore::compat(client->connectAndInitialize(kInitializeTimeout))
         .then(this, [guard](const InitializeResult &) {
             if (!guard)
                 throw Rpc::TransportError(QStringLiteral("Client destroyed during initialize"));
@@ -153,26 +152,26 @@ void McpToolBinder::initializeClient(McpClient *client, bool isReconnect)
         })
         .unwrap()
         .then(this, [this, guard, name](const QList<ToolInfo> &tools) {
-            if (!guard || !m_bindings.contains(guard))
+            auto it = guard ? m_bindings.find(guard) : m_bindings.end();
+            if (it == m_bindings.end())
                 return;
-            Binding &binding = m_bindings[guard];
-            binding.reconnectPending = false;
-            binding.backoffMs = kInitialBackoffMs;
+            it->reconnectPending = false;
+            it->backoffMs = kInitialBackoffMs;
             applyTools(guard, tools);
             emit toolsSynced(name, tools.size());
             emit serverInitialized(name, guard->serverInfo());
         })
-        .onFailed(this, [this, guard, name, isReconnect](const std::exception &e) {
+        .onFailed(this, [this, guard, name](const std::exception &e) {
             const QString error = QString::fromUtf8(e.what());
             qCWarning(llmMcpLog).noquote()
                 << QString("MCP server '%1': initialize failed: %2").arg(name, error);
             emit serverInitFailed(name, error);
-            if (!guard || !m_bindings.contains(guard))
+            auto it = guard ? m_bindings.find(guard) : m_bindings.end();
+            if (it == m_bindings.end())
                 return;
-            Binding &binding = m_bindings[guard];
-            binding.reconnectPending = false;
-            if (isReconnect && binding.autoReconnect && !m_stopping) {
-                binding.backoffMs = std::min(binding.backoffMs * 2, kMaxBackoffMs);
+            it->reconnectPending = false;
+            if (it->autoReconnect && !m_stopping) {
+                it->backoffMs = (std::min)(it->backoffMs * 2, kMaxBackoffMs);
                 scheduleReconnect(guard);
             }
         });
@@ -180,10 +179,11 @@ void McpToolBinder::initializeClient(McpClient *client, bool isReconnect)
 
 void McpToolBinder::resyncClient(McpClient *client)
 {
-    if (!m_bindings.contains(client))
+    const auto it = m_bindings.constFind(client);
+    if (it == m_bindings.cend())
         return;
     QPointer<McpClient> guard(client);
-    const QString name = m_bindings.value(client).name;
+    const QString name = it->name;
 
     (void)LLMQore::compat(client->listTools())
         .then(this, [this, guard, name](const QList<ToolInfo> &tools) {
@@ -201,35 +201,64 @@ void McpToolBinder::resyncClient(McpClient *client)
 
 void McpToolBinder::applyTools(McpClient *client, const QList<ToolInfo> &tools)
 {
-    Binding &binding = m_bindings[client];
+    auto bindingIt = m_bindings.find(client);
+    if (bindingIt == m_bindings.end() || !m_registry)
+        return;
+    Binding &binding = bindingIt.value();
+
+    QHash<QString, McpRemoteTool *> current;
+    current.reserve(binding.tools.size());
+    for (const QPointer<McpRemoteTool> &tool : std::as_const(binding.tools)) {
+        if (tool)
+            current.insert(tool->id(), tool.data());
+    }
 
     QSet<QString> incoming;
     incoming.reserve(tools.size());
-    for (const ToolInfo &info : tools)
-        incoming.insert(prefixedToolId(binding.name, info.name));
-
-    for (const QString &old : std::as_const(binding.toolIds)) {
-        if (!incoming.contains(old))
-            m_registry->removeTool(old);
-    }
-
-    QStringList registered;
-    registered.reserve(tools.size());
+    QList<QPointer<McpRemoteTool>> next;
+    next.reserve(tools.size());
     for (const ToolInfo &info : tools) {
-        const QString id = prefixedToolId(binding.name, info.name);
-        if (m_registry->tool(id))
+        const QString id = McpRemoteTool::composeId(binding.name, info.name);
+        incoming.insert(id);
+        McpRemoteTool *mine = current.value(id, nullptr);
+        if (mine && mine->info().toJson() == info.toJson()) {
+            next.append(mine);
+            continue;
+        }
+        LLMQore::BaseTool *registered = m_registry->tool(id);
+        if (registered && registered != mine) {
+            qCWarning(llmMcpLog).noquote()
+                << QString("MCP server '%1': tool id '%2' is already registered by another "
+                           "provider, skipping")
+                       .arg(binding.name, id);
+            continue;
+        }
+        if (mine)
             m_registry->removeTool(id);
-        m_registry->addTool(new McpRemoteTool(client, binding.name, info));
-        registered.append(id);
+        auto *tool = new McpRemoteTool(client, binding.name, info);
+        m_registry->addTool(tool);
+        next.append(tool);
     }
-    binding.toolIds = std::move(registered);
+
+    for (auto it = current.cbegin(); it != current.cend(); ++it) {
+        if (!incoming.contains(it.key()) && m_registry->tool(it.key()) == it.value())
+            m_registry->removeTool(it.key());
+    }
+    binding.tools = std::move(next);
 }
 
 void McpToolBinder::clearTools(Binding &binding)
 {
-    for (const QString &id : std::as_const(binding.toolIds))
-        m_registry->removeTool(id);
-    binding.toolIds.clear();
+    if (m_registry) {
+        for (const QPointer<McpRemoteTool> &tool : std::as_const(binding.tools)) {
+            if (!tool)
+                continue;
+            const QString id = tool->id();
+            if (m_registry->tool(id) == tool.data())
+                m_registry->removeTool(id);
+        }
+    }
+    binding.tools.clear();
 }
 
 void McpToolBinder::scheduleReconnect(McpClient *client)
@@ -248,7 +277,7 @@ void McpToolBinder::scheduleReconnect(McpClient *client)
     QTimer::singleShot(it->backoffMs, this, [this, guard]() {
         if (m_stopping || !guard || !m_bindings.contains(guard))
             return;
-        initializeClient(guard, /*isReconnect*/ true);
+        initializeClient(guard);
     });
 }
 

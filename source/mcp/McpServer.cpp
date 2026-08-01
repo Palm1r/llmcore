@@ -18,6 +18,7 @@
 #include <QJsonArray>
 #include <QFutureWatcher>
 #include <QPromise>
+#include <QTimer>
 
 #include <optional>
 
@@ -450,11 +451,24 @@ void McpServer::setToolRegistry(LLMQore::ToolRegistry *registry)
     }
     m_toolRegistry = registry;
     if (registry) {
-        connect(registry, &LLMQore::ToolRegistry::toolsChanged, this, [this]() {
-            if (m_initialized)
-                m_session->sendNotification(QLatin1String(Method::ToolsListChanged));
-        });
+        connect(
+            registry,
+            &LLMQore::ToolRegistry::toolsChanged,
+            this,
+            &McpServer::notifyToolsChanged);
     }
+}
+
+void McpServer::notifyToolsChanged()
+{
+    if (!m_initialized || m_toolsNotifyPending)
+        return;
+    m_toolsNotifyPending = true;
+    QTimer::singleShot(0, this, [this]() {
+        m_toolsNotifyPending = false;
+        if (m_initialized)
+            m_session->sendNotification(QLatin1String(Method::ToolsListChanged));
+    });
 }
 
 void McpServer::addTool(LLMQore::BaseTool *tool)
@@ -462,15 +476,13 @@ void McpServer::addTool(LLMQore::BaseTool *tool)
     if (!tool)
         return;
     m_standaloneTools.insert(tool->id(), tool);
-    if (m_initialized)
-        m_session->sendNotification(QLatin1String(Method::ToolsListChanged));
+    notifyToolsChanged();
 }
 
 void McpServer::removeTool(const QString &name)
 {
-    if (m_standaloneTools.remove(name) && m_initialized) {
-        m_session->sendNotification(QLatin1String(Method::ToolsListChanged));
-    }
+    if (m_standaloneTools.remove(name))
+        notifyToolsChanged();
 }
 
 void McpServer::addResourceProvider(BaseResourceProvider *provider)

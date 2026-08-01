@@ -20,7 +20,7 @@ namespace LLMQore {
 
 // An already-finished future holding `value`.
 template<typename T>
-QFuture<T> readyFuture(T value)
+[[nodiscard]] QFuture<T> readyFuture(T value)
 {
     QPromise<T> promise;
     promise.start();
@@ -29,7 +29,7 @@ QFuture<T> readyFuture(T value)
     return promise.future();
 }
 
-inline QFuture<void> readyFuture()
+[[nodiscard]] inline QFuture<void> readyFuture()
 {
     QPromise<void> promise;
     promise.start();
@@ -39,7 +39,7 @@ inline QFuture<void> readyFuture()
 
 // An already-finished future carrying `exception`.
 template<typename T>
-QFuture<T> failedFuture(std::exception_ptr exception)
+[[nodiscard]] QFuture<T> failedFuture(std::exception_ptr exception)
 {
     QPromise<T> promise;
     promise.start();
@@ -49,7 +49,7 @@ QFuture<T> failedFuture(std::exception_ptr exception)
 }
 
 template<typename T, typename E>
-QFuture<T> failedFuture(E error)
+[[nodiscard]] QFuture<T> failedFuture(E error)
 {
     return failedFuture<T>(std::make_exception_ptr(std::move(error)));
 }

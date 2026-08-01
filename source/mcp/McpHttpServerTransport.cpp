@@ -208,35 +208,46 @@ struct McpHttpServerTransport::Impl
         }
         if (Rpc::classify(msg) == Rpc::MessageKind::Request) {
             const QString idStr = Rpc::idToString(msg.value("id"));
-            if (!idStr.isEmpty()) {
-                PendingRequestEntry entry;
-                entry.socket = QPointer<QTcpSocket>(client);
-                entry.timeoutTimer = new QTimer(q);
-                entry.timeoutTimer->setSingleShot(true);
-                entry.timeoutTimer->setInterval(config.pendingResponseTimeoutMs);
-                QObject::connect(entry.timeoutTimer, &QTimer::timeout, q, [this, idStr]() {
-                    auto it = pendingByRequestId.find(idStr);
-                    if (it == pendingByRequestId.end())
-                        return;
-                    QTcpSocket *sock = it.value().socket.data();
-                    if (it.value().timeoutTimer)
-                        it.value().timeoutTimer->deleteLater();
-                    pendingByRequestId.erase(it);
-                    qCWarning(llmMcpLog).noquote()
-                        << QString("Pending JSON-RPC request id=%1 timed out, closing socket")
-                               .arg(idStr);
-                    if (sock && sock->state() == QAbstractSocket::ConnectedState) {
-                        writeStatus(
-                            sock,
-                            504,
-                            "Gateway Timeout",
-                            HeaderList{h("Content-Length", "0"), h("Connection", "close")});
-                        sock->disconnectFromHost();
-                    }
-                });
-                entry.timeoutTimer->start();
-                pendingByRequestId.insert(idStr, entry);
+            if (idStr.isEmpty()) {
+                qCWarning(llmMcpLog).noquote()
+                    << "Rejecting JSON-RPC request with non-string/non-number id";
+                respondWithStatus(client, 400, "Bad Request");
+                return;
             }
+            if (pendingByRequestId.contains(idStr)) {
+                qCWarning(llmMcpLog).noquote()
+                    << QString("Rejecting JSON-RPC request with duplicate pending id=%1")
+                           .arg(idStr);
+                respondWithStatus(client, 400, "Bad Request");
+                return;
+            }
+            PendingRequestEntry entry;
+            entry.socket = QPointer<QTcpSocket>(client);
+            entry.timeoutTimer = new QTimer(q);
+            entry.timeoutTimer->setSingleShot(true);
+            entry.timeoutTimer->setInterval(config.pendingResponseTimeoutMs);
+            QObject::connect(entry.timeoutTimer, &QTimer::timeout, q, [this, idStr]() {
+                auto it = pendingByRequestId.find(idStr);
+                if (it == pendingByRequestId.end())
+                    return;
+                QTcpSocket *sock = it.value().socket.data();
+                if (it.value().timeoutTimer)
+                    it.value().timeoutTimer->deleteLater();
+                pendingByRequestId.erase(it);
+                qCWarning(llmMcpLog).noquote()
+                    << QString("Pending JSON-RPC request id=%1 timed out, closing socket")
+                           .arg(idStr);
+                if (sock && sock->state() == QAbstractSocket::ConnectedState) {
+                    writeStatus(
+                        sock,
+                        504,
+                        "Gateway Timeout",
+                        HeaderList{h("Content-Length", "0"), h("Connection", "close")});
+                    sock->disconnectFromHost();
+                }
+            });
+            entry.timeoutTimer->start();
+            pendingByRequestId.insert(idStr, entry);
             emit q->messageReceived(msg);
             return;
         }

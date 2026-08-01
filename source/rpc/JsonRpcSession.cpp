@@ -347,6 +347,10 @@ void JsonRpcSession::onMessageReceived(const QJsonObject &message)
         break;
     case MessageKind::Invalid:
         qCWarning(llmRpcLog).noquote() << "Dropping unclassifiable JSON-RPC message";
+        sendError(
+            message.value("id"),
+            Rpc::ErrorCode::InvalidRequest,
+            QStringLiteral("Invalid Request"));
         emit protocolError(QStringLiteral("Unclassifiable JSON-RPC message"));
         break;
     }

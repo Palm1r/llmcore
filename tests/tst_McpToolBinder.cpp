@@ -19,40 +19,12 @@
 #include <LLMQore/RpcPipeTransport.hpp>
 #include <LLMQore/ToolRegistry.hpp>
 
+#include "TestHelpers.hpp"
+
 using namespace LLMQore;
 using namespace LLMQore::Mcp;
 
 namespace {
-
-template<typename T>
-T waitForFuture(const QFuture<T> &future, int timeoutMs = 5000)
-{
-    if (future.isFinished())
-        return future.result();
-    QEventLoop loop;
-    QFutureWatcher<T> watcher;
-    QObject::connect(&watcher, &QFutureWatcher<T>::finished, &loop, &QEventLoop::quit);
-    watcher.setFuture(future);
-    QTimer::singleShot(timeoutMs, &loop, &QEventLoop::quit);
-    loop.exec();
-    return future.result();
-}
-
-void pumpEventLoop(int ms)
-{
-    QEventLoop loop;
-    QTimer::singleShot(ms, &loop, &QEventLoop::quit);
-    loop.exec();
-}
-
-bool waitForSignal(QSignalSpy &spy, int count, int timeoutMs = 5000)
-{
-    QElapsedTimer timer;
-    timer.start();
-    while (spy.count() < count && timer.elapsed() < timeoutMs)
-        pumpEventLoop(20);
-    return spy.count() >= count;
-}
 
 class CannedTool : public BaseTool
 {
@@ -221,7 +193,7 @@ TEST_F(McpToolBinderTest, RemovesToolsWhenClientDestroyed)
 
     delete loop.client;
     loop.client = nullptr;
-    pumpEventLoop(50);
+    pumpEventLoop(std::chrono::milliseconds(50));
 
     EXPECT_EQ(registry.registeredTools().size(), 0);
 }
@@ -240,7 +212,7 @@ TEST_F(McpToolBinderTest, RemoveClientDetachesWithoutTouchingClient)
     ASSERT_TRUE(waitForSignal(synced, 1));
 
     binder.removeClient(loop.client);
-    pumpEventLoop(50);
+    pumpEventLoop(std::chrono::milliseconds(50));
     EXPECT_EQ(registry.registeredTools().size(), 0);
     EXPECT_TRUE(loop.client->isInitialized());
 }
@@ -264,7 +236,7 @@ TEST_F(McpToolBinderTest, ReconnectsAfterTransportLoss)
     ASSERT_TRUE(waitForSignal(dropped, 1));
     EXPECT_EQ(registry.registeredTools().size(), 0);
 
-    ASSERT_TRUE(waitForSignal(synced, 2, 10000));
+    ASSERT_TRUE(waitForSignal(synced, 2, std::chrono::seconds(10)));
     EXPECT_NE(registry.tool("srv_echo"), nullptr);
     EXPECT_EQ(waitForFuture(registry.tool("srv_echo")->executeAsync(QJsonObject{})).asText(), "hi");
 }

@@ -22,13 +22,17 @@ class ToolRegistry;
 namespace LLMQore::Mcp {
 
 class McpClient;
+class McpRemoteTool;
 struct ToolInfo;
 
 // Keeps a ToolRegistry in sync with the tools of one or more MCP servers:
 // connect, list, wrap each tool in a McpRemoteTool (id-prefixed with the
-// server name so two servers exposing the same tool never collide),
-// diff-resync on toolsChanged, reconnect with backoff for servers it
-// provisioned itself, and removal of a client's tools when it goes away.
+// server name; an id already registered by another binding is skipped with
+// a warning instead of being replaced), diff-resync on toolsChanged that
+// keeps unchanged tools alive, reconnect with backoff for servers bound
+// with autoReconnect, and removal of a client's tools when it goes away.
+// The registry must outlive the binder; a registry destroyed first simply
+// stops receiving updates.
 class LLMQORE_EXPORT McpToolBinder : public QObject
 {
     Q_OBJECT
@@ -40,8 +44,8 @@ public:
     void setClientInfo(Implementation info);
 
     // Provisions a client+transport for `endpoint` (binder-owned, with
-    // reconnect+backoff). Returns false when the endpoint names neither a
-    // url nor a command.
+    // reconnect+backoff). Returns false when no transport could be created
+    // for the endpoint.
     bool addServer(const ServerEndpoint &endpoint);
 
     // Provisions every endpoint of the `mcpServers` map in `config`.
@@ -71,7 +75,7 @@ private:
     struct Binding
     {
         QString name;
-        QStringList toolIds;
+        QList<QPointer<McpRemoteTool>> tools;
         bool owned = false;
         bool autoReconnect = false;
         bool reconnectPending = false;
@@ -79,14 +83,14 @@ private:
     };
 
     void attach(McpClient *client, const QString &name, bool owned, bool autoReconnect);
-    void initializeClient(McpClient *client, bool isReconnect);
+    void initializeClient(McpClient *client);
     void resyncClient(McpClient *client);
     void applyTools(McpClient *client, const QList<ToolInfo> &tools);
     void clearTools(Binding &binding);
     void scheduleReconnect(McpClient *client);
 
-    LLMQore::ToolRegistry *m_registry = nullptr;
-    Implementation m_clientInfo{"LLMQore", QStringLiteral(LLMQORE_VERSION_STRING)};
+    QPointer<LLMQore::ToolRegistry> m_registry;
+    Implementation m_clientInfo = {"LLMQore", QStringLiteral(LLMQORE_VERSION_STRING)};
     QHash<McpClient *, Binding> m_bindings;
     bool m_stopping = false;
 };
