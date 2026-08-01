@@ -16,6 +16,7 @@
 #include <LLMQore/GoogleAIClient.hpp>
 #include <LLMQore/HttpClient.hpp>
 #include <LLMQore/HttpStream.hpp>
+#include <LLMQore/LlamaCppClient.hpp>
 #include <LLMQore/OllamaClient.hpp>
 #include <LLMQore/OpenAIResponsesClient.hpp>
 #include <LLMQore/ToolsManager.hpp>
@@ -279,6 +280,65 @@ TEST(ReviewRegression, GoogleSseStreamIsUnaffectedByTheErrorSniffer)
 
     ASSERT_EQ(completed.count(), 1);
     EXPECT_EQ(completed.first().at(1).toString(), QStringLiteral("hello"));
+}
+
+// --- LlamaCpp now inherits the OpenAI dialect instead of copying it ---
+
+TEST(LlamaCppInheritance, RunsTheOpenAIToolLoop)
+{
+    FakeHttpTransport transport;
+    LlamaCppClient client("http://fake.local", "", "local-model", &transport);
+    client.tools()->addTool(new EchoTool(QStringLiteral("42")));
+
+    QSignalSpy toolStarted(&client, &BaseClient::toolStarted);
+    QSignalSpy completed(&client, &BaseClient::requestCompleted);
+
+    client.ask(QStringLiteral("call echo"));
+    ASSERT_EQ(transport.streamCount(), 1);
+    EXPECT_EQ(transport.streamRequest(0).url().path(), QStringLiteral("/v1/chat/completions"));
+
+    transport.lastStream()->sendAll(
+        "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\","
+        "\"function\":{\"name\":\"echo\",\"arguments\":\"{}\"}}]}}]}\n\n"
+        "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n"
+        "data: [DONE]\n\n");
+
+    ASSERT_TRUE(LLMQoreTest::waitForStreams(transport, 2)) << "no continuation was sent";
+    ASSERT_EQ(toolStarted.count(), 1);
+    EXPECT_EQ(toolStarted.first().at(2).toString(), QStringLiteral("echo"));
+
+    const QJsonArray messages = transport.streamRequest(1).payload().value("messages").toArray();
+    ASSERT_EQ(messages.size(), 3);
+    EXPECT_EQ(messages.at(2).toObject().value("role").toString(), QStringLiteral("tool"));
+
+    transport.lastStream()->sendAll(
+        "data: {\"choices\":[{\"delta\":{\"content\":\"42\"}}]}\n\n"
+        "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"
+        "data: [DONE]\n\n");
+
+    ASSERT_EQ(completed.count(), 1);
+    EXPECT_EQ(completed.first().at(1).toString(), QStringLiteral("42"));
+}
+
+TEST(LlamaCppInheritance, NativeCompletionShapeStillEndsTheRequest)
+{
+    FakeHttpTransport transport;
+    LlamaCppClient client("http://fake.local", "", "local-model", &transport);
+
+    QSignalSpy completed(&client, &BaseClient::requestCompleted);
+
+    client.sendMessage(QJsonObject{{"prompt", "hi"}}, QStringLiteral("/completion"));
+    ASSERT_EQ(transport.streamCount(), 1);
+    EXPECT_EQ(transport.streamRequest(0).url().path(), QStringLiteral("/completion"));
+
+    transport.lastStream()->sendAll(
+        "data: {\"content\":\"one \",\"stop\":false}\n\n"
+        "data: {\"content\":\"two\",\"stop\":true,\"tokens_evaluated\":5,"
+        "\"tokens_predicted\":2}\n\n"
+        "data: {\"content\":\"never\",\"stop\":false}\n\n");
+
+    ASSERT_EQ(completed.count(), 1) << "events after stop must not restart the request";
+    EXPECT_EQ(completed.first().at(1).toString(), QStringLiteral("one two"));
 }
 
 // --- 6. tool round-trips were dropped before the app could keep them ---

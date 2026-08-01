@@ -40,6 +40,11 @@ OpenAIClient::OpenAIClient(
     setHeaders({{QStringLiteral("Content-Type"), QStringLiteral("application/json")}});
 }
 
+const QLoggingCategory &OpenAIClient::logCategory() const
+{
+    return llmOpenAILog();
+}
+
 RequestID OpenAIClient::sendMessage(
     const QJsonObject &payload, const QString &endpoint, RequestMode mode)
 {
@@ -55,7 +60,7 @@ RequestID OpenAIClient::sendMessage(
     RequestID id = createRequest();
     const QString resolved = endpoint.isEmpty() ? QStringLiteral("/chat/completions") : endpoint;
 
-    qCDebug(llmOpenAILog).noquote() << QString("Sending request %1 to %2").arg(id, resolved);
+    qCDebug(logCategory()).noquote() << QString("Sending request %1 to %2").arg(id, resolved);
 
     sendRequest(id, QUrl(m_url + resolved), request, mode);
     return id;
@@ -76,11 +81,13 @@ QFuture<QList<QString>> OpenAIClient::listModels(const QString &endpoint)
     QUrl url(m_url + resolved);
     QNetworkRequest request = prepareNetworkRequest(url);
 
+    const QLoggingCategory &cat = logCategory();
+
     return LLMQore::compat(transport()->send(request, QByteArrayView("GET")))
-        .then(this, [](const HttpResponse &response) {
+        .then(this, [&cat](const HttpResponse &response) {
             QList<QString> models;
             if (!response.isSuccess()) {
-                qCDebug(llmOpenAILog).noquote()
+                qCDebug(cat).noquote()
                     << QString("Error fetching models: HTTP %1").arg(response.statusCode);
                 return models;
             }
@@ -96,8 +103,8 @@ QFuture<QList<QString>> OpenAIClient::listModels(const QString &endpoint)
             }
             return models;
         })
-        .onFailed(this, [](const std::exception &e) {
-            qCDebug(llmOpenAILog).noquote() << QString("Error fetching models: %1").arg(e.what());
+        .onFailed(this, [&cat](const std::exception &e) {
+            qCDebug(cat).noquote() << QString("Error fetching models: %1").arg(e.what());
             return QList<QString>{};
         });
 }
@@ -127,20 +134,42 @@ void OpenAIClient::processData(const RequestID &id, const QByteArray &data)
     if (!hasRequest(id))
         return;
 
-    const QList<SSEEvent> events = requestSSEParser(id).append(data);
-    for (const SSEEvent &ev : events) {
+    dispatchStreamEvents(id, requestSSEParser(id).append(data));
+}
+
+void OpenAIClient::dispatchStreamEvents(const RequestID &id, const QList<SSEEvent> &events)
+{
+    for (int i = 0; i < events.size(); ++i) {
+        const SSEEvent &ev = events.at(i);
         if (ev.data.isEmpty() || ev.data == "[DONE]")
             continue;
         const QJsonObject chunk = QJsonDocument::fromJson(ev.data).object();
         if (chunk.isEmpty())
             continue;
-        if (chunk.contains("choices"))
-            processStreamChunk(id, chunk);
 
-        const QJsonObject usage = chunk.value("usage").toObject();
-        if (!usage.isEmpty())
-            setUsage(id, parseOpenAIUsage(usage));
+        processStreamEvent(id, chunk);
+
+        if (!hasRequest(id)) {
+            const int dropped = events.size() - i - 1;
+            if (dropped > 0) {
+                qCDebug(logCategory()).noquote()
+                    << QString("Dropped %1 event(s) after the request ended: %2")
+                           .arg(dropped)
+                           .arg(id);
+            }
+            return;
+        }
     }
+}
+
+void OpenAIClient::processStreamEvent(const RequestID &id, const QJsonObject &chunk)
+{
+    if (chunk.contains("choices"))
+        processStreamChunk(id, chunk);
+
+    const QJsonObject usage = chunk.value("usage").toObject();
+    if (!usage.isEmpty())
+        setUsage(id, parseOpenAIUsage(usage));
 }
 
 BaseMessage *OpenAIClient::messageForRequest(const RequestID &id) const
@@ -183,10 +212,10 @@ void OpenAIClient::processStreamChunk(const RequestID &id, const QJsonObject &ch
     if (!message) {
         message = new OpenAIMessage(this);
         m_messages[id] = message;
-        qCDebug(llmOpenAILog).noquote() << QString("Created OpenAIMessage for request %1").arg(id);
+        qCDebug(logCategory()).noquote() << QString("Created OpenAIMessage for request %1").arg(id);
     } else if (message->state() == MessageState::RequiresToolExecution) {
         message->startNewContinuation();
-        qCDebug(llmOpenAILog).noquote() << QString("Starting continuation for request %1").arg(id);
+        qCDebug(logCategory()).noquote() << QString("Starting continuation for request %1").arg(id);
     }
 
     // DeepSeek-style reasoning: dedicated "reasoning_content" field

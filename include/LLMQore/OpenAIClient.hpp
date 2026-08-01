@@ -8,7 +8,10 @@
 #include <QJsonObject>
 #include <QUrl>
 
+#include <QLoggingCategory>
+
 #include <LLMQore/BaseClient.hpp>
+#include <LLMQore/SSEParser.hpp>
 
 namespace LLMQore {
 
@@ -48,6 +51,19 @@ protected:
         BaseMessage *message,
         const QHash<QString, ToolResult> &toolResults) override;
     [[nodiscard]] QString parseHttpError(const HttpResponse &response) const override;
+
+    // Runs already-framed SSE events through the dialect. Subclasses that need
+    // the same dispatch from another point (a trailing flush, a second wire
+    // shape) reuse this instead of re-implementing the loop.
+    void dispatchStreamEvents(const RequestID &id, const QList<SSEEvent> &events);
+
+    // One framed event. Override to recognise a provider-specific chunk shape,
+    // and delegate here for anything OpenAI-compatible.
+    virtual void processStreamEvent(const RequestID &id, const QJsonObject &chunk);
+
+    // Which category the shared code logs under, so an OpenAI-compatible
+    // provider still reports under its own name.
+    [[nodiscard]] virtual const QLoggingCategory &logCategory() const;
 
 private:
     void processStreamChunk(const RequestID &id, const QJsonObject &chunk);

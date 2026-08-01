@@ -30,52 +30,22 @@ MistralClient::MistralClient(
     : OpenAIClient(url, apiKey, model, transport, parent)
 {}
 
+const QLoggingCategory &MistralClient::logCategory() const
+{
+    return llmMistralLog();
+}
+
 RequestID MistralClient::sendMessage(
     const QJsonObject &payload, const QString &endpoint, RequestMode mode)
 {
-    QJsonObject request = payload;
-    request["stream"] = (mode == RequestMode::Streaming);
-
-    if (mode == RequestMode::Streaming) {
-        QJsonObject streamOptions = request.value("stream_options").toObject();
-        streamOptions["include_usage"] = true;
-        request["stream_options"] = streamOptions;
-    }
-
-    const RequestID id = createRequest();
-    const QString resolved = endpoint.isEmpty() ? QStringLiteral("/v1/chat/completions") : endpoint;
-
-    qCDebug(llmMistralLog).noquote()
-        << QString("Sending request %1 to %2").arg(id, resolved);
-
-    sendRequest(id, QUrl(m_url + resolved), request, mode);
-    return id;
+    return OpenAIClient::sendMessage(
+        payload, endpoint.isEmpty() ? QStringLiteral("/v1/chat/completions") : endpoint, mode);
 }
 
 QFuture<QList<QString>> MistralClient::listModels(const QString &endpoint)
 {
-    const QString resolved = endpoint.isEmpty() ? QStringLiteral("/v1/models") : endpoint;
-    QUrl url(m_url + resolved);
-    QNetworkRequest request = prepareNetworkRequest(url);
-
-    return LLMQore::compat(transport()->send(request, QByteArrayView("GET")))
-        .then(this, [](const HttpResponse &response) {
-            QList<QString> models;
-            if (!response.isSuccess())
-                return models;
-
-            const QJsonObject json = QJsonDocument::fromJson(response.body).object();
-            if (json.contains("data")) {
-                const QJsonArray modelArray = json["data"].toArray();
-                for (const QJsonValue &value : modelArray) {
-                    const QJsonObject modelObject = value.toObject();
-                    if (modelObject.contains("id"))
-                        models.append(modelObject["id"].toString());
-                }
-            }
-            return models;
-        })
-        .onFailed(this, [](const std::exception &) { return QList<QString>{}; });
+    return OpenAIClient::listModels(
+        endpoint.isEmpty() ? QStringLiteral("/v1/models") : endpoint);
 }
 
 } // namespace LLMQore

@@ -6,12 +6,9 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 
-#include "clients/openai/OpenAIMessage.hpp"
-#include "clients/openai/OpenAIUsage.hpp"
 #include <LLMQore/FutureUtils.hpp>
 #include <LLMQore/HttpTransport.hpp>
 #include <LLMQore/Log.hpp>
-#include <LLMQore/SSEParser.hpp>
 
 namespace LLMQore {
 
@@ -21,7 +18,7 @@ LlamaCppClient::LlamaCppClient(QObject *parent)
 
 LlamaCppClient::LlamaCppClient(
     const QString &url, const QString &apiKey, const QString &model, QObject *parent)
-    : LlamaCppClient(url, apiKey, model, nullptr, parent)
+    : OpenAIClient(url, apiKey, model, parent)
 {}
 
 LlamaCppClient::LlamaCppClient(
@@ -30,34 +27,19 @@ LlamaCppClient::LlamaCppClient(
     const QString &model,
     HttpTransport *transport,
     QObject *parent)
-    : BaseClient(url, apiKey, model, transport, parent)
+    : OpenAIClient(url, apiKey, model, transport, parent)
+{}
+
+const QLoggingCategory &LlamaCppClient::logCategory() const
 {
-    setAuthScheme(
-        {.placement = AuthScheme::Placement::Header,
-         .name = QStringLiteral("Authorization"),
-         .valuePrefix = QStringLiteral("Bearer ")});
-    setHeaders({{QStringLiteral("Content-Type"), QStringLiteral("application/json")}});
+    return llmLlamaCppLog();
 }
 
 RequestID LlamaCppClient::sendMessage(
     const QJsonObject &payload, const QString &endpoint, RequestMode mode)
 {
-    QJsonObject request = payload;
-    request["stream"] = (mode == RequestMode::Streaming);
-
-    if (mode == RequestMode::Streaming) {
-        QJsonObject streamOptions = request.value("stream_options").toObject();
-        streamOptions["include_usage"] = true;
-        request["stream_options"] = streamOptions;
-    }
-
-    RequestID id = createRequest();
-    const QString resolved = endpoint.isEmpty() ? QStringLiteral("/v1/chat/completions") : endpoint;
-
-    qCDebug(llmLlamaCppLog).noquote() << QString("Sending request %1 to %2").arg(id, resolved);
-
-    sendRequest(id, QUrl(m_url + resolved), request, mode);
-    return id;
+    return OpenAIClient::sendMessage(
+        payload, endpoint.isEmpty() ? QStringLiteral("/v1/chat/completions") : endpoint, mode);
 }
 
 RequestID LlamaCppClient::ask(const QString &prompt, RequestMode mode)
@@ -72,34 +54,8 @@ RequestID LlamaCppClient::ask(const QString &prompt, RequestMode mode)
 
 QFuture<QList<QString>> LlamaCppClient::listModels(const QString &endpoint)
 {
-    const QString resolved = endpoint.isEmpty() ? QStringLiteral("/v1/models") : endpoint;
-    QUrl url(m_url + resolved);
-    QNetworkRequest request = prepareNetworkRequest(url);
-
-    return LLMQore::compat(transport()->send(request, QByteArrayView("GET")))
-        .then(this, [](const HttpResponse &response) {
-            QList<QString> models;
-            if (!response.isSuccess()) {
-                qCDebug(llmLlamaCppLog).noquote()
-                    << QString("Error fetching models: HTTP %1").arg(response.statusCode);
-                return models;
-            }
-
-            QJsonObject json = QJsonDocument::fromJson(response.body).object();
-            if (json.contains("data")) {
-                QJsonArray modelArray = json["data"].toArray();
-                for (const QJsonValue &value : modelArray) {
-                    QJsonObject modelObject = value.toObject();
-                    if (modelObject.contains("id"))
-                        models.append(modelObject["id"].toString());
-                }
-            }
-            return models;
-        })
-        .onFailed(this, [](const std::exception &e) {
-            qCDebug(llmLlamaCppLog).noquote() << QString("Error fetching models: %1").arg(e.what());
-            return QList<QString>{};
-        });
+    return OpenAIClient::listModels(
+        endpoint.isEmpty() ? QStringLiteral("/v1/models") : endpoint);
 }
 
 QFuture<bool> LlamaCppClient::isServerReady()
@@ -131,95 +87,43 @@ QFuture<QJsonObject> LlamaCppClient::serverProps()
         .onFailed(this, [](const std::exception &) { return QJsonObject{}; });
 }
 
-QString LlamaCppClient::parseHttpError(const HttpResponse &response) const
+bool LlamaCppClient::isNativeCompletionChunk(const QJsonObject &chunk)
 {
-    const QJsonDocument doc = QJsonDocument::fromJson(response.body);
-    if (doc.isObject()) {
-        const QJsonObject error = doc.object().value("error").toObject();
-        const QString message = error.value("message").toString();
-        const QString type = error.value("type").toString();
-        if (!message.isEmpty()) {
-            if (!type.isEmpty())
-                return QString("HTTP %1: %2 (%3)")
-                    .arg(QString::number(response.statusCode), message, type);
-            return QString("HTTP %1: %2").arg(QString::number(response.statusCode), message);
-        }
-    }
-    return BaseClient::parseHttpError(response);
+    return chunk.contains("content") && !chunk.contains("choices");
 }
 
-void LlamaCppClient::processData(const RequestID &id, const QByteArray &data)
+void LlamaCppClient::applyNativeUsage(const RequestID &id, const QJsonObject &chunk)
 {
-    if (!hasRequest(id))
+    if (!chunk.contains("tokens_evaluated") && !chunk.contains("tokens_predicted"))
         return;
 
-    const QList<SSEEvent> events = requestSSEParser(id).append(data);
-    for (int i = 0; i < events.size(); ++i) {
-        const SSEEvent &ev = events.at(i);
-        if (ev.data.isEmpty() || ev.data == "[DONE]")
-            continue;
-        const QJsonObject chunk = QJsonDocument::fromJson(ev.data).object();
-        if (chunk.isEmpty())
-            continue;
+    TokenUsage u;
+    u.promptTokens = chunk.value("tokens_evaluated").toInt();
+    u.completionTokens = chunk.value("tokens_predicted").toInt();
+    setUsage(id, u);
+}
 
-        if (chunk.contains("content") && !chunk.contains("choices")) {
-            QString content = chunk["content"].toString();
-            if (!content.isEmpty())
-                addChunk(id, content);
-
-            if (chunk["stop"].toBool()) {
-                if (chunk.contains("tokens_evaluated") || chunk.contains("tokens_predicted")) {
-                    TokenUsage u;
-                    u.promptTokens = chunk.value("tokens_evaluated").toInt();
-                    u.completionTokens = chunk.value("tokens_predicted").toInt();
-                    setUsage(id, u);
-                }
-                cleanupFullRequest(id);
-                completeRequest(id);
-
-                const int dropped = events.size() - i - 1;
-                if (dropped > 0) {
-                    qCDebug(llmLlamaCppLog).noquote()
-                        << QString("Dropped %1 event(s) after stop for request %2")
-                               .arg(dropped)
-                               .arg(id);
-                }
-                return;
-            }
-        } else if (chunk.contains("choices")) {
-            processStreamChunk(id, chunk);
-        }
-
-        const QJsonObject usage = chunk.value("usage").toObject();
-        if (!usage.isEmpty())
-            setUsage(id, parseOpenAIUsage(usage));
+void LlamaCppClient::processStreamEvent(const RequestID &id, const QJsonObject &chunk)
+{
+    if (!isNativeCompletionChunk(chunk)) {
+        OpenAIClient::processStreamEvent(id, chunk);
+        return;
     }
-}
 
-BaseMessage *LlamaCppClient::messageForRequest(const RequestID &id) const
-{
-    return m_messages.value(id, nullptr);
-}
+    const QString content = chunk["content"].toString();
+    if (!content.isEmpty())
+        addChunk(id, content);
 
-void LlamaCppClient::cleanupDerivedData(const RequestID &id)
-{
-    if (auto *msg = m_messages.take(id))
-        msg->deleteLater();
-}
+    if (chunk["stop"].toBool()) {
+        applyNativeUsage(id, chunk);
+        cleanupFullRequest(id);
+        completeRequest(id);
+        return;
+    }
 
-QJsonObject LlamaCppClient::buildContinuationPayload(
-    const QJsonObject &originalPayload,
-    BaseMessage *message,
-    const QHash<QString, ToolResult> &toolResults)
-{
-    auto *openaiMsg = qobject_cast<OpenAIMessage *>(message);
-    if (!openaiMsg)
-        return originalPayload;
-
-    return appendChatMessagesContinuation(
-        originalPayload,
-        openaiMsg->toProviderFormat(),
-        openaiMsg->createToolResultMessages(toolResults));
+    const QJsonObject usage = chunk.value("usage").toObject();
+    if (!usage.isEmpty())
+        OpenAIClient::processStreamEvent(id, chunk);
 }
 
 void LlamaCppClient::onStreamFinished(const RequestID &id, std::optional<QString> error)
@@ -227,183 +131,30 @@ void LlamaCppClient::onStreamFinished(const RequestID &id, std::optional<QString
     if (!error && hasRequest(id)) {
         // Some llama.cpp builds close the stream without a trailing
         // blank line, leaving the final event un-dispatched. Force it.
-        const QList<SSEEvent> trailing = requestSSEParser(id).flush();
-        for (const SSEEvent &ev : trailing) {
-            if (ev.data.isEmpty() || ev.data == "[DONE]")
-                continue;
-            const QJsonObject chunk = QJsonDocument::fromJson(ev.data).object();
-            if (chunk.isEmpty())
-                continue;
-
-            if (chunk.contains("content") && !chunk.contains("choices")) {
-                const QString content = chunk["content"].toString();
-                if (!content.isEmpty())
-                    addChunk(id, content);
-
-                if (chunk["stop"].toBool()
-                    && (chunk.contains("tokens_evaluated") || chunk.contains("tokens_predicted"))) {
-                    TokenUsage u;
-                    u.promptTokens = chunk.value("tokens_evaluated").toInt();
-                    u.completionTokens = chunk.value("tokens_predicted").toInt();
-                    setUsage(id, u);
-                }
-            } else if (chunk.contains("choices")) {
-                processStreamChunk(id, chunk);
-            }
-
-            const QJsonObject usage = chunk.value("usage").toObject();
-            if (!usage.isEmpty())
-                setUsage(id, parseOpenAIUsage(usage));
-        }
+        dispatchStreamEvents(id, requestSSEParser(id).flush());
     }
 
-    BaseClient::onStreamFinished(id, error);
-}
-
-void LlamaCppClient::processStreamChunk(const RequestID &id, const QJsonObject &chunk)
-{
-    QJsonArray choices = chunk["choices"].toArray();
-    if (choices.isEmpty())
-        return;
-
-    QJsonObject choice = choices[0].toObject();
-    QJsonObject delta = choice["delta"].toObject();
-    QString finishReason = choice["finish_reason"].toString();
-
-    OpenAIMessage *message = m_messages.value(id);
-    if (!message) {
-        message = new OpenAIMessage(this);
-        m_messages[id] = message;
-        qCDebug(llmLlamaCppLog).noquote()
-            << QString("Created OpenAIMessage for request %1").arg(id);
-    } else if (message->state() == MessageState::RequiresToolExecution) {
-        message->startNewContinuation();
-        qCDebug(llmLlamaCppLog).noquote()
-            << QString("Starting continuation for request %1").arg(id);
-    }
-
-    if (delta.contains("reasoning_content") && !delta["reasoning_content"].isNull())
-        message->handleReasoningDelta(delta["reasoning_content"].toString());
-
-    if (delta.contains("content") && !delta["content"].isNull()) {
-        const OpenAIMessage::ContentParts parts
-            = OpenAIMessage::splitContentParts(delta["content"]);
-        if (!parts.thinking.isEmpty())
-            message->handleReasoningDelta(parts.thinking);
-        if (!parts.text.isEmpty()) {
-            notifyPendingThinkingBlocks(id);
-            message->handleContentDelta(parts.text);
-            addChunk(id, parts.text);
-        }
-    }
-
-    if (delta.contains("tool_calls")) {
-        QJsonArray toolCalls = delta["tool_calls"].toArray();
-        for (const auto &toolCallValue : toolCalls) {
-            QJsonObject toolCall = toolCallValue.toObject();
-            int index = toolCall["index"].toInt();
-            QJsonObject function = toolCall["function"].toObject();
-
-            if (toolCall.contains("id"))
-                message->handleToolCallStart(index, toolCall["id"].toString(),
-                                             function["name"].toString());
-
-            if (function.contains("arguments"))
-                message->handleToolCallDelta(index, function["arguments"].toString());
-        }
-    }
-
-    if (!finishReason.isEmpty() && finishReason != "null") {
-        notifyPendingThinkingBlocks(id);
-        message->completeAllPendingToolCalls();
-        message->handleFinishReason(finishReason);
-        executeToolsFromMessage(id);
-    }
+    OpenAIClient::onStreamFinished(id, error);
 }
 
 void LlamaCppClient::processBufferedResponse(const RequestID &id, const QByteArray &data)
 {
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    if (!doc.isObject()) {
-        failRequest(id, QStringLiteral("Invalid JSON in buffered response"));
-        return;
-    }
+    const QJsonDocument doc = QJsonDocument::fromJson(data);
+    if (doc.isObject() && isNativeCompletionChunk(doc.object())) {
+        const QJsonObject response = doc.object();
 
-    QJsonObject response = doc.object();
-
-    if (response["error"].isObject()) {
-        QJsonObject error = response["error"].toObject();
-        failRequest(id, error["message"].toString());
-        return;
-    }
-
-    if (response.contains("content") && !response.contains("choices")) {
-        QString content = response["content"].toString();
+        const QString content = response["content"].toString();
         if (!content.isEmpty())
             addChunk(id, content);
 
-        if (response.contains("tokens_evaluated") || response.contains("tokens_predicted")) {
-            TokenUsage u;
-            u.promptTokens = response.value("tokens_evaluated").toInt();
-            u.completionTokens = response.value("tokens_predicted").toInt();
-            setUsage(id, u);
-        }
+        applyNativeUsage(id, response);
 
         cleanupFullRequest(id);
         completeRequest(id);
         return;
     }
 
-    QJsonArray choices = response["choices"].toArray();
-    if (choices.isEmpty()) {
-        failRequest(id, QStringLiteral("Empty choices in buffered response"));
-        return;
-    }
-
-    QJsonObject choice = choices[0].toObject();
-    QJsonObject messageObj = choice["message"].toObject();
-    QString finishReason = choice["finish_reason"].toString();
-
-    auto *message = new OpenAIMessage(this);
-    m_messages[id] = message;
-
-    if (messageObj.contains("reasoning_content") && !messageObj["reasoning_content"].isNull())
-        message->handleReasoningDelta(messageObj["reasoning_content"].toString());
-
-    const OpenAIMessage::ContentParts parts
-        = OpenAIMessage::splitContentParts(messageObj["content"]);
-    if (!parts.thinking.isEmpty())
-        message->handleReasoningDelta(parts.thinking);
-    if (!parts.text.isEmpty()) {
-        message->handleContentDelta(parts.text);
-        addChunk(id, parts.text);
-    }
-
-    notifyPendingThinkingBlocks(id);
-
-    if (messageObj.contains("tool_calls")) {
-        QJsonArray toolCalls = messageObj["tool_calls"].toArray();
-        for (int i = 0; i < toolCalls.size(); ++i) {
-            QJsonObject toolCall = toolCalls[i].toObject();
-            QString toolId = toolCall["id"].toString();
-            QJsonObject function = toolCall["function"].toObject();
-            QString name = function["name"].toString();
-            QString arguments = function["arguments"].toString();
-
-            message->handleToolCallStart(i, toolId, name);
-            message->handleToolCallDelta(i, arguments);
-            message->handleToolCallComplete(i);
-        }
-    }
-
-    if (!finishReason.isEmpty()) {
-        message->handleFinishReason(finishReason);
-        executeToolsFromMessage(id);
-    }
-
-    const QJsonObject usage = response.value("usage").toObject();
-    if (!usage.isEmpty())
-        setUsage(id, parseOpenAIUsage(usage));
+    OpenAIClient::processBufferedResponse(id, data);
 }
 
 } // namespace LLMQore
