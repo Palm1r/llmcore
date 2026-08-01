@@ -9,12 +9,4 @@ Transport::Transport(QObject *parent)
     : QObject(parent)
 {}
 
-void Transport::setState(State s)
-{
-    if (m_state == s)
-        return;
-    m_state = s;
-    emit stateChanged(s);
-}
-
 } // namespace LLMQore::Rpc

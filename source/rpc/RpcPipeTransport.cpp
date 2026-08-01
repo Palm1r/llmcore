@@ -28,7 +28,6 @@ void PipeTransport::start()
     if (m_open)
         return;
     m_open = true;
-    setState(State::Connected);
 }
 
 void PipeTransport::stop()
@@ -36,7 +35,6 @@ void PipeTransport::stop()
     if (!m_open)
         return;
     m_open = false;
-    setState(State::Disconnected);
     emit closed();
 }
 

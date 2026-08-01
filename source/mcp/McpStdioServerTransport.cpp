@@ -194,7 +194,6 @@ void McpStdioServerTransport::start()
     if (m_impl->in) {
         m_impl->trace->note(QStringLiteral("McpStdioServerTransport::start (injected devices)"));
         m_impl->open = true;
-        setState(State::Connected);
         connect(m_impl->in, &QIODevice::readyRead, this, [this]() { readFromDevice(); });
         connect(m_impl->in, &QIODevice::readChannelFinished, this, [this]() {
             readFromDevice();
@@ -215,7 +214,6 @@ void McpStdioServerTransport::start()
     m_impl->trace->note(QStringLiteral("McpStdioServerTransport::start"));
 
     m_impl->open = true;
-    setState(State::Connected);
 
     m_impl->reader = new StdinReaderThread(this, m_impl->trace);
     m_impl->reader->start();
@@ -239,7 +237,6 @@ void McpStdioServerTransport::stop()
         }
         m_impl->reader = nullptr;
     }
-    setState(State::Disconnected);
     emit closed();
 }
 

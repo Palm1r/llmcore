@@ -178,7 +178,6 @@ TEST_F(McpHttpServerTest, LatestSpecPostsStraightToTheConfiguredEndpoint)
 
     transport.start();
     EXPECT_TRUE(transport.isOpen());
-    EXPECT_EQ(transport.state(), Rpc::Transport::State::Connected);
     EXPECT_EQ(http.streamCount(), 0) << "2025-03-26 must not open a standing SSE stream";
 
     transport.send(QJsonObject{{"jsonrpc", "2.0"}, {"id", 1}, {"method", "ping"}});
@@ -203,7 +202,6 @@ TEST_F(McpHttpServerTest, LegacySpecOpensSseStreamAndWaitsForTheEndpointEvent)
 
     transport.start();
     ASSERT_EQ(http.streamCount(), 1) << "2024-11-05 must open a GET SSE stream";
-    EXPECT_EQ(transport.state(), Rpc::Transport::State::Connecting);
 
     const auto streamReq = http.streamRequest(0);
     EXPECT_EQ(streamReq.verb, QByteArray("GET"));
@@ -217,7 +215,6 @@ TEST_F(McpHttpServerTest, LegacySpecOpensSseStreamAndWaitsForTheEndpointEvent)
     http.lastStream()->sendChunk("event: endpoint\ndata: /messages?sessionId=abc\n\n");
     spin();
 
-    EXPECT_EQ(transport.state(), Rpc::Transport::State::Connected);
     ASSERT_EQ(http.bufferedCount(), 1) << "queued send must flush once the endpoint is known";
 
     const auto posted = http.bufferedRequest(0);

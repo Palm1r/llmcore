@@ -18,6 +18,42 @@
 
 namespace LLMQore {
 
+// An already-finished future holding `value`.
+template<typename T>
+QFuture<T> readyFuture(T value)
+{
+    QPromise<T> promise;
+    promise.start();
+    promise.addResult(std::move(value));
+    promise.finish();
+    return promise.future();
+}
+
+inline QFuture<void> readyFuture()
+{
+    QPromise<void> promise;
+    promise.start();
+    promise.finish();
+    return promise.future();
+}
+
+// An already-finished future carrying `exception`.
+template<typename T>
+QFuture<T> failedFuture(std::exception_ptr exception)
+{
+    QPromise<T> promise;
+    promise.start();
+    promise.setException(std::move(exception));
+    promise.finish();
+    return promise.future();
+}
+
+template<typename T, typename E>
+QFuture<T> failedFuture(E error)
+{
+    return failedFuture<T>(std::make_exception_ptr(std::move(error)));
+}
+
 template<typename T, typename F>
 auto futureThen(QObject *context, const QFuture<T> &future, F &&fn)
     -> QFuture<std::decay_t<std::invoke_result_t<F, const T &>>>;

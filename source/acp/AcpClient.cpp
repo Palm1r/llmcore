@@ -13,6 +13,7 @@
 #include <LLMQore/JsonRpcSession.hpp>
 #include <LLMQore/Log.hpp>
 #include <LLMQore/RpcExceptions.hpp>
+#include <LLMQore/RpcStdioTransport.hpp>
 
 namespace LLMQore::Acp {
 
@@ -31,24 +32,6 @@ void registerMetatypesOnce()
         return true;
     }();
     Q_UNUSED(once);
-}
-
-QFuture<QJsonValue> failedJson(int code, const QString &message)
-{
-    auto promise = std::make_shared<QPromise<QJsonValue>>();
-    promise->start();
-    promise->setException(std::make_exception_ptr(Rpc::RemoteError(code, message)));
-    promise->finish();
-    return promise->future();
-}
-
-QFuture<QJsonValue> resolvedJson(const QJsonValue &value)
-{
-    auto promise = std::make_shared<QPromise<QJsonValue>>();
-    promise->start();
-    promise->addResult(value);
-    promise->finish();
-    return promise->future();
 }
 
 // tool_call_update carries the current state of a tool call; merge the
@@ -85,9 +68,11 @@ AcpClient::AcpClient(Rpc::Transport *transport, Implementation clientInfo, QObje
     registerMetatypesOnce();
 
     if (m_transport) {
-        connect(m_transport, &Rpc::Transport::stderrLine, this, &AcpClient::agentStderr);
         connect(m_transport, &Rpc::Transport::closed, this, &AcpClient::disconnected);
         connect(m_transport, &Rpc::Transport::errorOccurred, this, &AcpClient::errorOccurred);
+        if (auto *stdio = qobject_cast<Rpc::StdioClientTransport *>(m_transport.data())) {
+            connect(stdio, &Rpc::StdioClientTransport::stderrLine, this, &AcpClient::agentStderr);
+        }
     }
 
     installHandlers();
@@ -275,7 +260,7 @@ void AcpClient::installHandlers()
         [this](const QJsonObject &params) -> QFuture<QJsonValue> {
             const RequestPermissionParams p = RequestPermissionParams::fromJson(params);
             if (m_permissionProvider.isNull())
-                return resolvedJson(RequestPermissionResult::cancelled().toJson());
+                return LLMQore::readyFuture<QJsonValue>(RequestPermissionResult::cancelled().toJson());
             QFuture<RequestPermissionResult> f
                 = m_permissionProvider->requestPermission(p.sessionId, p.toolCall, p.options);
             return LLMQore::futureThen(
@@ -287,8 +272,8 @@ void AcpClient::installHandlers()
         QLatin1String(Method::FsReadTextFile),
         [this](const QJsonObject &params) -> QFuture<QJsonValue> {
             if (m_fsProvider.isNull())
-                return failedJson(Rpc::ErrorCode::MethodNotFound,
-                                  QStringLiteral("fs/read_text_file not supported"));
+                return LLMQore::failedFuture<QJsonValue>(Rpc::RemoteError(Rpc::ErrorCode::MethodNotFound,
+                                  QStringLiteral("fs/read_text_file not supported")));
             const ReadTextFileParams p = ReadTextFileParams::fromJson(params);
             QFuture<QString> f
                 = m_fsProvider->readTextFile(p.sessionId, p.path, p.line, p.limit);
@@ -304,8 +289,8 @@ void AcpClient::installHandlers()
         QLatin1String(Method::FsWriteTextFile),
         [this](const QJsonObject &params) -> QFuture<QJsonValue> {
             if (m_fsProvider.isNull() || !m_fsProvider->supportsWrite())
-                return failedJson(Rpc::ErrorCode::MethodNotFound,
-                                  QStringLiteral("fs/write_text_file not supported"));
+                return LLMQore::failedFuture<QJsonValue>(Rpc::RemoteError(Rpc::ErrorCode::MethodNotFound,
+                                  QStringLiteral("fs/write_text_file not supported")));
             const WriteTextFileParams p = WriteTextFileParams::fromJson(params);
             QFuture<void> f = m_fsProvider->writeTextFile(p.sessionId, p.path, p.content);
             return LLMQore::futureThen(
@@ -317,8 +302,8 @@ void AcpClient::installHandlers()
         QLatin1String(Method::TerminalCreate),
         [this](const QJsonObject &params) -> QFuture<QJsonValue> {
             if (m_terminalProvider.isNull())
-                return failedJson(Rpc::ErrorCode::MethodNotFound,
-                                  QStringLiteral("terminal not supported"));
+                return LLMQore::failedFuture<QJsonValue>(Rpc::RemoteError(Rpc::ErrorCode::MethodNotFound,
+                                  QStringLiteral("terminal not supported")));
             const CreateTerminalParams p = CreateTerminalParams::fromJson(params);
             QFuture<CreateTerminalResult> f = m_terminalProvider->createTerminal(p);
             return LLMQore::futureThen(
@@ -330,8 +315,8 @@ void AcpClient::installHandlers()
         QLatin1String(Method::TerminalOutput),
         [this](const QJsonObject &params) -> QFuture<QJsonValue> {
             if (m_terminalProvider.isNull())
-                return failedJson(Rpc::ErrorCode::MethodNotFound,
-                                  QStringLiteral("terminal not supported"));
+                return LLMQore::failedFuture<QJsonValue>(Rpc::RemoteError(Rpc::ErrorCode::MethodNotFound,
+                                  QStringLiteral("terminal not supported")));
             const TerminalOutputParams p = TerminalOutputParams::fromJson(params);
             QFuture<TerminalOutputResult> f
                 = m_terminalProvider->terminalOutput(p.sessionId, p.terminalId);
@@ -344,8 +329,8 @@ void AcpClient::installHandlers()
         QLatin1String(Method::TerminalWaitForExit),
         [this](const QJsonObject &params) -> QFuture<QJsonValue> {
             if (m_terminalProvider.isNull())
-                return failedJson(Rpc::ErrorCode::MethodNotFound,
-                                  QStringLiteral("terminal not supported"));
+                return LLMQore::failedFuture<QJsonValue>(Rpc::RemoteError(Rpc::ErrorCode::MethodNotFound,
+                                  QStringLiteral("terminal not supported")));
             const TerminalRefParams p = TerminalRefParams::fromJson(params);
             QFuture<WaitForTerminalExitResult> f
                 = m_terminalProvider->waitForExit(p.sessionId, p.terminalId);
@@ -360,8 +345,8 @@ void AcpClient::installHandlers()
         QLatin1String(Method::TerminalKill),
         [this](const QJsonObject &params) -> QFuture<QJsonValue> {
             if (m_terminalProvider.isNull())
-                return failedJson(Rpc::ErrorCode::MethodNotFound,
-                                  QStringLiteral("terminal not supported"));
+                return LLMQore::failedFuture<QJsonValue>(Rpc::RemoteError(Rpc::ErrorCode::MethodNotFound,
+                                  QStringLiteral("terminal not supported")));
             const TerminalRefParams p = TerminalRefParams::fromJson(params);
             QFuture<void> f = m_terminalProvider->killTerminal(p.sessionId, p.terminalId);
             return LLMQore::futureThen(this, f, []() -> QJsonValue { return QJsonObject{}; });
@@ -372,8 +357,8 @@ void AcpClient::installHandlers()
         QLatin1String(Method::TerminalRelease),
         [this](const QJsonObject &params) -> QFuture<QJsonValue> {
             if (m_terminalProvider.isNull())
-                return failedJson(Rpc::ErrorCode::MethodNotFound,
-                                  QStringLiteral("terminal not supported"));
+                return LLMQore::failedFuture<QJsonValue>(Rpc::RemoteError(Rpc::ErrorCode::MethodNotFound,
+                                  QStringLiteral("terminal not supported")));
             const TerminalRefParams p = TerminalRefParams::fromJson(params);
             QFuture<void> f = m_terminalProvider->releaseTerminal(p.sessionId, p.terminalId);
             return LLMQore::futureThen(this, f, []() -> QJsonValue { return QJsonObject{}; });

@@ -50,12 +50,8 @@ QJsonObject McpRemoteTool::parametersSchema() const
 QFuture<LLMQore::ToolResult> McpRemoteTool::executeAsync(const QJsonObject &input)
 {
     if (!m_client) {
-        QPromise<LLMQore::ToolResult> p;
-        p.start();
-        p.addResult(LLMQore::ToolResult::error(
+        return LLMQore::readyFuture(LLMQore::ToolResult::error(
             QStringLiteral("MCP client is not available")));
-        p.finish();
-        return p.future();
     }
 
     return LLMQore::compat(m_client->callTool(m_info.name, input))

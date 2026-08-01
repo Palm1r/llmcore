@@ -25,24 +25,6 @@ namespace LLMQore::Mcp {
 
 namespace {
 
-QFuture<QJsonValue> makeErrorFuture(const Rpc::RemoteError &err)
-{
-    QPromise<QJsonValue> promise;
-    promise.start();
-    promise.setException(std::make_exception_ptr(err));
-    promise.finish();
-    return promise.future();
-}
-
-QFuture<QJsonValue> makeReadyFuture(QJsonValue value)
-{
-    QPromise<QJsonValue> promise;
-    promise.start();
-    promise.addResult(std::move(value));
-    promise.finish();
-    return promise.future();
-}
-
 template<typename Provider, typename Item, typename Run>
 QFuture<QJsonValue> collectListFromProviders(
     QObject *ctx,
@@ -57,7 +39,7 @@ QFuture<QJsonValue> collectListFromProviders(
     }
 
     if (futures.isEmpty())
-        return makeReadyFuture(QJsonObject{{resultKey, QJsonArray{}}});
+        return LLMQore::readyFuture<QJsonValue>(QJsonObject{{resultKey, QJsonArray{}}});
 
     struct State
     {
@@ -218,7 +200,7 @@ void McpServer::installHandlers()
             m_initialized = true;
             emit clientInitialized(clientInfo);
 
-            return makeReadyFuture(result.toJson());
+            return LLMQore::readyFuture<QJsonValue>(result.toJson());
         });
 
     m_session->setNotificationHandler(
@@ -240,7 +222,7 @@ void McpServer::installHandlers()
                 arr.append(info.toJson());
             }
             QJsonObject result{{"tools", arr}};
-            return makeReadyFuture(result);
+            return LLMQore::readyFuture<QJsonValue>(result);
         });
 
     m_session->setRequestHandler(
@@ -253,7 +235,7 @@ void McpServer::installHandlers()
 
             LLMQore::BaseTool *tool = findTool(name);
             if (!tool) {
-                return makeErrorFuture(Rpc::RemoteError(
+                return LLMQore::failedFuture<QJsonValue>(Rpc::RemoteError(
                     Rpc::ErrorCode::MethodNotFound, QString("Tool not found: %1").arg(name)));
             }
 
@@ -293,7 +275,7 @@ void McpServer::installHandlers()
             emit resourceRead(uri);
 
             if (m_resourceProviders.isEmpty()) {
-                return makeErrorFuture(Rpc::RemoteError(
+                return LLMQore::failedFuture<QJsonValue>(Rpc::RemoteError(
                     Rpc::ErrorCode::InvalidParams, QStringLiteral("No resource providers")));
             }
 
@@ -318,7 +300,7 @@ void McpServer::installHandlers()
                 if (provider && provider->supportsSubscription())
                     provider->subscribe(uri);
             }
-            return makeReadyFuture(QJsonObject{});
+            return LLMQore::readyFuture<QJsonValue>(QJsonObject{});
         });
 
     m_session->setRequestHandler(
@@ -330,7 +312,7 @@ void McpServer::installHandlers()
                 if (provider && provider->supportsSubscription())
                     provider->unsubscribe(uri);
             }
-            return makeReadyFuture(QJsonObject{});
+            return LLMQore::readyFuture<QJsonValue>(QJsonObject{});
         });
 
     m_session->setRequestHandler(
@@ -351,7 +333,7 @@ void McpServer::installHandlers()
             emit promptRequested(name);
 
             if (m_promptProviders.isEmpty()) {
-                return makeErrorFuture(Rpc::RemoteError(
+                return LLMQore::failedFuture<QJsonValue>(Rpc::RemoteError(
                     Rpc::ErrorCode::InvalidParams, QStringLiteral("No prompt providers")));
             }
 
@@ -382,7 +364,7 @@ void McpServer::installHandlers()
                         futures.append(runFn(p));
                 }
                 if (futures.isEmpty())
-                    return makeReadyFuture(CompletionResult{}.toJson());
+                    return LLMQore::readyFuture<QJsonValue>(CompletionResult{}.toJson());
 
                 struct State
                 {
@@ -424,7 +406,7 @@ void McpServer::installHandlers()
 
             if (ref.type == QLatin1String(RefType::Prompt)) {
                 if (m_promptProviders.isEmpty() || ref.name.isEmpty())
-                    return makeReadyFuture(CompletionResult{}.toJson());
+                    return LLMQore::readyFuture<QJsonValue>(CompletionResult{}.toJson());
                 return mergeCompletions(
                     m_promptProviders, [&](BasePromptProvider *p) {
                         return p->completeArgument(ref.name, arg.name, arg.value, ctxArguments);
@@ -433,14 +415,14 @@ void McpServer::installHandlers()
 
             if (ref.type == QLatin1String(RefType::Resource)) {
                 if (m_resourceProviders.isEmpty() || ref.uri.isEmpty())
-                    return makeReadyFuture(CompletionResult{}.toJson());
+                    return LLMQore::readyFuture<QJsonValue>(CompletionResult{}.toJson());
                 return mergeCompletions(
                     m_resourceProviders, [&](BaseResourceProvider *p) {
                         return p->completeArgument(ref.uri, arg.name, arg.value, ctxArguments);
                     });
             }
 
-            return makeReadyFuture(CompletionResult{}.toJson());
+            return LLMQore::readyFuture<QJsonValue>(CompletionResult{}.toJson());
         });
 
     m_session->setRequestHandler(
@@ -448,17 +430,17 @@ void McpServer::installHandlers()
         [this](const QJsonObject &params) -> QFuture<QJsonValue> {
             const QString level = params.value("level").toString();
             if (level.isEmpty()) {
-                return makeErrorFuture(Rpc::RemoteError(
+                return LLMQore::failedFuture<QJsonValue>(Rpc::RemoteError(
                     Rpc::ErrorCode::InvalidParams, QStringLiteral("Missing 'level'")));
             }
             m_logLevel = level;
             emit logLevelChanged(level);
-            return makeReadyFuture(QJsonObject{});
+            return LLMQore::readyFuture<QJsonValue>(QJsonObject{});
         });
 
     m_session->setRequestHandler(
         QLatin1String(Method::Ping),
-        [](const QJsonObject &) -> QFuture<QJsonValue> { return makeReadyFuture(QJsonObject{}); });
+        [](const QJsonObject &) -> QFuture<QJsonValue> { return LLMQore::readyFuture<QJsonValue>(QJsonObject{}); });
 }
 
 void McpServer::setToolRegistry(LLMQore::ToolRegistry *registry)
@@ -538,20 +520,12 @@ QFuture<CreateMessageResult> McpServer::createSamplingMessage(
     const CreateMessageParams &params, std::chrono::milliseconds timeout)
 {
     if (!m_initialized) {
-        QPromise<CreateMessageResult> p;
-        p.start();
-        p.setException(std::make_exception_ptr(
-            Rpc::ProtocolError(QStringLiteral("Server not initialized"))));
-        p.finish();
-        return p.future();
+        return LLMQore::failedFuture<CreateMessageResult>(
+            Rpc::ProtocolError(QStringLiteral("Server not initialized")));
     }
     if (!m_clientCapabilities.sampling.has_value()) {
-        QPromise<CreateMessageResult> p;
-        p.start();
-        p.setException(std::make_exception_ptr(Rpc::ProtocolError(
-            QStringLiteral("Client did not advertise the `sampling` capability"))));
-        p.finish();
-        return p.future();
+        return LLMQore::failedFuture<CreateMessageResult>(Rpc::ProtocolError(
+            QStringLiteral("Client did not advertise the `sampling` capability")));
     }
 
     return LLMQore::compat(
@@ -563,20 +537,12 @@ QFuture<ElicitResult> McpServer::createElicitation(
     const ElicitRequestParams &params, std::chrono::milliseconds timeout)
 {
     if (!m_initialized) {
-        QPromise<ElicitResult> p;
-        p.start();
-        p.setException(std::make_exception_ptr(
-            Rpc::ProtocolError(QStringLiteral("Server not initialized"))));
-        p.finish();
-        return p.future();
+        return LLMQore::failedFuture<ElicitResult>(
+            Rpc::ProtocolError(QStringLiteral("Server not initialized")));
     }
     if (!m_clientCapabilities.elicitation.has_value()) {
-        QPromise<ElicitResult> p;
-        p.start();
-        p.setException(std::make_exception_ptr(Rpc::ProtocolError(
-            QStringLiteral("Client did not advertise the `elicitation` capability"))));
-        p.finish();
-        return p.future();
+        return LLMQore::failedFuture<ElicitResult>(Rpc::ProtocolError(
+            QStringLiteral("Client did not advertise the `elicitation` capability")));
     }
 
     return LLMQore::compat(

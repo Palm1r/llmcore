@@ -40,6 +40,9 @@ public:
 
     QProcess *process() const { return m_process; }
 
+signals:
+    void stderrLine(const QString &line);
+
 private slots:
     void onReadyReadStdout();
     void onReadyReadStderr();
