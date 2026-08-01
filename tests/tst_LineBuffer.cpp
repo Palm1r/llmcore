@@ -3,6 +3,8 @@
 
 #include <gtest/gtest.h>
 
+#include <QString>
+
 #include <LLMQore/LineBuffer.hpp>
 
 using namespace LLMQore;
@@ -11,13 +13,13 @@ TEST(LineBuffer, InitialState)
 {
     LineBuffer buf;
     EXPECT_FALSE(buf.hasIncompleteData());
-    EXPECT_EQ(buf.currentBuffer(), QString());
+    EXPECT_EQ(buf.currentBuffer(), QByteArray());
 }
 
 TEST(LineBuffer, SingleCompleteLine)
 {
     LineBuffer buf;
-    QStringList lines = buf.processData("{\"a\":1}\n");
+    QByteArrayList lines = buf.processData("{\"a\":1}\n");
     EXPECT_EQ(lines.size(), 1);
     EXPECT_EQ(lines[0], "{\"a\":1}");
     EXPECT_FALSE(buf.hasIncompleteData());
@@ -26,7 +28,7 @@ TEST(LineBuffer, SingleCompleteLine)
 TEST(LineBuffer, MultipleCompleteLines)
 {
     LineBuffer buf;
-    QStringList lines = buf.processData("{\"a\":1}\n{\"b\":2}\n");
+    QByteArrayList lines = buf.processData("{\"a\":1}\n{\"b\":2}\n");
     EXPECT_EQ(lines.size(), 2);
     EXPECT_EQ(lines[0], "{\"a\":1}");
     EXPECT_EQ(lines[1], "{\"b\":2}");
@@ -36,7 +38,7 @@ TEST(LineBuffer, MultipleCompleteLines)
 TEST(LineBuffer, IncompleteDataHeldOver)
 {
     LineBuffer buf;
-    QStringList lines = buf.processData("{\"a\":");
+    QByteArrayList lines = buf.processData("{\"a\":");
     EXPECT_EQ(lines.size(), 0);
     EXPECT_TRUE(buf.hasIncompleteData());
     EXPECT_EQ(buf.currentBuffer(), "{\"a\":");
@@ -46,10 +48,10 @@ TEST(LineBuffer, SplitAcrossChunks)
 {
     LineBuffer buf;
 
-    QStringList lines1 = buf.processData("{\"key\":");
+    QByteArrayList lines1 = buf.processData("{\"key\":");
     EXPECT_EQ(lines1.size(), 0);
 
-    QStringList lines2 = buf.processData("\"value\"}\n");
+    QByteArrayList lines2 = buf.processData("\"value\"}\n");
     EXPECT_EQ(lines2.size(), 1);
     EXPECT_EQ(lines2[0], "{\"key\":\"value\"}");
     EXPECT_FALSE(buf.hasIncompleteData());
@@ -58,7 +60,7 @@ TEST(LineBuffer, SplitAcrossChunks)
 TEST(LineBuffer, MixedCompleteAndIncomplete)
 {
     LineBuffer buf;
-    QStringList lines = buf.processData("a\nb\npartial");
+    QByteArrayList lines = buf.processData("a\nb\npartial");
     EXPECT_EQ(lines.size(), 2);
     EXPECT_EQ(lines[0], "a");
     EXPECT_EQ(lines[1], "b");
@@ -69,7 +71,7 @@ TEST(LineBuffer, MixedCompleteAndIncomplete)
 TEST(LineBuffer, EmptyLinesPreserved)
 {
     LineBuffer buf;
-    QStringList lines = buf.processData("one\n\n\ntwo\n");
+    QByteArrayList lines = buf.processData("one\n\n\ntwo\n");
     EXPECT_EQ(lines.size(), 4);
     EXPECT_EQ(lines[0], "one");
     EXPECT_EQ(lines[1], "");
@@ -85,13 +87,13 @@ TEST(LineBuffer, Clear)
 
     buf.clear();
     EXPECT_FALSE(buf.hasIncompleteData());
-    EXPECT_EQ(buf.currentBuffer(), QString());
+    EXPECT_EQ(buf.currentBuffer(), QByteArray());
 }
 
 TEST(LineBuffer, EmptyInput)
 {
     LineBuffer buf;
-    QStringList lines = buf.processData(QByteArray());
+    QByteArrayList lines = buf.processData(QByteArray());
     EXPECT_EQ(lines.size(), 0);
 }
 
@@ -100,7 +102,22 @@ TEST(LineBuffer, MultipleChunksAccumulate)
     LineBuffer buf;
     buf.processData("{\"");
     buf.processData("key\":");
-    QStringList lines = buf.processData("\"val\"}\n");
+    QByteArrayList lines = buf.processData("\"val\"}\n");
     EXPECT_EQ(lines.size(), 1);
     EXPECT_EQ(lines[0], "{\"key\":\"val\"}");
+}
+
+TEST(LineBuffer, MultiByteUtf8SurvivesEverySplitPoint)
+{
+    const QByteArray whole = QStringLiteral("{\"response\":\"Привет 你好 🙂\"}\n").toUtf8();
+
+    for (int split = 1; split < whole.size(); ++split) {
+        LineBuffer buf;
+        buf.processData(whole.left(split));
+        const QByteArrayList lines = buf.processData(whole.mid(split));
+
+        ASSERT_EQ(lines.size(), 1) << "split at byte " << split;
+        EXPECT_EQ(QString::fromUtf8(lines[0]), QStringLiteral("{\"response\":\"Привет 你好 🙂\"}"))
+            << "split at byte " << split;
+    }
 }

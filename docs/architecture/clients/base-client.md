@@ -12,6 +12,10 @@ Abstract base for every LLM provider client. Owns HTTP transport, request bookke
 
 **Tool-call loop.** When a streamed response ends with pending tool calls, `BaseClient` walks the tool-use blocks from the message, dispatches them through `ToolsManager`, collects results, and asks the provider subclass to build a continuation payload. The new payload is re-posted under the same request ID. This loop is bounded to a fixed maximum number of continuations to prevent runaways.
 
+**Request headers and authentication.** `BaseClient` builds every outgoing `QNetworkRequest` itself, from two pieces of state the caller can read and replace: a header map and an `AuthScheme`. Provider clients seed both in their constructor -- Claude with `x-api-key` plus `anthropic-version`, the OpenAI-shaped clients with `Authorization: Bearer`, Google with a `key` query parameter -- and the caller overrides whatever it needs. `setHeader` sets one entry, `setHeaders` replaces the whole map, `setAuthScheme` moves the key to a different header or query parameter. An empty API key sends no credential at all.
+
+**Thinking blocks.** `notifyPendingThinkingBlocks` emits `thinkingBlockReceived` once per completed thinking block, never per delta: it tracks how many blocks a request has already published and emits only the new ones, resetting the count at each tool continuation. Providers accumulate reasoning into their message object and call it when the reasoning is complete -- when answer text starts arriving, and again at the finish reason. Claude emits directly instead, because its wire format has explicit `content_block_stop` boundaries.
+
 **Signal dispatch.** Text deltas, thinking blocks, tool start/result events, final completion, and errors are delivered as Qt signals (`chunkReceived`, `accumulatedReceived`, `thinkingBlockReceived`, `toolStarted`, `toolResultReady`, `requestCompleted`, `requestFinalized`, `requestFailed`). All signals are emitted on the `BaseClient`'s owning thread; Qt's default `AutoConnection` queues cross-thread delivery safely.
 
 ---
@@ -20,7 +24,7 @@ Abstract base for every LLM provider client. Owns HTTP transport, request bookke
 
 Each provider must supply implementations for several categories of functionality:
 
-- **Wire format**: declare which tool schema format the provider uses, and prepare the outgoing HTTP request with the correct authentication headers and content type.
+- **Wire format**: declare which tool schema format the provider uses, and seed the default `AuthScheme` and header map in the constructor. Building the request is the base's job, not the subclass's.
 - **Streaming parser**: accept raw bytes from the HTTP stream and push them through the appropriate framer (SSE or JSON-lines), updating the provider's message object as events arrive. A separate path handles buffered (non-streamed) responses.
 - **Message bookkeeping**: maintain a per-request message object (a `BaseMessage` subclass) and clean it up when the request ends.
 - **Continuation**: given the original payload, the current message state, and the collected tool results, build a new JSON payload that includes the assistant's response and the tool results in the provider's wire format.
@@ -68,5 +72,5 @@ Errors reach the caller through three paths:
 1. Create a new folder under `source/clients/` with the client and message implementation files.
 2. Add a public header under `include/LLMQore/`.
 3. Add a tool schema format enumerator if the provider's tool definition shape differs from existing ones, and teach `ToolsManager` to produce it.
-4. Implement the provider subclass contract: message sending, model listing, request preparation, stream/buffered parsing, message bookkeeping, continuation building, and optionally error parsing.
+4. Implement the provider subclass contract: message sending, model listing, stream/buffered parsing, message bookkeeping, continuation building, and optionally error parsing. Set the default `AuthScheme` and headers in the constructor -- there is no request-building hook to override.
 5. Add unit tests covering constructor sanity, payload shape, and any provider-specific quirks.

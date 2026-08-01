@@ -43,6 +43,8 @@ add_executable(LLMQoreUnitTests
     tst_TokenUsage.cpp
     FakeHttpTransport.hpp
     tst_ClientTransport.cpp
+    tst_RequestHeaders.cpp
+    tst_ThinkingBlocks.cpp
 )
 
 set_target_properties(LLMQoreUnitTests PROPERTIES

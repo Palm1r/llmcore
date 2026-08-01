@@ -38,11 +38,7 @@ public:
 
     QFuture<QList<QString>> listModels(const QString &endpoint = {}) override;
 
-    void setUseExtendedCacheTTL(bool enabled);
-    bool useExtendedCacheTTL() const noexcept;
-
 protected:
-    QNetworkRequest prepareNetworkRequest(const QUrl &url) const override;
     void processData(const RequestID &id, const QByteArray &data) override;
     void processBufferedResponse(const RequestID &id, const QByteArray &data) override;
     BaseMessage *messageForRequest(const RequestID &id) const override;
@@ -57,7 +53,6 @@ private:
     void processStreamEvent(const RequestID &id, const QJsonObject &event);
 
     QHash<RequestID, ClaudeMessage *> m_messages;
-    bool m_useExtendedCacheTTL = false;
 };
 
 } // namespace LLMQore

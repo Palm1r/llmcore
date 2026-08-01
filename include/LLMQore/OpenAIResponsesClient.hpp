@@ -39,7 +39,6 @@ public:
     QFuture<QList<QString>> listModels(const QString &endpoint = {}) override;
 
 protected:
-    QNetworkRequest prepareNetworkRequest(const QUrl &url) const override;
     void processData(const RequestID &id, const QByteArray &data) override;
     void processBufferedResponse(const RequestID &id, const QByteArray &data) override;
     BaseMessage *messageForRequest(const RequestID &id) const override;

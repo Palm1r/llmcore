@@ -21,7 +21,7 @@ OpenAIResponsesClient::OpenAIResponsesClient(QObject *parent)
 
 OpenAIResponsesClient::OpenAIResponsesClient(
     const QString &url, const QString &apiKey, const QString &model, QObject *parent)
-    : BaseClient(url, apiKey, model, parent)
+    : OpenAIResponsesClient(url, apiKey, model, nullptr, parent)
 {}
 
 OpenAIResponsesClient::OpenAIResponsesClient(
@@ -31,18 +31,12 @@ OpenAIResponsesClient::OpenAIResponsesClient(
     HttpTransport *transport,
     QObject *parent)
     : BaseClient(url, apiKey, model, transport, parent)
-{}
-
-QNetworkRequest OpenAIResponsesClient::prepareNetworkRequest(const QUrl &url) const
 {
-    QNetworkRequest request(url);
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-
-    QString key = m_apiKey;
-    if (!key.isEmpty())
-        request.setRawHeader("Authorization", QString("Bearer %1").arg(key).toUtf8());
-
-    return request;
+    setAuthScheme(
+        {.placement = AuthScheme::Placement::Header,
+         .name = QStringLiteral("Authorization"),
+         .valuePrefix = QStringLiteral("Bearer ")});
+    setHeaders({{QStringLiteral("Content-Type"), QStringLiteral("application/json")}});
 }
 
 RequestID OpenAIResponsesClient::sendMessage(

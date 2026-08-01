@@ -10,6 +10,52 @@
 
 namespace LLMQore {
 
+OpenAIMessage::ContentParts OpenAIMessage::splitContentParts(const QJsonValue &content)
+{
+    ContentParts out;
+
+    // Standard OpenAI-compatible providers (OpenAI, DeepSeek, etc.): "content" is a plain string
+    if (content.isString()) {
+        out.text = content.toString();
+        return out;
+    }
+    if (!content.isArray())
+        return out;
+
+    // Mistral Magistral: "content" is an array of typed chunks (thinking + text)
+    const QJsonArray parts = content.toArray();
+    for (const auto &partVal : parts) {
+        const QJsonObject part = partVal.toObject();
+        const QString type = part.value("type").toString();
+        if (type == QLatin1String("text")) {
+            // Magistral final answer chunk
+            out.text += part.value("text").toString();
+        } else if (type == QLatin1String("thinking")) {
+            // Magistral reasoning chunk: "thinking" is a string, an array of
+            // {type:"text", text:...} chunks, or (SDK-normalized) a flat "text" field
+            const QJsonValue th = part.value("thinking");
+            if (th.isString()) {
+                out.thinking += th.toString();
+            } else if (th.isArray()) {
+                const QJsonArray thArr = th.toArray();
+                for (const auto &tv : thArr) {
+                    if (tv.isString()) {
+                        out.thinking += tv.toString();
+                    } else {
+                        const QJsonObject thObj = tv.toObject();
+                        if (thObj.value("type").toString() == QLatin1String("text"))
+                            out.thinking += thObj.value("text").toString();
+                    }
+                }
+            } else {
+                out.thinking += part.value("text").toString();
+            }
+        }
+    }
+
+    return out;
+}
+
 OpenAIMessage::OpenAIMessage(QObject *parent)
     : BaseMessage(parent)
 {}
@@ -24,13 +70,6 @@ void OpenAIMessage::handleReasoningDelta(const QString &reasoning)
 {
     auto *thinkingContent = getOrCreateThinkingContent();
     thinkingContent->appendThinking(reasoning);
-}
-
-QString OpenAIMessage::currentThinking() const
-{
-    if (m_currentThinkingContent)
-        return m_currentThinkingContent->thinking();
-    return {};
 }
 
 void OpenAIMessage::handleToolCallStart(int index, const QString &id, const QString &name)

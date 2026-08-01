@@ -5,7 +5,6 @@
 
 #include <QJsonArray>
 #include <QJsonDocument>
-#include <QUrlQuery>
 
 #include "GoogleMessage.hpp"
 #include <LLMQore/FutureUtils.hpp>
@@ -21,7 +20,7 @@ GoogleAIClient::GoogleAIClient(QObject *parent)
 
 GoogleAIClient::GoogleAIClient(
     const QString &url, const QString &apiKey, const QString &model, QObject *parent)
-    : BaseClient(url, apiKey, model, parent)
+    : GoogleAIClient(url, apiKey, model, nullptr, parent)
 {}
 
 GoogleAIClient::GoogleAIClient(
@@ -31,23 +30,10 @@ GoogleAIClient::GoogleAIClient(
     HttpTransport *transport,
     QObject *parent)
     : BaseClient(url, apiKey, model, transport, parent)
-{}
-
-QNetworkRequest GoogleAIClient::prepareNetworkRequest(const QUrl &url) const
 {
-    QNetworkRequest request(url);
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-
-    QString key = m_apiKey;
-    if (!key.isEmpty()) {
-        QUrl requestUrl = request.url();
-        QUrlQuery query(requestUrl.query());
-        query.addQueryItem("key", key);
-        requestUrl.setQuery(query);
-        request.setUrl(requestUrl);
-    }
-
-    return request;
+    setAuthScheme(
+        {.placement = AuthScheme::Placement::QueryParam, .name = QStringLiteral("key")});
+    setHeaders({{QStringLiteral("Content-Type"), QStringLiteral("application/json")}});
 }
 
 RequestID GoogleAIClient::sendMessage(

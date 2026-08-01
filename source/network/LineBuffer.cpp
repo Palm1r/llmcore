@@ -5,12 +5,17 @@
 
 namespace LLMQore {
 
-QStringList LineBuffer::processData(const QByteArray &data)
+QByteArrayList LineBuffer::processData(const QByteArray &data)
 {
-    m_buffer += QString::fromUtf8(data);
+    m_buffer += data;
 
-    QStringList lines = m_buffer.split('\n');
-    m_buffer = lines.takeLast();
+    QByteArrayList lines;
+    int start = 0;
+    for (int i = m_buffer.indexOf('\n'); i >= 0; i = m_buffer.indexOf('\n', start)) {
+        lines.append(m_buffer.mid(start, i - start));
+        start = i + 1;
+    }
+    m_buffer.remove(0, start);
 
     return lines;
 }
@@ -20,7 +25,7 @@ void LineBuffer::clear()
     m_buffer.clear();
 }
 
-QString LineBuffer::currentBuffer() const
+QByteArray LineBuffer::currentBuffer() const
 {
     return m_buffer;
 }

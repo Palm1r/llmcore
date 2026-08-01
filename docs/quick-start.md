@@ -80,6 +80,46 @@ Other paths that accept an explicit endpoint override: `OllamaClient`
 `LlamaCppClient` (`/infill` for fill-in-the-middle, default
 `/v1/chat/completions`).
 
+### Custom headers and authentication
+
+Every client starts with the headers its provider needs -- `Content-Type`,
+Claude's `anthropic-version` -- and an `AuthScheme` saying where the API
+key goes. All of it is replaceable.
+
+`setHeader` sets one entry and leaves the rest alone. Anthropic prompt
+caching, for instance, is a beta header plus `cache_control` in the
+payload; both sides are yours to set:
+
+```cpp
+auto *claude = new LLMQore::ClaudeClient(
+    "https://api.anthropic.com", "sk-...", "claude-sonnet-4-20250514", this);
+
+claude->setHeader("anthropic-beta", "extended-cache-ttl-2025-04-11");
+```
+
+`setHeaders` replaces the whole map, so list everything you still want --
+`Content-Type` included:
+
+```cpp
+openRouter->setHeaders({
+    {"Content-Type", "application/json"},
+    {"HTTP-Referer", "https://myapp.example"},
+    {"X-Title", "My App"},
+});
+```
+
+`setAuthScheme` moves the key somewhere else entirely. Azure OpenAI wants
+it in an `api-key` header rather than `Authorization: Bearer`:
+
+```cpp
+azure->setAuthScheme({.placement = LLMQore::AuthScheme::Placement::Header,
+                      .name = "api-key"});
+```
+
+`Placement::QueryParam` puts the key in the query string (Google's
+default), `Placement::None` sends no credential. An empty `apiKey` sends
+nothing either way.
+
 ### Rich completion metadata
 
 `requestFinalized` fires alongside `requestCompleted` with a

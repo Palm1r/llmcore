@@ -6,6 +6,7 @@
 #include <QJsonDocument>
 #include <QPointer>
 #include <QThread>
+#include <QUrlQuery>
 #include <QUuid>
 
 #include <LLMQore/FutureUtils.hpp>
@@ -91,6 +92,71 @@ void BaseClient::setModel(const QString &model)
     Q_ASSERT_X(thread() == QThread::currentThread(), Q_FUNC_INFO,
                "BaseClient::setModel called from non-owning thread");
     m_model = model;
+}
+
+AuthScheme BaseClient::authScheme() const
+{
+    Q_ASSERT_X(thread() == QThread::currentThread(), Q_FUNC_INFO,
+               "BaseClient::authScheme called from non-owning thread");
+    return m_authScheme;
+}
+
+void BaseClient::setAuthScheme(const AuthScheme &scheme)
+{
+    Q_ASSERT_X(thread() == QThread::currentThread(), Q_FUNC_INFO,
+               "BaseClient::setAuthScheme called from non-owning thread");
+    m_authScheme = scheme;
+}
+
+QHash<QString, QString> BaseClient::headers() const
+{
+    Q_ASSERT_X(thread() == QThread::currentThread(), Q_FUNC_INFO,
+               "BaseClient::headers called from non-owning thread");
+    return m_headers;
+}
+
+void BaseClient::setHeader(const QString &name, const QString &value)
+{
+    Q_ASSERT_X(thread() == QThread::currentThread(), Q_FUNC_INFO,
+               "BaseClient::setHeader called from non-owning thread");
+    m_headers.insert(name, value);
+}
+
+void BaseClient::setHeaders(const QHash<QString, QString> &headers)
+{
+    Q_ASSERT_X(thread() == QThread::currentThread(), Q_FUNC_INFO,
+               "BaseClient::setHeaders called from non-owning thread");
+    m_headers = headers;
+}
+
+QNetworkRequest BaseClient::prepareNetworkRequest(const QUrl &url) const
+{
+    QNetworkRequest request(url);
+
+    for (auto it = m_headers.cbegin(); it != m_headers.cend(); ++it)
+        request.setRawHeader(it.key().toUtf8(), it.value().toUtf8());
+
+    if (m_apiKey.isEmpty() || m_authScheme.name.isEmpty())
+        return request;
+
+    switch (m_authScheme.placement) {
+    case AuthScheme::Placement::Header:
+        request.setRawHeader(
+            m_authScheme.name.toUtf8(), (m_authScheme.valuePrefix + m_apiKey).toUtf8());
+        break;
+    case AuthScheme::Placement::QueryParam: {
+        QUrl requestUrl = request.url();
+        QUrlQuery query(requestUrl.query());
+        query.addQueryItem(m_authScheme.name, m_authScheme.valuePrefix + m_apiKey);
+        requestUrl.setQuery(query);
+        request.setUrl(requestUrl);
+        break;
+    }
+    case AuthScheme::Placement::None:
+        break;
+    }
+
+    return request;
 }
 
 HttpTransport *BaseClient::transport() const
@@ -524,6 +590,8 @@ void BaseClient::continueRequest(const RequestID &id, const QJsonObject &payload
         return;
     }
 
+    it->emittedThinkingBlocksCount = 0;
+
     finalizeTurn(id);
     sendRequest(id, it->url, payload, it->mode);
 }
@@ -542,6 +610,22 @@ void BaseClient::cleanupFullRequest(const RequestID &id)
 
     if (m_toolsManager)
         m_toolsManager->cleanupRequest(id);
+}
+
+QJsonObject BaseClient::appendChatMessagesContinuation(
+    const QJsonObject &originalPayload,
+    const QJsonObject &assistantMessage,
+    const QJsonArray &toolMessages)
+{
+    QJsonObject request = originalPayload;
+    QJsonArray messages = request["messages"].toArray();
+
+    messages.append(assistantMessage);
+    for (const auto &toolMessage : toolMessages)
+        messages.append(toolMessage);
+
+    request["messages"] = messages;
+    return request;
 }
 
 void BaseClient::notifyPendingThinkingBlocks(const RequestID &id)

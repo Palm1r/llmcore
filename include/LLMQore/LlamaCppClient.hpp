@@ -6,7 +6,6 @@
 #include <QFuture>
 #include <QHash>
 #include <QJsonObject>
-#include <QSet>
 #include <QUrl>
 
 #include <LLMQore/BaseClient.hpp>
@@ -43,7 +42,6 @@ public:
     QFuture<QJsonObject> serverProps();
 
 protected:
-    QNetworkRequest prepareNetworkRequest(const QUrl &url) const override;
     void processData(const RequestID &id, const QByteArray &data) override;
     void processBufferedResponse(const RequestID &id, const QByteArray &data) override;
     BaseMessage *messageForRequest(const RequestID &id) const override;
@@ -57,11 +55,8 @@ protected:
 
 private:
     void processStreamChunk(const RequestID &id, const QJsonObject &chunk);
-    void emitPendingThinking(const RequestID &id);
 
     QHash<RequestID, OpenAIMessage *> m_messages;
-    QHash<RequestID, QString> m_reasoningContent;
-    QSet<RequestID> m_thinkingEmitted;
 };
 
 } // namespace LLMQore

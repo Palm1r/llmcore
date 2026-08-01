@@ -3,8 +3,8 @@
 
 #pragma once
 
-#include <QString>
-#include <QStringList>
+#include <QByteArray>
+#include <QByteArrayList>
 
 #include <LLMQore/LLMQore_global.h>
 
@@ -15,15 +15,15 @@ class LLMQORE_EXPORT LineBuffer
 public:
     LineBuffer() = default;
 
-    QStringList processData(const QByteArray &data);
+    QByteArrayList processData(const QByteArray &data);
 
     void clear();
 
-    [[nodiscard]] QString currentBuffer() const;
+    [[nodiscard]] QByteArray currentBuffer() const;
     [[nodiscard]] bool hasIncompleteData() const;
 
 private:
-    QString m_buffer;
+    QByteArray m_buffer;
 };
 
 } // namespace LLMQore

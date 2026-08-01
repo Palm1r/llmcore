@@ -8,6 +8,8 @@ Sits between provider clients and `QNetworkAccessManager`. Three goals:
 
 LLM-agnostic -- knows nothing about JSON, SSE events, MCP. Also backs `McpHttpTransport`.
 
+Authentication and request headers are not part of this layer: a fully-formed `QNetworkRequest` arrives here. `BaseClient` builds it from its own `AuthScheme` and header map (see [BaseClient contract](clients/base-client.md)); `McpHttpTransport` carries its own header map. The transport just sends what it is handed.
+
 ```mermaid
 flowchart TD
     subgraph User["Caller"]
@@ -92,7 +94,9 @@ Used by all providers except Ollama.
 
 ## LineBuffer
 
-Newline-framed buffer for Ollama's JSON-lines protocol. Accepts byte chunks and returns complete lines, holding any incomplete trailing bytes across calls. Intentionally separate from `SSEParser` by design.
+Newline-framed buffer for Ollama's JSON-lines protocol. Accepts byte chunks and returns complete lines as `QByteArray`, holding any incomplete trailing bytes across calls. Intentionally separate from `SSEParser` by design.
+
+Framing happens on bytes, never on decoded text. Both framers buffer `QByteArray` and hand raw bytes to the JSON parser, so a multi-byte UTF-8 sequence split across two network reads survives; decoding a partial chunk first would replace the split character with U+FFFD and lose it permanently.
 
 ---
 

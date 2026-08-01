@@ -2,7 +2,9 @@
 
 ## Summary table
 
-| Provider | Client class | Message class | Stream framing | Auth style |
+The **default auth** column is what each client seeds in its constructor. None of it is fixed: `setAuthScheme` moves the key to any header or query parameter, and `setHeader` / `setHeaders` replace the default header set. See [BaseClient contract](base-client.md).
+
+| Provider | Client class | Message class | Stream framing | Default auth |
 |---|---|---|---|---|
 | Anthropic Claude | `ClaudeClient` | `ClaudeMessage` | SSE | API key header + version header |
 | OpenAI Chat Completions | `OpenAIClient` | `OpenAIMessage` | SSE | Bearer token |
@@ -31,7 +33,7 @@ The newer OpenAI Responses API with a different payload shape and its own event 
 
 ## Google AI / Gemini (`source/clients/google/`)
 
-Streams via SSE with the API key passed as a query parameter. The message parser reads from the candidates/parts structure, handling text, function calls, and safety blocks. Tool results are rich -- function responses carry structured data and images are sent as inline data. The error parser handles Google's error object format with code, message, and status fields. Google has the most varied set of finish reasons, including safety and content-policy categories.
+Streams via SSE with the API key passed as a query parameter -- the one client whose default `AuthScheme` uses `Placement::QueryParam` rather than a header. The message parser reads from the candidates/parts structure, handling text, function calls, and safety blocks. Tool results are rich -- function responses carry structured data and images are sent as inline data. The error parser handles Google's error object format with code, message, and status fields. Google has the most varied set of finish reasons, including safety and content-policy categories.
 
 ## Mistral (`source/clients/mistral/`)
 
