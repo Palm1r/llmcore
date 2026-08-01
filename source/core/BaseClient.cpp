@@ -380,9 +380,11 @@ QFuture<QList<QString>> BaseClient::fetchModelList(
 
     return LLMQore::compat(transport()->send(request, QByteArrayView("GET")))
         .then(this, [cat, arrayKey, idKey, idMapper](const HttpResponse &response) {
+            const QLoggingCategory &log = *cat;
+
             QList<QString> models;
             if (!response.isSuccess()) {
-                qCDebug(*cat).noquote()
+                qCDebug(log).noquote()
                     << QString("Error fetching models: HTTP %1").arg(response.statusCode);
                 return models;
             }
@@ -401,7 +403,8 @@ QFuture<QList<QString>> BaseClient::fetchModelList(
             return models;
         })
         .onFailed(this, [cat](const std::exception &e) {
-            qCDebug(*cat).noquote() << QString("Error fetching models: %1").arg(e.what());
+            const QLoggingCategory &log = *cat;
+            qCDebug(log).noquote() << QString("Error fetching models: %1").arg(e.what());
             return QList<QString>{};
         });
 }

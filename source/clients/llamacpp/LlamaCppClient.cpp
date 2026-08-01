@@ -14,7 +14,7 @@ namespace LLMQore {
 
 namespace {
 
-constexpr UsageSchema kLlamaCppNativeUsage{
+const UsageSchema kLlamaCppNativeUsage{
     {},
     {{}, QLatin1String("tokens_evaluated")},
     {{}, QLatin1String("tokens_predicted")},

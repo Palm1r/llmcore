@@ -17,7 +17,7 @@ namespace LLMQore {
 
 namespace {
 
-constexpr UsageSchema kOpenAIUsage{
+const UsageSchema kOpenAIUsage{
     QLatin1String("usage"),
     {{}, QLatin1String("prompt_tokens")},
     {{}, QLatin1String("completion_tokens")},

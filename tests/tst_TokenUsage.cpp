@@ -507,7 +507,7 @@ TEST(UsageSchemaParsing, ApplyToKeepsCountersTheResponseDidNotMention)
 
 TEST(UsageSchemaParsing, AMissingContainerYieldsAnEmptyDelta)
 {
-    constexpr UsageSchema schema{
+    const UsageSchema schema{
         QLatin1String("usage"),
         {{}, QLatin1String("prompt_tokens")},
         {{}, QLatin1String("completion_tokens")},

@@ -16,7 +16,7 @@ namespace LLMQore {
 
 namespace {
 
-constexpr UsageSchema kGoogleUsage{
+const UsageSchema kGoogleUsage{
     QLatin1String("usageMetadata"),
     {{}, QLatin1String("promptTokenCount")},
     {{}, QLatin1String("candidatesTokenCount")},

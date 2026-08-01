@@ -17,7 +17,7 @@ namespace LLMQore {
 
 namespace {
 
-constexpr UsageSchema kResponsesUsage{
+const UsageSchema kResponsesUsage{
     QLatin1String("usage"),
     {{}, QLatin1String("input_tokens")},
     {{}, QLatin1String("output_tokens")},

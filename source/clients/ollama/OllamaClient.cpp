@@ -16,7 +16,7 @@ namespace LLMQore {
 
 namespace {
 
-constexpr UsageSchema kOllamaUsage{
+const UsageSchema kOllamaUsage{
     {},
     {{}, QLatin1String("prompt_eval_count")},
     {{}, QLatin1String("eval_count")},
