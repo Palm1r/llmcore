@@ -63,56 +63,22 @@ RequestID OpenAIResponsesClient::ask(const QString &prompt, RequestMode mode)
     return sendMessage(payload, {}, mode);
 }
 
+const QLoggingCategory &OpenAIResponsesClient::logCategory() const
+{
+    return llmOpenAILog();
+}
+
 QFuture<QList<QString>> OpenAIResponsesClient::listModels(const QString &endpoint)
 {
-    const QString resolved = endpoint.isEmpty() ? QStringLiteral("/models") : endpoint;
-    QUrl url(m_url + resolved);
-    QNetworkRequest request = prepareNetworkRequest(url);
-
-    return LLMQore::compat(transport()->send(request, QByteArrayView("GET")))
-        .then(this, [](const HttpResponse &response) {
-            QList<QString> models;
-            if (!response.isSuccess()) {
-                qCDebug(llmOpenAILog).noquote()
-                    << QString("Error fetching models: HTTP %1").arg(response.statusCode);
-                return models;
-            }
-
-            QJsonObject json = QJsonDocument::fromJson(response.body).object();
-            if (json.contains("data")) {
-                QJsonArray modelArray = json["data"].toArray();
-                for (const QJsonValue &value : modelArray) {
-                    QJsonObject modelObject = value.toObject();
-                    if (modelObject.contains("id"))
-                        models.append(modelObject["id"].toString());
-                }
-            }
-            return models;
-        })
-        .onFailed(this, [](const std::exception &e) {
-            qCDebug(llmOpenAILog).noquote() << QString("Error fetching models: %1").arg(e.what());
-            return QList<QString>{};
-        });
+    return fetchModelList(endpointUrl(endpoint, QStringLiteral("/models")));
 }
 
 QString OpenAIResponsesClient::parseHttpError(const HttpResponse &response) const
 {
-    const QJsonDocument doc = QJsonDocument::fromJson(response.body);
-    if (doc.isObject()) {
-        const QJsonObject error = doc.object().value("error").toObject();
-        const QString message = error.value("message").toString();
-        const QString type = error.value("type").toString();
-        const QString code = error.value("code").toString();
-        if (!message.isEmpty()) {
-            QString out = QString("HTTP %1: %2").arg(response.statusCode).arg(message);
-            if (!type.isEmpty())
-                out += QString(" (type: %1)").arg(type);
-            if (!code.isEmpty())
-                out += QString(" (code: %1)").arg(code);
-            return out;
-        }
-    }
-    return BaseClient::parseHttpError(response);
+    return parseErrorObject(
+        response,
+        {{QStringLiteral("type"), QStringLiteral("type")},
+         {QStringLiteral("code"), QStringLiteral("code")}});
 }
 
 void OpenAIResponsesClient::processData(const RequestID &id, const QByteArray &data)
@@ -131,16 +97,8 @@ void OpenAIResponsesClient::processData(const RequestID &id, const QByteArray &d
     }
 }
 
-BaseMessage *OpenAIResponsesClient::messageForRequest(const RequestID &id) const
-{
-    return m_messages.value(id, nullptr);
-}
-
 void OpenAIResponsesClient::cleanupDerivedData(const RequestID &id)
 {
-    if (auto *msg = m_messages.take(id))
-        msg->deleteLater();
-
     m_itemIdToCallId.remove(id);
 }
 
@@ -171,13 +129,7 @@ QJsonObject OpenAIResponsesClient::buildContinuationPayload(
 void OpenAIResponsesClient::processStreamEvent(
     const RequestID &id, const QString &eventType, const QJsonObject &data)
 {
-    OpenAIResponsesMessage *message = m_messages.value(id);
-    if (!message) {
-        message = new OpenAIResponsesMessage(this);
-        m_messages[id] = message;
-    } else if (message->state() == MessageState::RequiresToolExecution) {
-        message->startNewContinuation();
-    }
+    OpenAIResponsesMessage *message = ensureMessage<OpenAIResponsesMessage>(id);
 
     if (eventType == "response.output_text.delta") {
         QString delta = data["delta"].toString();
@@ -388,8 +340,7 @@ void OpenAIResponsesClient::processBufferedResponse(const RequestID &id, const Q
         return;
     }
 
-    auto *message = new OpenAIResponsesMessage(this);
-    m_messages[id] = message;
+    auto *message = ensureMessage<OpenAIResponsesMessage>(id);
 
     QJsonArray output = response["output"].toArray();
     for (const auto &item : output) {

@@ -41,13 +41,13 @@ public:
 protected:
     void processData(const RequestID &id, const QByteArray &data) override;
     void processBufferedResponse(const RequestID &id, const QByteArray &data) override;
-    BaseMessage *messageForRequest(const RequestID &id) const override;
     void cleanupDerivedData(const RequestID &id) override;
     QJsonObject buildContinuationPayload(
         const QJsonObject &originalPayload,
         BaseMessage *message,
         const QHash<QString, ToolResult> &toolResults) override;
     [[nodiscard]] QString parseHttpError(const HttpResponse &response) const override;
+    [[nodiscard]] const QLoggingCategory &logCategory() const override;
 
 private:
     void processStreamEvent(const RequestID &id, const QString &eventType, const QJsonObject &data);
@@ -55,7 +55,6 @@ private:
     static QString extractAggregatedText(const QJsonObject &responseObj);
     static QString extractReasoningText(const QJsonObject &item);
 
-    QHash<RequestID, OpenAIResponsesMessage *> m_messages;
     QHash<RequestID, QHash<QString, QString>> m_itemIdToCallId;
 };
 

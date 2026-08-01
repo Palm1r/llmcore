@@ -3,14 +3,15 @@
 
 #pragma once
 
-#include <optional>
-
+#include <functional>
 #include <memory>
+#include <optional>
 
 #include <QFuture>
 #include <QHash>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QLoggingCategory>
 #include <QMetaType>
 #include <QNetworkRequest>
 #include <QObject>
@@ -68,39 +69,6 @@ struct LLMQORE_EXPORT CompletionInfo
     // the loop added. Callers keeping their own history must carry this forward
     // instead of their original request, or the tool exchange is lost.
     QJsonObject requestPayload;
-};
-
-struct DataBuffers
-{
-    Rpc::LineFramer lineFramer;
-    SSEParser sseParser;
-    QString responseContent;
-
-    void clear()
-    {
-        lineFramer.clear();
-        sseParser.clear();
-        responseContent.clear();
-    }
-};
-
-struct ActiveRequest
-{
-    QPointer<HttpStreamHandle> stream;
-
-    bool errorMode = false;
-    QByteArray errorBody = {};
-
-    DataBuffers buffers = {};
-
-    QUrl url = {};
-    QJsonObject originalPayload = {};
-    QJsonObject finalPayload = {};
-    int emittedThinkingBlocksCount = 0;
-    RequestMode mode = RequestMode::Streaming;
-    QString stopReason = {};
-    std::optional<TokenUsage> usage = {};
-    std::optional<TokenUsage> turnUsage = {};
 };
 
 class LLMQORE_EXPORT BaseClient : public QObject
@@ -185,15 +153,66 @@ protected:
 
     virtual void processData(const RequestID &id, const QByteArray &data) = 0;
     virtual void processBufferedResponse(const RequestID &id, const QByteArray &data) = 0;
-    virtual BaseMessage *messageForRequest(const RequestID &id) const = 0;
-    virtual void cleanupDerivedData(const RequestID &id) = 0;
     virtual QJsonObject buildContinuationPayload(
         const QJsonObject &originalPayload,
         BaseMessage *message,
         const QHash<QString, ToolResult> &toolResults)
         = 0;
 
+    // Per-request state beyond the message object. Only providers that keep
+    // some survives-the-turn bookkeeping need this.
+    virtual void cleanupDerivedData(const RequestID &id);
+
+    // Which category the shared code logs under, so each provider still
+    // reports under its own name.
+    [[nodiscard]] virtual const QLoggingCategory &logCategory() const;
+
     [[nodiscard]] virtual QString parseHttpError(const HttpResponse &response) const;
+
+    // "HTTP <status>: <error.message>", plus one parenthesised clause per
+    // annotation whose field is present. An empty label renders the value bare.
+    struct ErrorAnnotation
+    {
+        QString label;
+        QString field;
+    };
+    [[nodiscard]] QString parseErrorObject(
+        const HttpResponse &response, const QList<ErrorAnnotation> &annotations) const;
+
+    // GET `url`, read `arrayKey` out of the response object, and collect
+    // `idKey` from each entry. `idMapper` post-processes each raw id.
+    [[nodiscard]] QFuture<QList<QString>> fetchModelList(
+        const QUrl &url,
+        const QString &arrayKey = QStringLiteral("data"),
+        const QString &idKey = QStringLiteral("id"),
+        const std::function<QString(QString)> &idMapper = {});
+
+    [[nodiscard]] QUrl endpointUrl(const QString &endpoint, const QString &defaultPath) const;
+
+    // --- per-request message object, owned by the base ---
+
+    [[nodiscard]] BaseMessage *messageForRequest(const RequestID &id) const;
+    void setMessageForRequest(const RequestID &id, BaseMessage *message);
+
+    // The lazy-create-or-restart skeleton every provider's stream handler runs.
+    template<typename T>
+    T *ensureMessage(const RequestID &id)
+    {
+        if (auto *existing = qobject_cast<T *>(messageForRequest(id))) {
+            if (existing->state() == MessageState::RequiresToolExecution)
+                existing->startNewContinuation();
+            return existing;
+        }
+        auto *created = new T(this);
+        setMessageForRequest(id, created);
+        return created;
+    }
+
+    template<typename T>
+    [[nodiscard]] T *messageAs(const RequestID &id) const
+    {
+        return qobject_cast<T *>(messageForRequest(id));
+    }
 
     [[nodiscard]] static QJsonObject appendChatMessagesContinuation(
         const QJsonObject &originalPayload,
@@ -247,12 +266,8 @@ private:
         const QJsonObject &payload,
         RequestMode mode);
 
-    HttpTransport *m_transport;
-    AuthScheme m_authScheme;
-    QHash<QString, QString> m_headers;
-    ToolsManager *m_toolsManager = nullptr;
-    ToolLoopRunner *m_toolLoop = nullptr;
-    QHash<RequestID, ActiveRequest> m_requests;
+    struct Impl;
+    std::unique_ptr<Impl> m_impl;
 };
 
 } // namespace LLMQore

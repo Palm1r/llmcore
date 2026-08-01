@@ -62,33 +62,17 @@ RequestID OllamaClient::ask(const QString &prompt, RequestMode mode)
     return sendMessage(payload, {}, mode);
 }
 
+const QLoggingCategory &OllamaClient::logCategory() const
+{
+    return llmOllamaLog();
+}
+
 QFuture<QList<QString>> OllamaClient::listModels(const QString &endpoint)
 {
-    const QString resolved = endpoint.isEmpty() ? QStringLiteral("/api/tags") : endpoint;
-    QUrl url(m_url + resolved);
-    QNetworkRequest request = prepareNetworkRequest(url);
-
-    return LLMQore::compat(transport()->send(request, QByteArrayView("GET")))
-        .then(this, [](const HttpResponse &response) {
-            QList<QString> models;
-            if (!response.isSuccess()) {
-                qCDebug(llmOllamaLog).noquote()
-                    << QString("Error fetching models: HTTP %1").arg(response.statusCode);
-                return models;
-            }
-
-            QJsonObject json = QJsonDocument::fromJson(response.body).object();
-            QJsonArray modelArray = json["models"].toArray();
-            for (const QJsonValue &value : modelArray) {
-                QJsonObject modelObject = value.toObject();
-                models.append(modelObject["name"].toString());
-            }
-            return models;
-        })
-        .onFailed(this, [](const std::exception &e) {
-            qCDebug(llmOllamaLog).noquote() << QString("Error fetching models: %1").arg(e.what());
-            return QList<QString>{};
-        });
+    return fetchModelList(
+        endpointUrl(endpoint, QStringLiteral("/api/tags")),
+        QStringLiteral("models"),
+        QStringLiteral("name"));
 }
 
 QString OllamaClient::parseHttpError(const HttpResponse &response) const
@@ -138,17 +122,6 @@ void OllamaClient::processData(const RequestID &id, const QByteArray &data)
     }
 }
 
-BaseMessage *OllamaClient::messageForRequest(const RequestID &id) const
-{
-    return m_messages.value(id, nullptr);
-}
-
-void OllamaClient::cleanupDerivedData(const RequestID &id)
-{
-    if (auto *msg = m_messages.take(id))
-        msg->deleteLater();
-}
-
 QJsonObject OllamaClient::buildContinuationPayload(
     const QJsonObject &originalPayload,
     BaseMessage *message,
@@ -196,15 +169,7 @@ void OllamaClient::onStreamFinished(const RequestID &id, std::optional<QString> 
 
 void OllamaClient::processStreamData(const RequestID &id, const QJsonObject &data)
 {
-    OllamaMessage *message = m_messages.value(id);
-    if (!message) {
-        message = new OllamaMessage(this);
-        m_messages[id] = message;
-        qCDebug(llmOllamaLog).noquote() << QString("Created OllamaMessage for request %1").arg(id);
-    } else if (message->state() == MessageState::RequiresToolExecution) {
-        message->startNewContinuation();
-        qCDebug(llmOllamaLog).noquote() << QString("Starting continuation for request %1").arg(id);
-    }
+    OllamaMessage *message = ensureMessage<OllamaMessage>(id);
 
     if (data.contains("thinking")) {
         QString thinkingDelta = data["thinking"].toString();

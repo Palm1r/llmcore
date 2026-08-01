@@ -45,13 +45,13 @@ protected:
     void processData(const RequestID &id, const QByteArray &data) override;
     void processBufferedResponse(const RequestID &id, const QByteArray &data) override;
     void onStreamFinished(const RequestID &id, std::optional<QString> error) override;
-    BaseMessage *messageForRequest(const RequestID &id) const override;
     void cleanupDerivedData(const RequestID &id) override;
     QJsonObject buildContinuationPayload(
         const QJsonObject &originalPayload,
         BaseMessage *message,
         const QHash<QString, ToolResult> &toolResults) override;
     [[nodiscard]] QString parseHttpError(const HttpResponse &response) const override;
+    [[nodiscard]] const QLoggingCategory &logCategory() const override;
 
 private:
     // A 200-with-error-body response is not SSE-framed, so it has to be
@@ -70,7 +70,6 @@ private:
 
     void processStreamChunk(const RequestID &id, const QJsonObject &chunk);
 
-    QHash<RequestID, GoogleMessage *> m_messages;
     QHash<RequestID, QString> m_failedRequests;
     QHash<RequestID, JsonErrorSniffer> m_errorSniffers;
 };

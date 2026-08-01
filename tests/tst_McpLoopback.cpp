@@ -370,8 +370,6 @@ protected:
     }
     void processData(const RequestID &, const QByteArray &) override {}
     void processBufferedResponse(const RequestID &, const QByteArray &) override {}
-    BaseMessage *messageForRequest(const RequestID &) const override { return nullptr; }
-    void cleanupDerivedData(const RequestID &) override {}
     QJsonObject buildContinuationPayload(
         const QJsonObject &,
         BaseMessage *,

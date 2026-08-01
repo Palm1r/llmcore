@@ -44,8 +44,6 @@ public:
 protected:
     void processData(const RequestID &id, const QByteArray &data) override;
     void processBufferedResponse(const RequestID &id, const QByteArray &data) override;
-    BaseMessage *messageForRequest(const RequestID &id) const override;
-    void cleanupDerivedData(const RequestID &id) override;
     QJsonObject buildContinuationPayload(
         const QJsonObject &originalPayload,
         BaseMessage *message,
@@ -63,12 +61,11 @@ protected:
 
     // Which category the shared code logs under, so an OpenAI-compatible
     // provider still reports under its own name.
-    [[nodiscard]] virtual const QLoggingCategory &logCategory() const;
+    [[nodiscard]] const QLoggingCategory &logCategory() const override;
 
 private:
     void processStreamChunk(const RequestID &id, const QJsonObject &chunk);
 
-    QHash<RequestID, OpenAIMessage *> m_messages;
 };
 
 } // namespace LLMQore

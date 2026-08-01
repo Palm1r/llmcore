@@ -18,6 +18,7 @@
 #include <LLMQore/HttpStream.hpp>
 #include <LLMQore/LlamaCppClient.hpp>
 #include <LLMQore/OllamaClient.hpp>
+#include <LLMQore/OpenAIClient.hpp>
 #include <LLMQore/OpenAIResponsesClient.hpp>
 #include <LLMQore/ToolsManager.hpp>
 
@@ -280,6 +281,175 @@ TEST(ReviewRegression, GoogleSseStreamIsUnaffectedByTheErrorSniffer)
 
     ASSERT_EQ(completed.count(), 1);
     EXPECT_EQ(completed.first().at(1).toString(), QStringLiteral("hello"));
+}
+
+// --- listModels is one helper in the base, driven per provider ---
+
+namespace {
+
+QList<QString> resolveModels(FakeHttpTransport &transport, QFuture<QList<QString>> future,
+                             int statusCode, const QByteArray &body)
+{
+    transport.respondToLast(statusCode, body);
+    for (int i = 0; i < 16 && !future.isFinished(); ++i)
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
+    return future.isFinished() ? future.result() : QList<QString>{};
+}
+
+} // namespace
+
+TEST(ListModels, OpenAIReadsDataIdPairs)
+{
+    FakeHttpTransport transport;
+    OpenAIClient client("http://fake.local/v1", "sk-test", "gpt-test", &transport);
+
+    auto future = client.listModels();
+    ASSERT_EQ(transport.bufferedCount(), 1);
+    EXPECT_EQ(transport.bufferedRequest(0).verb, QByteArray("GET"));
+    EXPECT_EQ(transport.bufferedRequest(0).url(), QUrl("http://fake.local/v1/models"));
+
+    const auto models = resolveModels(
+        transport, future, 200, R"({"data":[{"id":"gpt-a"},{"id":"gpt-b"},{"noid":1}]})");
+    EXPECT_EQ(models, (QList<QString>{"gpt-a", "gpt-b"}));
+}
+
+TEST(ListModels, OllamaReadsModelsNamePairs)
+{
+    FakeHttpTransport transport;
+    OllamaClient client("http://fake.local", "", "llama-test", &transport);
+
+    auto future = client.listModels();
+    ASSERT_EQ(transport.bufferedCount(), 1);
+    EXPECT_EQ(transport.bufferedRequest(0).url(), QUrl("http://fake.local/api/tags"));
+
+    const auto models = resolveModels(
+        transport, future, 200, R"({"models":[{"name":"llama3"},{"name":"qwen"}]})");
+    EXPECT_EQ(models, (QList<QString>{"llama3", "qwen"}));
+}
+
+TEST(ListModels, GoogleStripsThePublisherPrefix)
+{
+    FakeHttpTransport transport;
+    GoogleAIClient client("http://fake.local", "key", "gemini-test", &transport);
+
+    auto future = client.listModels();
+    ASSERT_EQ(transport.bufferedCount(), 1);
+
+    const auto models = resolveModels(
+        transport, future, 200,
+        R"({"models":[{"name":"models/gemini-2.0"},{"name":"bare-name"}]})");
+    EXPECT_EQ(models, (QList<QString>{"gemini-2.0", "bare-name"}));
+}
+
+TEST(ListModels, ClaudeAsksForTheFullPage)
+{
+    FakeHttpTransport transport;
+    ClaudeClient client("http://fake.local", "sk-test", "claude-test", &transport);
+
+    auto future = client.listModels();
+    ASSERT_EQ(transport.bufferedCount(), 1);
+    EXPECT_EQ(transport.bufferedRequest(0).url().query(), QStringLiteral("limit=1000"));
+
+    const auto models = resolveModels(transport, future, 200, R"({"data":[{"id":"claude-x"}]})");
+    EXPECT_EQ(models, (QList<QString>{"claude-x"}));
+}
+
+TEST(ListModels, HttpErrorYieldsAnEmptyList)
+{
+    FakeHttpTransport transport;
+    OpenAIClient client("http://fake.local/v1", "sk-test", "gpt-test", &transport);
+
+    auto future = client.listModels();
+    const auto models = resolveModels(transport, future, 500, R"({"error":{"message":"boom"}})");
+    EXPECT_TRUE(models.isEmpty());
+}
+
+TEST(ListModels, CustomEndpointOverridesTheProviderDefault)
+{
+    FakeHttpTransport transport;
+    OpenAIClient client("http://fake.local/v1", "sk-test", "gpt-test", &transport);
+
+    auto future = client.listModels(QStringLiteral("/custom/models"));
+    ASSERT_EQ(transport.bufferedCount(), 1);
+    EXPECT_EQ(transport.bufferedRequest(0).url(), QUrl("http://fake.local/v1/custom/models"));
+
+    const auto models = resolveModels(transport, future, 200, R"({"data":[{"id":"m"}]})");
+    EXPECT_EQ(models, (QList<QString>{"m"}));
+}
+
+// --- parseHttpError is one shared shape with per-provider annotations ---
+
+TEST(ParseHttpError, ClaudeRendersTheTypeBare)
+{
+    FakeHttpTransport transport;
+    ClaudeClient client("http://fake.local", "sk-test", "claude-test", &transport);
+
+    QSignalSpy failed(&client, &BaseClient::requestFailed);
+
+    client.ask(QStringLiteral("hi"));
+    auto *stream = transport.lastStream();
+    stream->sendHeaders(429);
+    stream->sendChunk(R"({"error":{"message":"slow down","type":"rate_limit_error"}})");
+    stream->sendFinished();
+
+    ASSERT_EQ(failed.count(), 1);
+    EXPECT_EQ(failed.first().at(1).toString(),
+              QStringLiteral("HTTP 429: slow down (rate_limit_error)"));
+}
+
+TEST(ParseHttpError, GoogleLabelsCodeAndStatus)
+{
+    FakeHttpTransport transport;
+    GoogleAIClient client("http://fake.local", "key", "gemini-test", &transport);
+
+    QSignalSpy failed(&client, &BaseClient::requestFailed);
+
+    client.ask(QStringLiteral("hi"));
+    auto *stream = transport.lastStream();
+    stream->sendHeaders(403);
+    stream->sendChunk(
+        R"({"error":{"message":"denied","code":403,"status":"PERMISSION_DENIED"}})");
+    stream->sendFinished();
+
+    ASSERT_EQ(failed.count(), 1);
+    EXPECT_EQ(failed.first().at(1).toString(),
+              QStringLiteral("HTTP 403: denied (code: 403) (status: PERMISSION_DENIED)"));
+}
+
+TEST(ParseHttpError, OpenAILabelsTypeAndCodeAndSkipsMissingOnes)
+{
+    FakeHttpTransport transport;
+    OpenAIClient client("http://fake.local/v1", "sk-test", "gpt-test", &transport);
+
+    QSignalSpy failed(&client, &BaseClient::requestFailed);
+
+    client.ask(QStringLiteral("hi"));
+    auto *stream = transport.lastStream();
+    stream->sendHeaders(400);
+    stream->sendChunk(R"({"error":{"message":"bad request","type":"invalid_request_error"}})");
+    stream->sendFinished();
+
+    ASSERT_EQ(failed.count(), 1);
+    EXPECT_EQ(failed.first().at(1).toString(),
+              QStringLiteral("HTTP 400: bad request (type: invalid_request_error)"));
+}
+
+TEST(ParseHttpError, BodyWithoutAnErrorObjectFallsBackToTheSnippet)
+{
+    FakeHttpTransport transport;
+    OpenAIClient client("http://fake.local/v1", "sk-test", "gpt-test", &transport);
+
+    QSignalSpy failed(&client, &BaseClient::requestFailed);
+
+    client.ask(QStringLiteral("hi"));
+    auto *stream = transport.lastStream();
+    stream->sendHeaders(502);
+    stream->sendChunk("<html>bad gateway</html>");
+    stream->sendFinished();
+
+    ASSERT_EQ(failed.count(), 1);
+    EXPECT_EQ(failed.first().at(1).toString(),
+              QStringLiteral("HTTP 502: <html>bad gateway</html>"));
 }
 
 // --- LlamaCpp now inherits the OpenAI dialect instead of copying it ---

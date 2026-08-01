@@ -3,6 +3,7 @@
 
 #include <LLMQore/BaseClient.hpp>
 
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QPointer>
 #include <QThread>
@@ -18,6 +19,55 @@
 #include <LLMQore/ToolsManager.hpp>
 
 namespace LLMQore {
+
+namespace {
+
+struct DataBuffers
+{
+    Rpc::LineFramer lineFramer;
+    SSEParser sseParser;
+    QString responseContent;
+
+    void clear()
+    {
+        lineFramer.clear();
+        sseParser.clear();
+        responseContent.clear();
+    }
+};
+
+struct ActiveRequest
+{
+    QPointer<HttpStreamHandle> stream;
+
+    bool errorMode = false;
+    QByteArray errorBody = {};
+
+    DataBuffers buffers = {};
+
+    QUrl url = {};
+    QJsonObject originalPayload = {};
+    QJsonObject finalPayload = {};
+    int emittedThinkingBlocksCount = 0;
+    RequestMode mode = RequestMode::Streaming;
+    QString stopReason = {};
+    std::optional<TokenUsage> usage = {};
+    std::optional<TokenUsage> turnUsage = {};
+
+    QPointer<BaseMessage> message;
+};
+
+} // namespace
+
+struct BaseClient::Impl
+{
+    HttpTransport *transport = nullptr;
+    AuthScheme authScheme;
+    QHash<QString, QString> headers;
+    ToolsManager *toolsManager = nullptr;
+    ToolLoopRunner *toolLoop = nullptr;
+    QHash<RequestID, ActiveRequest> requests;
+};
 
 namespace {
 constexpr qsizetype kMaxErrorBodyBytes = 64 * 1024;
@@ -42,19 +92,21 @@ BaseClient::BaseClient(
     , m_url(url)
     , m_apiKey(apiKey)
     , m_model(model)
-    , m_transport(transport ? transport : new HttpClient(this))
-{}
+    , m_impl(std::make_unique<Impl>())
+{
+    m_impl->transport = transport ? transport : new HttpClient(this);
+}
 
 BaseClient::~BaseClient()
 {
-    for (auto it = m_requests.begin(); it != m_requests.end(); ++it) {
+    for (auto it = m_impl->requests.begin(); it != m_impl->requests.end(); ++it) {
         if (!it->stream)
             continue;
         it->stream->disconnect();
         it->stream->abort();
         delete it->stream;
     }
-    m_requests.clear();
+    m_impl->requests.clear();
 }
 
 QString BaseClient::url() const
@@ -103,56 +155,56 @@ AuthScheme BaseClient::authScheme() const
 {
     Q_ASSERT_X(thread() == QThread::currentThread(), Q_FUNC_INFO,
                "BaseClient::authScheme called from non-owning thread");
-    return m_authScheme;
+    return m_impl->authScheme;
 }
 
 void BaseClient::setAuthScheme(const AuthScheme &scheme)
 {
     Q_ASSERT_X(thread() == QThread::currentThread(), Q_FUNC_INFO,
                "BaseClient::setAuthScheme called from non-owning thread");
-    m_authScheme = scheme;
+    m_impl->authScheme = scheme;
 }
 
 QHash<QString, QString> BaseClient::headers() const
 {
     Q_ASSERT_X(thread() == QThread::currentThread(), Q_FUNC_INFO,
                "BaseClient::headers called from non-owning thread");
-    return m_headers;
+    return m_impl->headers;
 }
 
 void BaseClient::setHeader(const QString &name, const QString &value)
 {
     Q_ASSERT_X(thread() == QThread::currentThread(), Q_FUNC_INFO,
                "BaseClient::setHeader called from non-owning thread");
-    m_headers.insert(name, value);
+    m_impl->headers.insert(name, value);
 }
 
 void BaseClient::setHeaders(const QHash<QString, QString> &headers)
 {
     Q_ASSERT_X(thread() == QThread::currentThread(), Q_FUNC_INFO,
                "BaseClient::setHeaders called from non-owning thread");
-    m_headers = headers;
+    m_impl->headers = headers;
 }
 
 QNetworkRequest BaseClient::prepareNetworkRequest(const QUrl &url) const
 {
     QNetworkRequest request(url);
 
-    for (auto it = m_headers.cbegin(); it != m_headers.cend(); ++it)
+    for (auto it = m_impl->headers.cbegin(); it != m_impl->headers.cend(); ++it)
         request.setRawHeader(it.key().toUtf8(), it.value().toUtf8());
 
-    if (m_apiKey.isEmpty() || m_authScheme.name.isEmpty())
+    if (m_apiKey.isEmpty() || m_impl->authScheme.name.isEmpty())
         return request;
 
-    switch (m_authScheme.placement) {
+    switch (m_impl->authScheme.placement) {
     case AuthScheme::Placement::Header:
         request.setRawHeader(
-            m_authScheme.name.toUtf8(), (m_authScheme.valuePrefix + m_apiKey).toUtf8());
+            m_impl->authScheme.name.toUtf8(), (m_impl->authScheme.valuePrefix + m_apiKey).toUtf8());
         break;
     case AuthScheme::Placement::QueryParam: {
         QUrl requestUrl = request.url();
         QUrlQuery query(requestUrl.query());
-        query.addQueryItem(m_authScheme.name, m_authScheme.valuePrefix + m_apiKey);
+        query.addQueryItem(m_impl->authScheme.name, m_impl->authScheme.valuePrefix + m_apiKey);
         requestUrl.setQuery(query);
         request.setUrl(requestUrl);
         break;
@@ -166,47 +218,47 @@ QNetworkRequest BaseClient::prepareNetworkRequest(const QUrl &url) const
 
 HttpTransport *BaseClient::transport() const
 {
-    return m_transport;
+    return m_impl->transport;
 }
 
 int BaseClient::transferTimeoutMs() const
 {
-    return m_transport->transferTimeoutMs();
+    return m_impl->transport->transferTimeoutMs();
 }
 
 void BaseClient::setTransferTimeout(int milliseconds)
 {
-    m_transport->setTransferTimeout(milliseconds);
+    m_impl->transport->setTransferTimeout(milliseconds);
 }
 
 ToolsManager *BaseClient::tools()
 {
-    if (!m_toolsManager) {
-        m_toolsManager = new ToolsManager(toolSchemaFormat(), this);
+    if (!m_impl->toolsManager) {
+        m_impl->toolsManager = new ToolsManager(toolSchemaFormat(), this);
 
         connect(
-            m_toolsManager, &ToolsManager::toolExecutionStarted,
+            m_impl->toolsManager, &ToolsManager::toolExecutionStarted,
             this, &BaseClient::toolStarted);
         connect(
-            m_toolsManager, &ToolsManager::toolExecutionResult,
+            m_impl->toolsManager, &ToolsManager::toolExecutionResult,
             this, &BaseClient::toolResultReady);
         connect(
-            m_toolsManager,
+            m_impl->toolsManager,
             &ToolsManager::toolExecutionComplete,
             toolLoop(),
             &ToolLoopRunner::handleToolsCompleted);
     }
-    return m_toolsManager;
+    return m_impl->toolsManager;
 }
 
 bool BaseClient::hasTools() const noexcept
 {
-    return m_toolsManager != nullptr;
+    return m_impl->toolsManager != nullptr;
 }
 
 int BaseClient::maxToolContinuations() const
 {
-    return m_toolLoop ? m_toolLoop->maxRounds() : ToolLoopRunner::kDefaultMaxRounds;
+    return m_impl->toolLoop ? m_impl->toolLoop->maxRounds() : ToolLoopRunner::kDefaultMaxRounds;
 }
 
 void BaseClient::setMaxToolContinuations(int limit)
@@ -218,15 +270,15 @@ ToolLoopRunner *BaseClient::toolLoop()
 {
     Q_ASSERT_X(thread() == QThread::currentThread(), Q_FUNC_INFO,
                "BaseClient::toolLoop called from non-owning thread");
-    if (!m_toolLoop)
-        m_toolLoop = new ToolLoopRunner(this);
-    return m_toolLoop;
+    if (!m_impl->toolLoop)
+        m_impl->toolLoop = new ToolLoopRunner(this);
+    return m_impl->toolLoop;
 }
 
 RequestID BaseClient::createRequest()
 {
     RequestID id = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    const auto registerRequest = [this, id]() { m_requests[id] = ActiveRequest{}; };
+    const auto registerRequest = [this, id]() { m_impl->requests[id] = ActiveRequest{}; };
     if (thread() == QThread::currentThread())
         registerRequest();
     else
@@ -245,10 +297,115 @@ void BaseClient::sendRequest(
         return;
     }
     storeRequestContext(id, url, payload);
-    auto it = m_requests.find(id);
-    if (it != m_requests.end())
+    auto it = m_impl->requests.find(id);
+    if (it != m_impl->requests.end())
         it->mode = mode;
     startHttpRequest(id, prepareNetworkRequest(url), payload, mode);
+}
+
+const QLoggingCategory &BaseClient::logCategory() const
+{
+    return llmQoreLog();
+}
+
+void BaseClient::cleanupDerivedData(const RequestID &)
+{}
+
+BaseMessage *BaseClient::messageForRequest(const RequestID &id) const
+{
+    auto it = m_impl->requests.constFind(id);
+    if (it == m_impl->requests.constEnd())
+        return nullptr;
+    return it->message.data();
+}
+
+void BaseClient::setMessageForRequest(const RequestID &id, BaseMessage *message)
+{
+    auto it = m_impl->requests.find(id);
+    if (it == m_impl->requests.end()) {
+        if (message)
+            message->deleteLater();
+        return;
+    }
+
+    if (it->message == message)
+        return;
+
+    if (it->message)
+        it->message->deleteLater();
+    it->message = message;
+}
+
+QUrl BaseClient::endpointUrl(const QString &endpoint, const QString &defaultPath) const
+{
+    return QUrl(m_url + (endpoint.isEmpty() ? defaultPath : endpoint));
+}
+
+QFuture<QList<QString>> BaseClient::fetchModelList(
+    const QUrl &url,
+    const QString &arrayKey,
+    const QString &idKey,
+    const std::function<QString(QString)> &idMapper)
+{
+    const QNetworkRequest request = prepareNetworkRequest(url);
+    const QLoggingCategory &cat = logCategory();
+
+    return LLMQore::compat(transport()->send(request, QByteArrayView("GET")))
+        .then(this, [&cat, arrayKey, idKey, idMapper](const HttpResponse &response) {
+            QList<QString> models;
+            if (!response.isSuccess()) {
+                qCDebug(cat).noquote()
+                    << QString("Error fetching models: HTTP %1").arg(response.statusCode);
+                return models;
+            }
+
+            const QJsonObject json = QJsonDocument::fromJson(response.body).object();
+            const QJsonArray entries = json.value(arrayKey).toArray();
+            for (const QJsonValue &value : entries) {
+                QString id = value.toObject().value(idKey).toString();
+                if (id.isEmpty())
+                    continue;
+                if (idMapper)
+                    id = idMapper(std::move(id));
+                if (!id.isEmpty())
+                    models.append(id);
+            }
+            return models;
+        })
+        .onFailed(this, [&cat](const std::exception &e) {
+            qCDebug(cat).noquote() << QString("Error fetching models: %1").arg(e.what());
+            return QList<QString>{};
+        });
+}
+
+QString BaseClient::parseErrorObject(
+    const HttpResponse &response, const QList<ErrorAnnotation> &annotations) const
+{
+    const QJsonDocument doc = QJsonDocument::fromJson(response.body);
+    if (!doc.isObject())
+        return BaseClient::parseHttpError(response);
+
+    const QJsonObject error = doc.object().value("error").toObject();
+    const QString message = error.value("message").toString();
+    if (message.isEmpty())
+        return BaseClient::parseHttpError(response);
+
+    QString out = QString("HTTP %1: %2").arg(response.statusCode).arg(message);
+    for (const ErrorAnnotation &annotation : annotations) {
+        const QJsonValue value = error.value(annotation.field);
+        QString text;
+        if (value.isString())
+            text = value.toString();
+        else if (value.isDouble() && value.toInt() != 0)
+            text = QString::number(value.toInt());
+        if (text.isEmpty())
+            continue;
+
+        out += annotation.label.isEmpty()
+            ? QString(" (%1)").arg(text)
+            : QString(" (%1: %2)").arg(annotation.label, text);
+    }
+    return out;
 }
 
 QString BaseClient::parseHttpError(const HttpResponse &response) const
@@ -266,14 +423,14 @@ void BaseClient::startHttpRequest(
     const QJsonObject &payload,
     RequestMode mode)
 {
-    auto it = m_requests.find(id);
-    if (it == m_requests.end())
+    auto it = m_impl->requests.find(id);
+    if (it == m_impl->requests.end())
         return;
 
     const QByteArray body = QJsonDocument(payload).toJson(QJsonDocument::Compact);
 
     if (mode == RequestMode::Buffered) {
-        (void)LLMQore::compat(m_transport->send(request, QByteArrayView("POST"), body))
+        (void)LLMQore::compat(m_impl->transport->send(request, QByteArrayView("POST"), body))
             .then(this, [this, id](const HttpResponse &response) {
                 if (!hasRequest(id))
                     return;
@@ -298,10 +455,10 @@ void BaseClient::startHttpRequest(
         return;
     }
 
-    HttpStreamHandle *stream = m_transport->openStream(request, QByteArrayView("POST"), body);
+    HttpStreamHandle *stream = m_impl->transport->openStream(request, QByteArrayView("POST"), body);
 
-    it = m_requests.find(id);
-    if (it == m_requests.end()) {
+    it = m_impl->requests.find(id);
+    if (it == m_impl->requests.end()) {
         delete stream;
         return;
     }
@@ -319,8 +476,8 @@ void BaseClient::startHttpRequest(
     connect(stream, &HttpStreamHandle::headersReceived, this, [this, id, guardedStream]() {
         if (!guardedStream)
             return;
-        auto it = m_requests.find(id);
-        if (it == m_requests.end() || it->stream != guardedStream)
+        auto it = m_impl->requests.find(id);
+        if (it == m_impl->requests.end() || it->stream != guardedStream)
             return;
         const int status = guardedStream->statusCode();
         if (status < 200 || status >= 300)
@@ -330,8 +487,8 @@ void BaseClient::startHttpRequest(
     connect(stream, &HttpStreamHandle::chunkReceived, this, [this, id, guardedStream](const QByteArray &chunk) {
         if (!guardedStream)
             return;
-        auto it = m_requests.find(id);
-        if (it == m_requests.end() || it->stream != guardedStream)
+        auto it = m_impl->requests.find(id);
+        if (it == m_impl->requests.end() || it->stream != guardedStream)
             return;
         if (it->errorMode) {
             const qsizetype room = kMaxErrorBodyBytes - it->errorBody.size();
@@ -346,8 +503,8 @@ void BaseClient::startHttpRequest(
         if (!guardedStream) {
             return;
         }
-        auto it = m_requests.find(id);
-        if (it == m_requests.end() || it->stream != guardedStream) {
+        auto it = m_impl->requests.find(id);
+        if (it == m_impl->requests.end() || it->stream != guardedStream) {
             guardedStream->deleteLater();
             return;
         }
@@ -377,8 +534,8 @@ void BaseClient::startHttpRequest(
             [this, id, guardedStream](const HttpTransportError &e) {
         if (!guardedStream)
             return;
-        auto it = m_requests.find(id);
-        if (it == m_requests.end() || it->stream != guardedStream) {
+        auto it = m_impl->requests.find(id);
+        if (it == m_impl->requests.end() || it->stream != guardedStream) {
             guardedStream->deleteLater();
             return;
         }
@@ -415,8 +572,8 @@ void BaseClient::captureStopReason(const RequestID &id)
     if (!msg)
         return;
 
-    auto it = m_requests.find(id);
-    if (it != m_requests.end())
+    auto it = m_impl->requests.find(id);
+    if (it != m_impl->requests.end())
         it->stopReason = msg->stopReason();
 }
 
@@ -424,15 +581,15 @@ void BaseClient::addChunk(const RequestID &id, const QString &chunk)
 {
     Q_ASSERT_X(thread() == QThread::currentThread(), Q_FUNC_INFO,
                "BaseClient::addChunk called from non-owning thread");
-    auto it = m_requests.find(id);
-    if (it == m_requests.end())
+    auto it = m_impl->requests.find(id);
+    if (it == m_impl->requests.end())
         return;
 
     it->buffers.responseContent += chunk;
     const QString accumulated = it->buffers.responseContent;
 
     emit chunkReceived(id, chunk);
-    if (!m_requests.contains(id))
+    if (!m_impl->requests.contains(id))
         return;
     emit accumulatedReceived(id, accumulated);
 }
@@ -441,8 +598,8 @@ void BaseClient::completeRequest(const RequestID &id)
 {
     Q_ASSERT_X(thread() == QThread::currentThread(), Q_FUNC_INFO,
                "BaseClient::completeRequest called from non-owning thread");
-    auto it = m_requests.find(id);
-    if (it == m_requests.end())
+    auto it = m_impl->requests.find(id);
+    if (it == m_impl->requests.end())
         return;
 
     finalizeTurn(id);
@@ -468,24 +625,24 @@ void BaseClient::setUsage(const RequestID &id, const TokenUsage &usage)
 {
     Q_ASSERT_X(thread() == QThread::currentThread(), Q_FUNC_INFO,
                "BaseClient::setUsage called from non-owning thread");
-    auto it = m_requests.find(id);
-    if (it == m_requests.end())
+    auto it = m_impl->requests.find(id);
+    if (it == m_impl->requests.end())
         return;
     it->turnUsage = usage;
 }
 
 std::optional<TokenUsage> BaseClient::currentUsage(const RequestID &id) const
 {
-    auto it = m_requests.find(id);
-    if (it == m_requests.end())
+    auto it = m_impl->requests.find(id);
+    if (it == m_impl->requests.end())
         return std::nullopt;
     return it->turnUsage;
 }
 
 std::optional<TokenUsage> BaseClient::totalUsage(const RequestID &id) const
 {
-    auto it = m_requests.find(id);
-    if (it == m_requests.end())
+    auto it = m_impl->requests.find(id);
+    if (it == m_impl->requests.end())
         return std::nullopt;
 
     if (!it->turnUsage)
@@ -505,8 +662,8 @@ void BaseClient::accumulateUsage(const RequestID &id, const TokenUsage &delta)
 {
     Q_ASSERT_X(thread() == QThread::currentThread(), Q_FUNC_INFO,
                "BaseClient::accumulateUsage called from non-owning thread");
-    auto it = m_requests.find(id);
-    if (it == m_requests.end())
+    auto it = m_impl->requests.find(id);
+    if (it == m_impl->requests.end())
         return;
     if (!it->turnUsage)
         it->turnUsage = TokenUsage{};
@@ -520,8 +677,8 @@ void BaseClient::finalizeTurn(const RequestID &id)
 {
     Q_ASSERT_X(thread() == QThread::currentThread(), Q_FUNC_INFO,
                "BaseClient::finalizeTurn called from non-owning thread");
-    auto it = m_requests.find(id);
-    if (it == m_requests.end() || !it->turnUsage)
+    auto it = m_impl->requests.find(id);
+    if (it == m_impl->requests.end() || !it->turnUsage)
         return;
 
     if (!it->usage) {
@@ -539,7 +696,7 @@ void BaseClient::failRequest(const RequestID &id, const QString &error)
 {
     Q_ASSERT_X(thread() == QThread::currentThread(), Q_FUNC_INFO,
                "BaseClient::failRequest called from non-owning thread");
-    if (!m_requests.contains(id))
+    if (!m_impl->requests.contains(id))
         return;
 
     cleanupRequest(id);
@@ -559,8 +716,8 @@ void BaseClient::abortRequest(const RequestID &id, const QString &error)
         return;
     }
 
-    auto it = m_requests.find(id);
-    if (it == m_requests.end())
+    auto it = m_impl->requests.find(id);
+    if (it == m_impl->requests.end())
         return;
 
     if (it->stream) {
@@ -596,8 +753,8 @@ QJsonObject BaseClient::buildReplayContinuation(
     const RequestID &id, const QHash<QString, ToolResult> &toolResults)
 {
     auto *message = messageForRequest(id);
-    auto it = m_requests.find(id);
-    if (!message || it == m_requests.end())
+    auto it = m_impl->requests.find(id);
+    if (!message || it == m_impl->requests.end())
         return {};
 
     return buildContinuationPayload(it->originalPayload, message, toolResults);
@@ -607,8 +764,8 @@ void BaseClient::continueRequest(const RequestID &id, const QJsonObject &payload
 {
     Q_ASSERT_X(thread() == QThread::currentThread(), Q_FUNC_INFO,
                "BaseClient::continueRequest called from non-owning thread");
-    auto it = m_requests.find(id);
-    if (it == m_requests.end() || it->url.isEmpty()) {
+    auto it = m_impl->requests.find(id);
+    if (it == m_impl->requests.end() || it->url.isEmpty()) {
         qCWarning(llmQoreLog).noquote()
             << QString("Missing transport context for continuation request %1").arg(id);
         cleanupFullRequest(id);
@@ -626,8 +783,11 @@ void BaseClient::cleanupFullRequest(const RequestID &id)
 {
     cleanupDerivedData(id);
 
-    auto it = m_requests.find(id);
-    if (it != m_requests.end()) {
+    auto it = m_impl->requests.find(id);
+    if (it != m_impl->requests.end()) {
+        if (it->message)
+            it->message->deleteLater();
+        it->message = nullptr;
         it->url.clear();
         it->finalPayload = it->originalPayload;
         it->originalPayload = {};
@@ -635,8 +795,8 @@ void BaseClient::cleanupFullRequest(const RequestID &id)
         it->mode = RequestMode::Streaming;
     }
 
-    if (m_toolsManager)
-        m_toolsManager->cleanupRequest(id);
+    if (m_impl->toolsManager)
+        m_impl->toolsManager->cleanupRequest(id);
 }
 
 QJsonObject BaseClient::appendChatMessagesContinuation(
@@ -665,8 +825,8 @@ void BaseClient::notifyPendingThinkingBlocks(const RequestID &id)
     if (thinkingBlocks.isEmpty())
         return;
 
-    auto it = m_requests.find(id);
-    if (it == m_requests.end())
+    auto it = m_impl->requests.find(id);
+    if (it == m_impl->requests.end())
         return;
 
     const int alreadyEmitted = it->emittedThinkingBlocksCount;
@@ -679,15 +839,15 @@ void BaseClient::notifyPendingThinkingBlocks(const RequestID &id)
         if (thinkingContent->thinking().trimmed().isEmpty())
             continue;
         emit thinkingBlockReceived(id, thinkingContent->thinking(), thinkingContent->signature());
-        if (!m_requests.contains(id))
+        if (!m_impl->requests.contains(id))
             return;
     }
 }
 
 void BaseClient::storeRequestContext(const RequestID &id, const QUrl &url, const QJsonObject &payload)
 {
-    auto it = m_requests.find(id);
-    if (it == m_requests.end())
+    auto it = m_impl->requests.find(id);
+    if (it == m_impl->requests.end())
         return;
 
     it->url = url;
@@ -698,35 +858,35 @@ void BaseClient::storeRequestContext(const RequestID &id, const QUrl &url, const
 
 bool BaseClient::hasRequest(const RequestID &id) const noexcept
 {
-    return m_requests.contains(id);
+    return m_impl->requests.contains(id);
 }
 
 Rpc::LineFramer &BaseClient::requestLineFramer(const RequestID &id)
 {
-    auto it = m_requests.find(id);
-    Q_ASSERT(it != m_requests.end());
+    auto it = m_impl->requests.find(id);
+    Q_ASSERT(it != m_impl->requests.end());
     return it->buffers.lineFramer;
 }
 
 SSEParser &BaseClient::requestSSEParser(const RequestID &id)
 {
-    auto it = m_requests.find(id);
-    Q_ASSERT(it != m_requests.end());
+    auto it = m_impl->requests.find(id);
+    Q_ASSERT(it != m_impl->requests.end());
     return it->buffers.sseParser;
 }
 
 QString BaseClient::responseContent(const RequestID &id) const
 {
-    auto it = m_requests.find(id);
-    if (it == m_requests.end())
+    auto it = m_impl->requests.find(id);
+    if (it == m_impl->requests.end())
         return {};
     return it->buffers.responseContent;
 }
 
 void BaseClient::setResponseContent(const RequestID &id, const QString &content)
 {
-    auto it = m_requests.find(id);
-    if (it == m_requests.end() || it->buffers.responseContent == content)
+    auto it = m_impl->requests.find(id);
+    if (it == m_impl->requests.end() || it->buffers.responseContent == content)
         return;
 
     it->buffers.responseContent = content;
@@ -735,8 +895,8 @@ void BaseClient::setResponseContent(const RequestID &id, const QString &content)
 
 void BaseClient::cleanupRequest(const RequestID &id)
 {
-    auto it = m_requests.find(id);
-    if (it == m_requests.end())
+    auto it = m_impl->requests.find(id);
+    if (it == m_impl->requests.end())
         return;
 
     if (it->stream) {
@@ -746,7 +906,10 @@ void BaseClient::cleanupRequest(const RequestID &id)
         it->stream = nullptr;
     }
 
-    m_requests.erase(it);
+    if (it->message)
+        it->message->deleteLater();
+
+    m_impl->requests.erase(it);
 }
 
 } // namespace LLMQore

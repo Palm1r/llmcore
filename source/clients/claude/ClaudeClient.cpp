@@ -63,58 +63,24 @@ RequestID ClaudeClient::ask(const QString &prompt, RequestMode mode)
     return sendMessage(payload, {}, mode);
 }
 
+const QLoggingCategory &ClaudeClient::logCategory() const
+{
+    return llmClaudeLog();
+}
+
 QFuture<QList<QString>> ClaudeClient::listModels(const QString &endpoint)
 {
-    const QString resolved = endpoint.isEmpty() ? QStringLiteral("/v1/models") : endpoint;
-    QUrl url(m_url + resolved);
+    QUrl url = endpointUrl(endpoint, QStringLiteral("/v1/models"));
     QUrlQuery query;
     query.addQueryItem("limit", "1000");
     url.setQuery(query);
 
-    QNetworkRequest request = prepareNetworkRequest(url);
-
-    return LLMQore::compat(transport()->send(request, QByteArrayView("GET")))
-        .then(this, [](const HttpResponse &response) {
-            QList<QString> models;
-            if (!response.isSuccess()) {
-                qCDebug(llmClaudeLog).noquote()
-                    << QString("Error fetching models: HTTP %1").arg(response.statusCode);
-                return models;
-            }
-
-            QJsonObject json = QJsonDocument::fromJson(response.body).object();
-            if (json.contains("data")) {
-                QJsonArray modelArray = json["data"].toArray();
-                for (const QJsonValue &value : modelArray) {
-                    QJsonObject modelObject = value.toObject();
-                    if (modelObject.contains("id"))
-                        models.append(modelObject["id"].toString());
-                }
-            }
-            return models;
-        })
-        .onFailed(this, [](const std::exception &e) {
-            qCDebug(llmClaudeLog).noquote() << QString("Error fetching models: %1").arg(e.what());
-            return QList<QString>{};
-        });
+    return fetchModelList(url);
 }
 
 QString ClaudeClient::parseHttpError(const HttpResponse &response) const
 {
-    const QJsonDocument doc = QJsonDocument::fromJson(response.body);
-    if (doc.isObject()) {
-        const QJsonObject root = doc.object();
-        const QJsonObject error = root.value("error").toObject();
-        const QString message = error.value("message").toString();
-        const QString type = error.value("type").toString();
-        if (!message.isEmpty()) {
-            if (!type.isEmpty())
-                return QString("HTTP %1: %2 (%3)")
-                    .arg(QString::number(response.statusCode), message, type);
-            return QString("HTTP %1: %2").arg(QString::number(response.statusCode), message);
-        }
-    }
-    return BaseClient::parseHttpError(response);
+    return parseErrorObject(response, {{{}, QStringLiteral("type")}});
 }
 
 void ClaudeClient::processData(const RequestID &id, const QByteArray &data)
@@ -130,17 +96,6 @@ void ClaudeClient::processData(const RequestID &id, const QByteArray &data)
         if (!json.isEmpty())
             processStreamEvent(id, json);
     }
-}
-
-BaseMessage *ClaudeClient::messageForRequest(const RequestID &id) const
-{
-    return m_messages.value(id, nullptr);
-}
-
-void ClaudeClient::cleanupDerivedData(const RequestID &id)
-{
-    if (auto *msg = m_messages.take(id))
-        msg->deleteLater();
 }
 
 QJsonObject ClaudeClient::buildContinuationPayload(
@@ -173,20 +128,18 @@ void ClaudeClient::processStreamEvent(const RequestID &id, const QJsonObject &ev
     if (eventType == "message_stop")
         return;
 
-    ClaudeMessage *message = m_messages.value(id);
+    ClaudeMessage *message = messageAs<ClaudeMessage>(id);
     if (!message) {
-        if (eventType == "message_start") {
-            message = new ClaudeMessage(this);
-            m_messages[id] = message;
-            qCDebug(llmClaudeLog).noquote()
-                << QString("Created ClaudeMessage for request %1").arg(id);
-        } else {
+        if (eventType != "message_start") {
             qCWarning(llmClaudeLog).noquote()
                 << QString("Dropping event '%1' for request %2: no active message (missing "
                            "message_start?)")
                        .arg(eventType, id);
             return;
         }
+        message = ensureMessage<ClaudeMessage>(id);
+        qCDebug(llmClaudeLog).noquote()
+            << QString("Created ClaudeMessage for request %1").arg(id);
     }
 
     if (eventType == "message_start") {
@@ -268,8 +221,7 @@ void ClaudeClient::processBufferedResponse(const RequestID &id, const QByteArray
         return;
     }
 
-    auto *message = new ClaudeMessage(this);
-    m_messages[id] = message;
+    auto *message = ensureMessage<ClaudeMessage>(id);
     message->startNewContinuation();
 
     QJsonArray content = response["content"].toArray();

@@ -42,18 +42,16 @@ protected:
     void processData(const RequestID &id, const QByteArray &data) override;
     void processBufferedResponse(const RequestID &id, const QByteArray &data) override;
     void onStreamFinished(const RequestID &id, std::optional<QString> error) override;
-    BaseMessage *messageForRequest(const RequestID &id) const override;
-    void cleanupDerivedData(const RequestID &id) override;
     QJsonObject buildContinuationPayload(
         const QJsonObject &originalPayload,
         BaseMessage *message,
         const QHash<QString, ToolResult> &toolResults) override;
     [[nodiscard]] QString parseHttpError(const HttpResponse &response) const override;
+    [[nodiscard]] const QLoggingCategory &logCategory() const override;
 
 private:
     void processStreamData(const RequestID &id, const QJsonObject &data);
 
-    QHash<RequestID, OllamaMessage *> m_messages;
 };
 
 } // namespace LLMQore

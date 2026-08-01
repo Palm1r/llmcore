@@ -25,6 +25,8 @@ public:
     {
         const RequestID id = createRequest();
         storeRequestContext(id, QUrl("http://fake.local"), payload);
+        if (replayAvailable)
+            setMessageForRequest(id, new BaseMessage(this));
         return id;
     }
 
@@ -52,11 +54,6 @@ protected:
     ToolSchemaFormat toolSchemaFormat() const override { return ToolSchemaFormat::OpenAI; }
     void processData(const RequestID &, const QByteArray &) override {}
     void processBufferedResponse(const RequestID &, const QByteArray &) override {}
-    BaseMessage *messageForRequest(const RequestID &) const override
-    {
-        return replayAvailable ? &m_message : nullptr;
-    }
-    void cleanupDerivedData(const RequestID &) override {}
     QJsonObject buildContinuationPayload(
         const QJsonObject &originalPayload, BaseMessage *, const QHash<QString, ToolResult> &) override
     {
@@ -64,9 +61,6 @@ protected:
         payload["round"] = ++replayCalls;
         return payload;
     }
-
-private:
-    mutable BaseMessage m_message;
 };
 
 } // namespace

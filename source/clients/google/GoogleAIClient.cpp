@@ -66,60 +66,28 @@ RequestID GoogleAIClient::ask(const QString &prompt, RequestMode mode)
     return sendMessage(payload, {}, mode);
 }
 
+const QLoggingCategory &GoogleAIClient::logCategory() const
+{
+    return llmGoogleLog();
+}
+
 QFuture<QList<QString>> GoogleAIClient::listModels(const QString &endpoint)
 {
-    const QString resolved = endpoint.isEmpty() ? QStringLiteral("/models") : endpoint;
-    QUrl url(m_url + resolved);
-    QNetworkRequest request = prepareNetworkRequest(url);
-
-    return LLMQore::compat(transport()->send(request, QByteArrayView("GET")))
-        .then(this, [](const HttpResponse &response) {
-            QList<QString> models;
-            if (!response.isSuccess()) {
-                qCDebug(llmGoogleLog).noquote()
-                    << QString("Error fetching models: HTTP %1").arg(response.statusCode);
-                return models;
-            }
-
-            QJsonObject json = QJsonDocument::fromJson(response.body).object();
-            if (json.contains("models")) {
-                QJsonArray modelArray = json["models"].toArray();
-                for (const QJsonValue &value : modelArray) {
-                    QJsonObject modelObject = value.toObject();
-                    if (modelObject.contains("name")) {
-                        QString modelName = modelObject["name"].toString();
-                        if (modelName.contains("/"))
-                            modelName = modelName.split("/").last();
-                        models.append(modelName);
-                    }
-                }
-            }
-            return models;
-        })
-        .onFailed(this, [](const std::exception &e) {
-            qCDebug(llmGoogleLog).noquote() << QString("Error fetching models: %1").arg(e.what());
-            return QList<QString>{};
+    return fetchModelList(
+        endpointUrl(endpoint, QStringLiteral("/models")),
+        QStringLiteral("models"),
+        QStringLiteral("name"),
+        [](QString name) {
+            return name.contains('/') ? name.split('/').last() : name;
         });
 }
 
 QString GoogleAIClient::parseHttpError(const HttpResponse &response) const
 {
-    const QJsonDocument doc = QJsonDocument::fromJson(response.body);
-    if (doc.isObject()) {
-        const QJsonObject error = doc.object().value("error").toObject();
-        const QString message = error.value("message").toString();
-        const int code = error.value("code").toInt();
-        const QString status = error.value("status").toString();
-        if (!message.isEmpty()) {
-            QString out = QString("HTTP %1: %2").arg(response.statusCode).arg(message);
-            if (code != 0)
-                out += QString(" (code: %1)").arg(code);
-            if (!status.isEmpty())
-                out += QString(" (status: %1)").arg(status);
-            return out;
-        }
-    }
-    return BaseClient::parseHttpError(response);
+    return parseErrorObject(
+        response,
+        {{QStringLiteral("code"), QStringLiteral("code")},
+         {QStringLiteral("status"), QStringLiteral("status")}});
 }
 
 std::optional<QString> GoogleAIClient::JsonErrorSniffer::append(const QByteArray &chunk)
@@ -199,8 +167,7 @@ void GoogleAIClient::onStreamFinished(const RequestID &id, std::optional<QString
 
     notifyPendingThinkingBlocks(id);
 
-    if (m_messages.contains(id)) {
-        GoogleMessage *message = m_messages[id];
+    if (auto *message = messageAs<GoogleMessage>(id)) {
         executeToolsFromMessage(id);
 
         if (message->state() == MessageState::RequiresToolExecution) {
@@ -231,15 +198,7 @@ void GoogleAIClient::processStreamChunk(const RequestID &id, const QJsonObject &
     if (!chunk.contains("candidates"))
         return;
 
-    GoogleMessage *message = m_messages.value(id);
-    if (!message) {
-        message = new GoogleMessage(this);
-        m_messages[id] = message;
-        qCDebug(llmGoogleLog).noquote() << QString("Created GoogleMessage for request %1").arg(id);
-    } else if (message->state() == MessageState::RequiresToolExecution) {
-        message->startNewContinuation();
-        qCDebug(llmGoogleLog).noquote() << QString("Starting continuation for request %1").arg(id);
-    }
+    GoogleMessage *message = ensureMessage<GoogleMessage>(id);
 
     QJsonArray candidates = chunk["candidates"].toArray();
     for (const QJsonValue &candidate : candidates) {
@@ -303,16 +262,8 @@ void GoogleAIClient::processStreamChunk(const RequestID &id, const QJsonObject &
     }
 }
 
-BaseMessage *GoogleAIClient::messageForRequest(const RequestID &id) const
-{
-    return m_messages.value(id, nullptr);
-}
-
 void GoogleAIClient::cleanupDerivedData(const RequestID &id)
 {
-    if (auto *msg = m_messages.take(id))
-        msg->deleteLater();
-
     m_failedRequests.remove(id);
     m_errorSniffers.remove(id);
 }
