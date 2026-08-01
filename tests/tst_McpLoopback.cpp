@@ -28,6 +28,7 @@
 #include <LLMQore/JsonRpcSession.hpp>
 #include "clients/claude/ClaudeMessage.hpp"
 #include "clients/openai/OpenAIMessage.hpp"
+#include <LLMQore/ToolRegistry.hpp>
 #include <LLMQore/ToolsManager.hpp>
 
 using namespace LLMQore;
@@ -645,6 +646,37 @@ TEST_F(McpLoopbackTest, ToolsChangedNotificationRefreshesTools)
 
     EXPECT_GE(changedSpy.count(), 1);
     EXPECT_EQ(manager.registeredTools().size(), 2);
+
+    delete serverTransport;
+    delete clientTransport;
+}
+
+TEST_F(McpLoopbackTest, RegistryToolAdditionSendsListChangedNotification)
+{
+    auto [serverTransport, clientTransport] = Rpc::PipeTransport::createPair();
+
+    McpServer server(serverTransport, McpServerConfig{});
+    ToolRegistry registry;
+    server.setToolRegistry(&registry);
+
+    McpClient client(clientTransport);
+    server.start();
+    waitForFuture(client.connectAndInitialize());
+
+    QSignalSpy changedSpy(&client, &McpClient::toolsChanged);
+
+    registry.addTool(new EchoTool);
+
+    QEventLoop loop;
+    QTimer::singleShot(2000, &loop, &QEventLoop::quit);
+    QObject::connect(&client, &McpClient::toolsChanged, &loop, &QEventLoop::quit);
+    loop.exec();
+
+    EXPECT_GE(changedSpy.count(), 1);
+
+    const QList<ToolInfo> tools = waitForFuture(client.listTools());
+    ASSERT_EQ(tools.size(), 1);
+    EXPECT_EQ(tools.first().name, "echo");
 
     delete serverTransport;
     delete clientTransport;

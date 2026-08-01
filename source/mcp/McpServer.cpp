@@ -467,6 +467,12 @@ void McpServer::setToolRegistry(LLMQore::ToolRegistry *registry)
         disconnect(m_toolRegistry, nullptr, this, nullptr);
     }
     m_toolRegistry = registry;
+    if (registry) {
+        connect(registry, &LLMQore::ToolRegistry::toolsChanged, this, [this]() {
+            if (m_initialized)
+                m_session->sendNotification(QLatin1String(Method::ToolsListChanged));
+        });
+    }
 }
 
 void McpServer::addTool(LLMQore::BaseTool *tool)
@@ -614,14 +620,19 @@ void McpServer::stop()
 
 QList<LLMQore::BaseTool *> McpServer::collectTools() const
 {
-    QList<LLMQore::BaseTool *> tools;
-    if (m_toolRegistry)
-        tools = m_toolRegistry->registeredTools();
+    QMap<QString, LLMQore::BaseTool *> merged;
     for (const auto &t : m_standaloneTools) {
         if (t)
-            tools.append(t.data());
+            merged.insert(t->id(), t.data());
     }
-    return tools;
+    if (m_toolRegistry) {
+        const QList<LLMQore::BaseTool *> registryTools = m_toolRegistry->registeredTools();
+        for (LLMQore::BaseTool *t : registryTools) {
+            if (t)
+                merged.insert(t->id(), t);
+        }
+    }
+    return merged.values();
 }
 
 LLMQore::BaseTool *McpServer::findTool(const QString &name) const
