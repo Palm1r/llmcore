@@ -9,6 +9,7 @@
 #include <QUrl>
 
 #include <LLMQore/BaseClient.hpp>
+#include <LLMQore/SSEParser.hpp>
 
 namespace LLMQore {
 
@@ -40,6 +41,7 @@ public:
 protected:
     [[nodiscard]] const ToolDialect &toolDialect() const override;
     void processData(const RequestID &id, const QByteArray &data) override;
+    void flushStreamBuffers(const RequestID &id) override;
     void processBufferedResponse(const RequestID &id, const QByteArray &data) override;
     QJsonObject buildContinuationPayload(
         const QJsonObject &originalPayload,
@@ -49,6 +51,7 @@ protected:
     [[nodiscard]] const QLoggingCategory &logCategory() const override;
 
 private:
+    void dispatchStreamEvents(const RequestID &id, const QList<SSEEvent> &events);
     void processStreamEvent(const RequestID &id, const QJsonObject &event);
 
 };

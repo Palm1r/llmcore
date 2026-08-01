@@ -49,6 +49,7 @@ protected:
         BaseMessage *message,
         const QHash<QString, ToolResult> &toolResults) override;
     [[nodiscard]] QString parseHttpError(const HttpResponse &response) const override;
+    void flushStreamBuffers(const RequestID &id) override;
 
     // Runs already-framed SSE events through the dialect. Subclasses that need
     // the same dispatch from another point (a trailing flush, a second wire

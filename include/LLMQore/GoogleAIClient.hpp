@@ -12,6 +12,7 @@
 #include <QUrl>
 
 #include <LLMQore/BaseClient.hpp>
+#include <LLMQore/SSEParser.hpp>
 
 namespace LLMQore {
 
@@ -45,6 +46,7 @@ protected:
     void processData(const RequestID &id, const QByteArray &data) override;
     void processBufferedResponse(const RequestID &id, const QByteArray &data) override;
     void onStreamFinished(const RequestID &id, std::optional<QString> error) override;
+    void flushStreamBuffers(const RequestID &id) override;
     void cleanupDerivedData(const RequestID &id) override;
     QJsonObject buildContinuationPayload(
         const QJsonObject &originalPayload,
@@ -54,6 +56,7 @@ protected:
     [[nodiscard]] const QLoggingCategory &logCategory() const override;
 
 private:
+    void dispatchStreamEvents(const RequestID &id, const QList<SSEEvent> &events);
     // A 200-with-error-body response is not SSE-framed, so it has to be
     // reassembled across chunks before it can be recognised.
     class JsonErrorSniffer

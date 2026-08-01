@@ -91,7 +91,17 @@ void OpenAIResponsesClient::processData(const RequestID &id, const QByteArray &d
     if (!hasRequest(id))
         return;
 
-    const QList<SSEEvent> events = requestSSEParser(id).append(data);
+    dispatchStreamEvents(id, requestSSEParser(id).append(data));
+}
+
+void OpenAIResponsesClient::flushStreamBuffers(const RequestID &id)
+{
+    dispatchStreamEvents(id, requestSSEParser(id).flush());
+}
+
+void OpenAIResponsesClient::dispatchStreamEvents(
+    const RequestID &id, const QList<SSEEvent> &events)
+{
     for (const SSEEvent &ev : events) {
         if (ev.data.isEmpty() || ev.data == "[DONE]")
             continue;
@@ -99,6 +109,8 @@ void OpenAIResponsesClient::processData(const RequestID &id, const QByteArray &d
         if (payload.isEmpty())
             continue;
         processStreamEvent(id, ev.type, payload);
+        if (!hasRequest(id))
+            return;
     }
 }
 

@@ -113,18 +113,23 @@ void OllamaClient::processData(const RequestID &id, const QByteArray &data)
             continue;
         }
 
-        QJsonObject obj = doc.object();
-
-        if (obj.contains("error") && !obj["error"].toString().isEmpty()) {
-            QString errorMsg = obj["error"].toString();
-            qCWarning(llmOllamaLog).noquote() << "Error in response: " + errorMsg;
-            cleanupFullRequest(id);
-            failRequest(id, errorMsg);
+        if (!handleStreamObject(id, doc.object()))
             return;
-        }
-
-        processStreamData(id, obj);
     }
+}
+
+bool OllamaClient::handleStreamObject(const RequestID &id, const QJsonObject &obj)
+{
+    const QString errorMsg = obj.value("error").toString();
+    if (!errorMsg.isEmpty()) {
+        qCWarning(llmOllamaLog).noquote() << "Error in response: " + errorMsg;
+        cleanupFullRequest(id);
+        failRequest(id, errorMsg);
+        return false;
+    }
+
+    processStreamData(id, obj);
+    return true;
 }
 
 QJsonObject OllamaClient::buildContinuationPayload(
@@ -142,34 +147,22 @@ QJsonObject OllamaClient::buildContinuationPayload(
         ollamaMsg->createToolResultMessages(toolResults));
 }
 
-void OllamaClient::onStreamFinished(const RequestID &id, std::optional<QString> error)
+void OllamaClient::flushStreamBuffers(const RequestID &id)
 {
-    if (!error && hasRequest(id)) {
-        Rpc::LineFramer &framer = requestLineFramer(id);
-        if (framer.hasIncompleteData()) {
-            const QByteArray remaining = framer.currentBuffer().trimmed();
-            framer.clear();
+    Rpc::LineFramer &framer = requestLineFramer(id);
+    if (!framer.hasIncompleteData())
+        return;
 
-            if (!remaining.isEmpty()) {
-                QJsonParseError parseError;
-                QJsonDocument doc = QJsonDocument::fromJson(remaining, &parseError);
-                if (!doc.isNull() && doc.isObject()) {
-                    QJsonObject obj = doc.object();
-                    if (obj.contains("error") && !obj["error"].toString().isEmpty()) {
-                        QString errorMsg = obj["error"].toString();
-                        qCWarning(llmOllamaLog).noquote()
-                            << "Error in remaining buffer: " + errorMsg;
-                        cleanupFullRequest(id);
-                        failRequest(id, errorMsg);
-                        return;
-                    }
-                    processStreamData(id, obj);
-                }
-            }
-        }
-    }
+    const QByteArray remaining = framer.currentBuffer().trimmed();
+    framer.clear();
+    if (remaining.isEmpty())
+        return;
 
-    BaseClient::onStreamFinished(id, error);
+    const QJsonDocument doc = QJsonDocument::fromJson(remaining);
+    if (doc.isNull() || !doc.isObject())
+        return;
+
+    handleStreamObject(id, doc.object());
 }
 
 void OllamaClient::processStreamData(const RequestID &id, const QJsonObject &data)

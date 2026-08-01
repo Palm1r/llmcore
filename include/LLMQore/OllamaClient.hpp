@@ -41,7 +41,7 @@ protected:
     [[nodiscard]] const ToolDialect &toolDialect() const override;
     void processData(const RequestID &id, const QByteArray &data) override;
     void processBufferedResponse(const RequestID &id, const QByteArray &data) override;
-    void onStreamFinished(const RequestID &id, std::optional<QString> error) override;
+    void flushStreamBuffers(const RequestID &id) override;
     QJsonObject buildContinuationPayload(
         const QJsonObject &originalPayload,
         BaseMessage *message,
@@ -51,6 +51,8 @@ protected:
 
 private:
     void processStreamData(const RequestID &id, const QJsonObject &data);
+    // False when the object was a provider error and the request was failed.
+    bool handleStreamObject(const RequestID &id, const QJsonObject &obj);
 
 };
 

@@ -220,6 +220,11 @@ protected:
 
     virtual void onStreamFinished(const RequestID &id, std::optional<QString> error);
 
+    // Called by the base at end-of-stream, before it decides the request is
+    // done. Providers whose framer can hold a trailing event drain it here
+    // instead of re-implementing the tail of onStreamFinished.
+    virtual void flushStreamBuffers(const RequestID &id);
+
     [[nodiscard]] HttpTransport *transport() const;
     [[nodiscard]] QNetworkRequest prepareNetworkRequest(const QUrl &url) const;
     [[nodiscard]] RequestID createRequest();

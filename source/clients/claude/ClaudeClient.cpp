@@ -93,13 +93,25 @@ void ClaudeClient::processData(const RequestID &id, const QByteArray &data)
     if (!hasRequest(id))
         return;
 
-    const QList<SSEEvent> events = requestSSEParser(id).append(data);
+    dispatchStreamEvents(id, requestSSEParser(id).append(data));
+}
+
+void ClaudeClient::flushStreamBuffers(const RequestID &id)
+{
+    dispatchStreamEvents(id, requestSSEParser(id).flush());
+}
+
+void ClaudeClient::dispatchStreamEvents(const RequestID &id, const QList<SSEEvent> &events)
+{
     for (const SSEEvent &ev : events) {
         if (ev.data.isEmpty() || ev.data == "[DONE]")
             continue;
         const QJsonObject json = QJsonDocument::fromJson(ev.data).object();
-        if (!json.isEmpty())
-            processStreamEvent(id, json);
+        if (json.isEmpty())
+            continue;
+        processStreamEvent(id, json);
+        if (!hasRequest(id))
+            return;
     }
 }
 
@@ -182,11 +194,7 @@ void ClaudeClient::processStreamEvent(const RequestID &id, const QJsonObject &ev
     } else if (eventType == "content_block_stop") {
         int index = event["index"].toInt();
 
-        if (auto *tc = dynamic_cast<ThinkingContent *>(message->blockAt(index))) {
-            emit thinkingBlockReceived(id, tc->thinking(), tc->signature());
-        } else if (auto *rc = dynamic_cast<RedactedThinkingContent *>(message->blockAt(index))) {
-            emit thinkingBlockReceived(id, QString(), rc->signature());
-        }
+        notifyPendingThinkingBlocks(id);
 
         message->handleContentBlockStop(index);
 
@@ -255,11 +263,9 @@ void ClaudeClient::processBufferedResponse(const RequestID &id, const QByteArray
                     QStringLiteral("signature_delta"),
                     QJsonObject{{"signature", block["signature"].toString()}});
             }
-            if (auto *tc = dynamic_cast<ThinkingContent *>(message->blockAt(i)))
-                emit thinkingBlockReceived(id, tc->thinking(), tc->signature());
+            notifyPendingThinkingBlocks(id);
         } else if (blockType == "redacted_thinking") {
-            if (auto *rc = dynamic_cast<RedactedThinkingContent *>(message->blockAt(i)))
-                emit thinkingBlockReceived(id, QString(), rc->signature());
+            notifyPendingThinkingBlocks(id);
         }
 
         message->handleContentBlockStop(i);

@@ -3,6 +3,10 @@
 
 #include <gtest/gtest.h>
 
+#include <functional>
+#include <memory>
+#include <vector>
+
 #include <QCoreApplication>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -594,6 +598,120 @@ TEST(ReviewRegression, CompletionInfoCarriesThePayloadOfAToolFreeTurn)
         = finalizedInfo(finalized).requestPayload.value("messages").toArray();
     ASSERT_EQ(messages.size(), 1);
     EXPECT_EQ(messages.first().toObject().value("role").toString(), QStringLiteral("user"));
+}
+
+
+// --- T8: one flush hook, one thinking-emission mechanism ---
+
+TEST(StreamFlush, TrailingSseEventWithoutABlankLineIsStillDispatched)
+{
+    struct Case
+    {
+        const char *name;
+        std::function<std::unique_ptr<BaseClient>(FakeHttpTransport &)> make;
+        QByteArray tail;
+        QString expected;
+    };
+
+    const std::vector<Case> cases{
+        {"OpenAI",
+         [](FakeHttpTransport &t) {
+             return std::make_unique<OpenAIClient>("http://fake.local/v1", "k", "m", &t);
+         },
+         "data: {\"choices\":[{\"delta\":{\"content\":\"tail\"}}]}\n",
+         QStringLiteral("tail")},
+        {"Claude",
+         [](FakeHttpTransport &t) {
+             return std::make_unique<ClaudeClient>("http://fake.local", "k", "m", &t);
+         },
+         "event: content_block_delta\n"
+         "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":"
+         "{\"type\":\"text_delta\",\"text\":\"tail\"}}\n",
+         QStringLiteral("tail")},
+    };
+
+    for (const Case &c : cases) {
+        FakeHttpTransport transport;
+        auto client = c.make(transport);
+
+        QSignalSpy completed(client.get(), &BaseClient::requestCompleted);
+
+        client->ask(QStringLiteral("hi"));
+        ASSERT_EQ(transport.streamCount(), 1) << c.name;
+
+        auto *stream = transport.lastStream();
+        stream->sendHeaders(200);
+        if (QString(c.name) == QLatin1String("Claude")) {
+            stream->sendChunk(
+                "event: message_start\n"
+                "data: {\"type\":\"message_start\",\"message\":{}}\n\n"
+                "event: content_block_start\n"
+                "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":"
+                "{\"type\":\"text\",\"text\":\"\"}}\n\n");
+        }
+        // No trailing blank line: the event sits in the parser until the flush.
+        stream->sendChunk(c.tail);
+        stream->sendFinished();
+
+        ASSERT_EQ(completed.count(), 1) << c.name;
+        EXPECT_EQ(completed.first().at(1).toString(), c.expected)
+            << c.name << " lost its trailing event at end of stream";
+    }
+}
+
+TEST(ThinkingEmission, ClaudeRedactedAndPlainBlocksGoThroughTheSamePath)
+{
+    FakeHttpTransport transport;
+    ClaudeClient client("http://fake.local", "sk-test", "claude-test", &transport);
+
+    QSignalSpy thinking(&client, &BaseClient::thinkingBlockReceived);
+
+    client.ask(QStringLiteral("hi"));
+    transport.lastStream()->sendAll(
+        "event: message_start\n"
+        "data: {\"type\":\"message_start\",\"message\":{}}\n\n"
+        "event: content_block_start\n"
+        "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":"
+        "{\"type\":\"thinking\",\"thinking\":\"\"}}\n\n"
+        "event: content_block_delta\n"
+        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":"
+        "{\"type\":\"thinking_delta\",\"thinking\":\"pondering\"}}\n\n"
+        "event: content_block_delta\n"
+        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":"
+        "{\"type\":\"signature_delta\",\"signature\":\"sig-1\"}}\n\n"
+        "event: content_block_stop\n"
+        "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n"
+        "event: content_block_start\n"
+        "data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":"
+        "{\"type\":\"redacted_thinking\",\"data\":\"sig-2\"}}\n\n"
+        "event: content_block_stop\n"
+        "data: {\"type\":\"content_block_stop\",\"index\":1}\n\n"
+        "event: message_stop\n"
+        "data: {\"type\":\"message_stop\"}\n\n");
+
+    ASSERT_EQ(thinking.count(), 2) << "both thinking shapes must be announced exactly once";
+    EXPECT_EQ(thinking.at(0).at(1).toString(), QStringLiteral("pondering"));
+    EXPECT_EQ(thinking.at(0).at(2).toString(), QStringLiteral("sig-1"));
+    EXPECT_TRUE(thinking.at(1).at(1).toString().isEmpty()) << "a redacted block carries no text";
+}
+
+TEST(ThinkingEmission, ABlockIsAnnouncedOnlyOnceAcrossRepeatedNotifications)
+{
+    FakeHttpTransport transport;
+    OpenAIClient client("http://fake.local/v1", "sk-test", "gpt-test", &transport);
+
+    QSignalSpy thinking(&client, &BaseClient::thinkingBlockReceived);
+
+    client.ask(QStringLiteral("hi"));
+    transport.lastStream()->sendAll(
+        "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"one \"}}]}\n\n"
+        "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"two\"}}]}\n\n"
+        "data: {\"choices\":[{\"delta\":{\"content\":\"answer\"}}]}\n\n"
+        "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"
+        "data: [DONE]\n\n");
+
+    ASSERT_EQ(thinking.count(), 1) << "the reasoning block must not be re-announced per delta";
+    EXPECT_EQ(thinking.first().at(1).toString(), QStringLiteral("one two"));
 }
 
 #include "tst_ReviewRegressions.moc"

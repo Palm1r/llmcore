@@ -47,7 +47,6 @@ struct ActiveRequest
     QUrl url = {};
     QJsonObject originalPayload = {};
     QJsonObject finalPayload = {};
-    int emittedThinkingBlocksCount = 0;
     RequestMode mode = RequestMode::Streaming;
     QString stopReason = {};
     std::optional<TokenUsage> usage = {};
@@ -578,6 +577,11 @@ void BaseClient::onStreamFinished(const RequestID &id, std::optional<QString> er
         return;
     }
 
+    if (hasRequest(id))
+        flushStreamBuffers(id);
+    if (!hasRequest(id))
+        return;
+
     auto *msg = messageForRequest(id);
     if (msg && msg->state() == MessageState::RequiresToolExecution)
         return;
@@ -795,8 +799,6 @@ void BaseClient::continueRequest(const RequestID &id, const QJsonObject &payload
         return;
     }
 
-    it->emittedThinkingBlocksCount = 0;
-
     finalizeTurn(id);
     sendRequest(id, it->url, payload, it->mode);
 }
@@ -813,7 +815,6 @@ void BaseClient::cleanupFullRequest(const RequestID &id)
         it->url.clear();
         it->finalPayload = it->originalPayload;
         it->originalPayload = {};
-        it->emittedThinkingBlocksCount = 0;
         it->mode = RequestMode::Streaming;
     }
 
@@ -840,31 +841,34 @@ QJsonObject BaseClient::appendChatMessagesContinuation(
 void BaseClient::notifyPendingThinkingBlocks(const RequestID &id)
 {
     auto *message = messageForRequest(id);
-    if (!message)
+    if (!message || !hasRequest(id))
         return;
 
-    auto thinkingBlocks = message->getCurrentThinkingContent();
-    if (thinkingBlocks.isEmpty())
-        return;
-
-    auto it = m_impl->requests.find(id);
-    if (it == m_impl->requests.end())
-        return;
-
-    const int alreadyEmitted = it->emittedThinkingBlocksCount;
-    const int totalBlocks = thinkingBlocks.size();
-
-    it->emittedThinkingBlocksCount = totalBlocks;
-
-    for (int i = alreadyEmitted; i < totalBlocks; ++i) {
-        auto *thinkingContent = thinkingBlocks[i];
-        if (thinkingContent->thinking().trimmed().isEmpty())
+    // Walks the blocks in wire order and announces each one once. Both thinking
+    // shapes go out the same way, and the "already announced" mark lives on the
+    // block, so a request that is torn down mid-loop cannot re-announce.
+    for (ContentBlock *block : message->getCurrentBlocks()) {
+        if (auto *thinking = dynamic_cast<ThinkingContent *>(block)) {
+            if (thinking->isNotified() || thinking->thinking().trimmed().isEmpty())
+                continue;
+            thinking->markNotified();
+            emit thinkingBlockReceived(id, thinking->thinking(), thinking->signature());
+        } else if (auto *redacted = dynamic_cast<RedactedThinkingContent *>(block)) {
+            if (redacted->isNotified())
+                continue;
+            redacted->markNotified();
+            emit thinkingBlockReceived(id, QString(), redacted->signature());
+        } else {
             continue;
-        emit thinkingBlockReceived(id, thinkingContent->thinking(), thinkingContent->signature());
-        if (!m_impl->requests.contains(id))
+        }
+
+        if (!hasRequest(id))
             return;
     }
 }
+
+void BaseClient::flushStreamBuffers(const RequestID &)
+{}
 
 void BaseClient::storeRequestContext(const RequestID &id, const QUrl &url, const QJsonObject &payload)
 {

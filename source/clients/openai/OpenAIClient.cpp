@@ -126,6 +126,13 @@ void OpenAIClient::dispatchStreamEvents(const RequestID &id, const QList<SSEEven
     }
 }
 
+void OpenAIClient::flushStreamBuffers(const RequestID &id)
+{
+    // Some servers -- llama.cpp among them -- close the stream without a
+    // trailing blank line, leaving the final event un-dispatched.
+    dispatchStreamEvents(id, requestSSEParser(id).flush());
+}
+
 void OpenAIClient::processStreamEvent(const RequestID &id, const QJsonObject &chunk)
 {
     if (chunk.contains("choices"))

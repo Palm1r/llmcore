@@ -144,7 +144,16 @@ void GoogleAIClient::processData(const RequestID &id, const QByteArray &data)
         return;
     }
 
-    const QList<SSEEvent> events = requestSSEParser(id).append(data);
+    dispatchStreamEvents(id, requestSSEParser(id).append(data));
+}
+
+void GoogleAIClient::flushStreamBuffers(const RequestID &id)
+{
+    dispatchStreamEvents(id, requestSSEParser(id).flush());
+}
+
+void GoogleAIClient::dispatchStreamEvents(const RequestID &id, const QList<SSEEvent> &events)
+{
     for (const SSEEvent &ev : events) {
         if (ev.data.isEmpty() || ev.data == "[DONE]")
             continue;
@@ -152,6 +161,8 @@ void GoogleAIClient::processData(const RequestID &id, const QByteArray &data)
         if (chunk.isEmpty())
             continue;
         processStreamChunk(id, chunk);
+        if (!hasRequest(id))
+            return;
     }
 }
 
@@ -169,6 +180,11 @@ void GoogleAIClient::onStreamFinished(const RequestID &id, std::optional<QString
         failRequest(id, failError);
         return;
     }
+
+    if (hasRequest(id))
+        flushStreamBuffers(id);
+    if (!hasRequest(id))
+        return;
 
     notifyPendingThinkingBlocks(id);
 

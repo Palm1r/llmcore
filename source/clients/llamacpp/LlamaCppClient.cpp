@@ -124,17 +124,6 @@ void LlamaCppClient::processStreamEvent(const RequestID &id, const QJsonObject &
     applyUsage(id, chunk);
 }
 
-void LlamaCppClient::onStreamFinished(const RequestID &id, std::optional<QString> error)
-{
-    if (!error && hasRequest(id)) {
-        // Some llama.cpp builds close the stream without a trailing
-        // blank line, leaving the final event un-dispatched. Force it.
-        dispatchStreamEvents(id, requestSSEParser(id).flush());
-    }
-
-    OpenAIClient::onStreamFinished(id, error);
-}
-
 void LlamaCppClient::processBufferedResponse(const RequestID &id, const QByteArray &data)
 {
     const QJsonDocument doc = QJsonDocument::fromJson(data);

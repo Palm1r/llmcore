@@ -40,7 +40,6 @@ public:
 protected:
     void processBufferedResponse(const RequestID &id, const QByteArray &data) override;
     void processStreamEvent(const RequestID &id, const QJsonObject &chunk) override;
-    void onStreamFinished(const RequestID &id, std::optional<QString> error) override;
     [[nodiscard]] const QLoggingCategory &logCategory() const override;
 
 private:
