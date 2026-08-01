@@ -20,4 +20,5 @@
 #include <LLMQore/McpRemoteTool.hpp>
 #include <LLMQore/McpServer.hpp>
 #include <LLMQore/McpStdioServerTransport.hpp>
+#include <LLMQore/McpToolBinder.hpp>
 #include <LLMQore/McpTypes.hpp>

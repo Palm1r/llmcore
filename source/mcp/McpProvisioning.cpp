@@ -6,7 +6,63 @@
 #include <LLMQore/Log.hpp>
 #include <LLMQore/RpcStdioTransport.hpp>
 
+#include <QJsonArray>
+
 namespace LLMQore::Mcp {
+
+ServerEndpoint ServerEndpoint::fromJson(const QString &name, const QJsonObject &entry)
+{
+    ServerEndpoint endpoint;
+    endpoint.name = name;
+
+    if (entry.contains(QLatin1String("url"))) {
+        endpoint.url = QUrl(entry.value(QLatin1String("url")).toString());
+        endpoint.httpSpec = entry.value(QLatin1String("spec")).toString();
+        if (entry.contains(QLatin1String("httpSpec"))) {
+            qCWarning(llmMcpLog).noquote() << QString(
+                "MCP server '%1': key 'httpSpec' is deprecated, use 'spec'").arg(name);
+            if (endpoint.httpSpec.isEmpty())
+                endpoint.httpSpec = entry.value(QLatin1String("httpSpec")).toString();
+        }
+        const QJsonObject headers = entry.value(QLatin1String("headers")).toObject();
+        for (auto it = headers.begin(); it != headers.end(); ++it)
+            endpoint.headers.insert(it.key(), it.value().toString());
+    } else {
+        endpoint.command = entry.value(QLatin1String("command")).toString();
+        const QJsonArray args = entry.value(QLatin1String("args")).toArray();
+        for (const QJsonValue &arg : args)
+            endpoint.arguments.append(arg.toString());
+        const QJsonObject envObj = entry.value(QLatin1String("env")).toObject();
+        for (auto it = envObj.begin(); it != envObj.end(); ++it)
+            endpoint.env.insert(it.key(), it.value().toString());
+        endpoint.workingDirectory = entry.value(QLatin1String("workingDirectory")).toString();
+    }
+
+    return endpoint;
+}
+
+QList<ServerEndpoint> parseServerMap(const QJsonObject &config)
+{
+    QList<ServerEndpoint> endpoints;
+    const QJsonObject servers = config.value(QLatin1String("mcpServers")).toObject();
+    for (auto it = servers.begin(); it != servers.end(); ++it) {
+        const QJsonObject entry = it.value().toObject();
+        if (!entry.value(QLatin1String("enable")).toBool(true)) {
+            qCInfo(llmMcpLog).noquote()
+                << QString("Skipping disabled MCP server '%1'").arg(it.key());
+            continue;
+        }
+        ServerEndpoint endpoint = ServerEndpoint::fromJson(it.key(), entry);
+        if (!endpoint.isValid()) {
+            qCWarning(llmMcpLog).noquote()
+                << QString("Skipping MCP server '%1': neither a valid url nor a command")
+                       .arg(it.key());
+            continue;
+        }
+        endpoints.append(std::move(endpoint));
+    }
+    return endpoints;
+}
 
 McpHttpSpec parseHttpSpec(const QString &spec)
 {

@@ -30,6 +30,7 @@ add_executable(LLMQoreUnitTests
     tst_McpLineFramer.cpp
     tst_McpTypes.cpp
     tst_McpLoopback.cpp
+    tst_McpToolBinder.cpp
     tst_AcpTypes.cpp
     tst_AcpLoopback.cpp
     tst_AcpProviders.cpp

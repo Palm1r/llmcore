@@ -22,6 +22,7 @@
 
 namespace LLMQore::Mcp {
 class McpClient;
+class McpToolBinder;
 struct ToolInfo;
 }
 
@@ -67,7 +68,6 @@ public:
     void loadMcpServers(const QJsonObject &config);
     void addMcpClient(Mcp::McpClient *client);
     void removeMcpClient(Mcp::McpClient *client);
-    void removeAllTools();
 
     QJsonArray getToolsDefinitions() const;
     QString displayName(const QString &toolName) const;
@@ -127,9 +127,7 @@ private:
     ExecutionGate m_executionGate;
     int m_toolExecutionDelayMs = 0;
 
-    void registerMcpTools(Mcp::McpClient *client);
-
-    QHash<Mcp::McpClient *, QStringList> m_mcpClientTools;
+    Mcp::McpToolBinder *m_binder = nullptr;
 };
 
 } // namespace LLMQore
