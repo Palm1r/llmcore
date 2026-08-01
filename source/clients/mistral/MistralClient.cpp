@@ -7,7 +7,7 @@
 #include <QJsonDocument>
 
 #include <LLMQore/FutureUtils.hpp>
-#include <LLMQore/HttpClient.hpp>
+#include <LLMQore/HttpTransport.hpp>
 #include <LLMQore/Log.hpp>
 
 namespace LLMQore {
@@ -19,6 +19,15 @@ MistralClient::MistralClient(QObject *parent)
 MistralClient::MistralClient(
     const QString &url, const QString &apiKey, const QString &model, QObject *parent)
     : OpenAIClient(url, apiKey, model, parent)
+{}
+
+MistralClient::MistralClient(
+    const QString &url,
+    const QString &apiKey,
+    const QString &model,
+    HttpTransport *transport,
+    QObject *parent)
+    : OpenAIClient(url, apiKey, model, transport, parent)
 {}
 
 RequestID MistralClient::sendMessage(
@@ -49,7 +58,7 @@ QFuture<QList<QString>> MistralClient::listModels(const QString &endpoint)
     QUrl url(m_url + resolved);
     QNetworkRequest request = prepareNetworkRequest(url);
 
-    return LLMQore::compat(httpClient()->send(request, QByteArrayView("GET")))
+    return LLMQore::compat(transport()->send(request, QByteArrayView("GET")))
         .then(this, [](const HttpResponse &response) {
             QList<QString> models;
             if (!response.isSuccess())

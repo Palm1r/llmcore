@@ -49,6 +49,13 @@ struct IsQFuture<QFuture<T>> : std::true_type {};
 template<typename T>
 T futureResultOrRethrow(const QFuture<T> &future)
 {
+    if (future.resultCount() == 0) {
+        QFuture<T> finished = future;
+        finished.waitForFinished();
+        throw HttpTransportError(
+            QStringLiteral("Request cancelled before completion"),
+            QNetworkReply::OperationCanceledError);
+    }
     return future.result();
 }
 

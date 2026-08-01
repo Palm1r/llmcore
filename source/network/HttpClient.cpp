@@ -53,11 +53,10 @@ QNetworkReply *dispatchVerb(
 struct HttpClient::Impl
 {
     QNetworkAccessManager *manager = nullptr;
-    int transferTimeoutMs = HttpClient::DefaultTransferTimeoutMs;
 };
 
 HttpClient::HttpClient(QObject *parent)
-    : QObject(parent)
+    : HttpTransport(parent)
     , m_impl(std::make_unique<Impl>())
 {
     m_impl->manager = new QNetworkAccessManager(this);
@@ -72,7 +71,7 @@ QFuture<HttpResponse> HttpClient::send(
     promise->start();
 
     QNetworkRequest req(request);
-    req.setTransferTimeout(m_impl->transferTimeoutMs);
+    req.setTransferTimeout(transferTimeoutMs());
 
     QNetworkReply *reply = dispatchVerb(m_impl->manager, req, verb, body);
 
@@ -119,7 +118,7 @@ HttpStream *HttpClient::openStream(
     const QNetworkRequest &request, QByteArrayView verb, const QByteArray &body)
 {
     QNetworkRequest req(request);
-    req.setTransferTimeout(m_impl->transferTimeoutMs);
+    req.setTransferTimeout(transferTimeoutMs());
 
     QNetworkReply *reply = dispatchVerb(m_impl->manager, req, verb, body);
     return new HttpStream(reply);
@@ -130,19 +129,9 @@ void HttpClient::setProxy(const QNetworkProxy &proxy)
     m_impl->manager->setProxy(proxy);
 }
 
-void HttpClient::setTransferTimeout(int milliseconds)
-{
-    m_impl->transferTimeoutMs = milliseconds;
-}
-
 void HttpClient::setTransferTimeout(std::chrono::milliseconds timeout)
 {
-    m_impl->transferTimeoutMs = static_cast<int>(timeout.count());
-}
-
-int HttpClient::transferTimeoutMs() const noexcept
-{
-    return m_impl->transferTimeoutMs;
+    setTransferTimeout(static_cast<int>(timeout.count()));
 }
 
 } // namespace LLMQore

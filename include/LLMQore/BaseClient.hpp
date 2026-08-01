@@ -9,10 +9,12 @@
 
 #include <QFuture>
 #include <QHash>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QMetaType>
 #include <QNetworkRequest>
 #include <QObject>
+#include <QPointer>
 #include <QString>
 #include <QUrl>
 
@@ -28,12 +30,21 @@
 
 namespace LLMQore {
 
-class HttpClient;
-class HttpStream;
+class HttpStreamHandle;
+class HttpTransport;
 class ToolLoopRunner;
 class ToolsManager;
 
 using RequestID = QString;
+
+struct LLMQORE_EXPORT AuthScheme
+{
+    enum class Placement { Header, QueryParam, None };
+
+    Placement placement = Placement::Header;
+    QString name;
+    QString valuePrefix;
+};
 
 struct LLMQORE_EXPORT TokenUsage
 {
@@ -70,7 +81,7 @@ struct DataBuffers
 
 struct ActiveRequest
 {
-    HttpStream *stream = nullptr;
+    QPointer<HttpStreamHandle> stream;
 
     bool errorMode = false;
     QByteArray errorBody = {};
@@ -93,6 +104,12 @@ public:
     explicit BaseClient(QObject *parent = nullptr);
     explicit BaseClient(
         const QString &url, const QString &apiKey, const QString &model, QObject *parent = nullptr);
+    explicit BaseClient(
+        const QString &url,
+        const QString &apiKey,
+        const QString &model,
+        HttpTransport *transport,
+        QObject *parent = nullptr);
     ~BaseClient() override;
 
     virtual RequestID sendMessage(
@@ -114,6 +131,13 @@ public:
 
     QString model() const;
     void setModel(const QString &model);
+
+    AuthScheme authScheme() const;
+    void setAuthScheme(const AuthScheme &scheme);
+
+    QHash<QString, QString> headers() const;
+    void setHeader(const QString &name, const QString &value);
+    void setHeaders(const QHash<QString, QString> &headers);
 
     ToolsManager *tools();
     bool hasTools() const noexcept;
@@ -155,7 +179,6 @@ protected:
 
     virtual void processData(const RequestID &id, const QByteArray &data) = 0;
     virtual void processBufferedResponse(const RequestID &id, const QByteArray &data) = 0;
-    virtual QNetworkRequest prepareNetworkRequest(const QUrl &url) const = 0;
     virtual BaseMessage *messageForRequest(const RequestID &id) const = 0;
     virtual void cleanupDerivedData(const RequestID &id) = 0;
     virtual QJsonObject buildContinuationPayload(
@@ -166,9 +189,15 @@ protected:
 
     [[nodiscard]] virtual QString parseHttpError(const HttpResponse &response) const;
 
+    [[nodiscard]] static QJsonObject appendChatMessagesContinuation(
+        const QJsonObject &originalPayload,
+        const QJsonObject &assistantMessage,
+        const QJsonArray &toolMessages);
+
     virtual void onStreamFinished(const RequestID &id, std::optional<QString> error);
 
-    HttpClient *httpClient() const;
+    [[nodiscard]] HttpTransport *transport() const;
+    [[nodiscard]] QNetworkRequest prepareNetworkRequest(const QUrl &url) const;
     [[nodiscard]] RequestID createRequest();
     void sendRequest(
         const RequestID &id,
@@ -210,7 +239,9 @@ private:
         const QJsonObject &payload,
         RequestMode mode);
 
-    HttpClient *m_httpClient;
+    HttpTransport *m_transport;
+    AuthScheme m_authScheme;
+    QHash<QString, QString> m_headers;
     ToolsManager *m_toolsManager = nullptr;
     ToolLoopRunner *m_toolLoop = nullptr;
     QHash<RequestID, ActiveRequest> m_requests;

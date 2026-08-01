@@ -3,14 +3,28 @@
 
 #include <LLMQore/LineBuffer.hpp>
 
+#include <LLMQore/Log.hpp>
+
 namespace LLMQore {
 
-QStringList LineBuffer::processData(const QByteArray &data)
+QByteArrayList LineBuffer::processData(const QByteArray &data)
 {
-    m_buffer += QString::fromUtf8(data);
+    m_buffer += data;
 
-    QStringList lines = m_buffer.split('\n');
-    m_buffer = lines.takeLast();
+    QByteArrayList lines;
+    qsizetype start = 0;
+    for (qsizetype i = m_buffer.indexOf('\n'); i >= 0; i = m_buffer.indexOf('\n', start)) {
+        lines.append(m_buffer.mid(start, i - start));
+        start = i + 1;
+    }
+    m_buffer.remove(0, start);
+
+    if (m_maxBufferBytes > 0 && m_buffer.size() > m_maxBufferBytes) {
+        qCWarning(llmNetworkLog).noquote()
+            << QString("Line buffer exceeded %1 bytes with no line terminator; dropping")
+                   .arg(m_maxBufferBytes);
+        m_buffer.clear();
+    }
 
     return lines;
 }
@@ -20,7 +34,7 @@ void LineBuffer::clear()
     m_buffer.clear();
 }
 
-QString LineBuffer::currentBuffer() const
+QByteArray LineBuffer::currentBuffer() const
 {
     return m_buffer;
 }

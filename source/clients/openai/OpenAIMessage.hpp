@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <QJsonValue>
+
 #include <LLMQore/BaseMessage.hpp>
 #include <LLMQore/ToolResult.hpp>
 
@@ -12,11 +14,20 @@ class LLMQORE_EXPORT OpenAIMessage : public BaseMessage
 {
     Q_OBJECT
 public:
+    struct ContentParts
+    {
+        QString thinking;
+        QString text;
+    };
+
+    // Splits an OpenAI-compatible "content" value into reasoning and answer text.
+    // A plain string is answer text; Mistral Magistral sends an array of typed chunks.
+    [[nodiscard]] static ContentParts splitContentParts(const QJsonValue &content);
+
     explicit OpenAIMessage(QObject *parent = nullptr);
 
     void handleContentDelta(const QString &content);
     void handleReasoningDelta(const QString &reasoning);
-    QString currentThinking() const;
     void handleToolCallStart(int index, const QString &id, const QString &name);
     void handleToolCallDelta(int index, const QString &argumentsDelta);
     void handleToolCallComplete(int index);

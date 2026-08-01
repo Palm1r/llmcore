@@ -370,10 +370,6 @@ protected:
     }
     void processData(const RequestID &, const QByteArray &) override {}
     void processBufferedResponse(const RequestID &, const QByteArray &) override {}
-    QNetworkRequest prepareNetworkRequest(const QUrl &url) const override
-    {
-        return QNetworkRequest(url);
-    }
     BaseMessage *messageForRequest(const RequestID &) const override { return nullptr; }
     void cleanupDerivedData(const RequestID &) override {}
     QJsonObject buildContinuationPayload(

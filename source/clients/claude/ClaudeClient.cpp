@@ -9,7 +9,7 @@
 
 #include "ClaudeMessage.hpp"
 #include <LLMQore/FutureUtils.hpp>
-#include <LLMQore/HttpClient.hpp>
+#include <LLMQore/HttpTransport.hpp>
 #include <LLMQore/Log.hpp>
 #include <LLMQore/SSEParser.hpp>
 
@@ -21,32 +21,21 @@ ClaudeClient::ClaudeClient(QObject *parent)
 
 ClaudeClient::ClaudeClient(
     const QString &url, const QString &apiKey, const QString &model, QObject *parent)
-    : BaseClient(url, apiKey, model, parent)
+    : ClaudeClient(url, apiKey, model, nullptr, parent)
 {}
 
-QNetworkRequest ClaudeClient::prepareNetworkRequest(const QUrl &url) const
+ClaudeClient::ClaudeClient(
+    const QString &url,
+    const QString &apiKey,
+    const QString &model,
+    HttpTransport *transport,
+    QObject *parent)
+    : BaseClient(url, apiKey, model, transport, parent)
 {
-    QNetworkRequest request(url);
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-    request.setRawHeader("anthropic-version", "2023-06-01");
-    if (m_useExtendedCacheTTL)
-        request.setRawHeader("anthropic-beta", "extended-cache-ttl-2025-04-11");
-
-    QString key = m_apiKey;
-    if (!key.isEmpty())
-        request.setRawHeader("x-api-key", key.toUtf8());
-
-    return request;
-}
-
-void ClaudeClient::setUseExtendedCacheTTL(bool enabled)
-{
-    m_useExtendedCacheTTL = enabled;
-}
-
-bool ClaudeClient::useExtendedCacheTTL() const noexcept
-{
-    return m_useExtendedCacheTTL;
+    setAuthScheme({.placement = AuthScheme::Placement::Header, .name = QStringLiteral("x-api-key")});
+    setHeaders(
+        {{QStringLiteral("Content-Type"), QStringLiteral("application/json")},
+         {QStringLiteral("anthropic-version"), QStringLiteral("2023-06-01")}});
 }
 
 RequestID ClaudeClient::sendMessage(
@@ -84,7 +73,7 @@ QFuture<QList<QString>> ClaudeClient::listModels(const QString &endpoint)
 
     QNetworkRequest request = prepareNetworkRequest(url);
 
-    return LLMQore::compat(httpClient()->send(request, QByteArrayView("GET")))
+    return LLMQore::compat(transport()->send(request, QByteArrayView("GET")))
         .then(this, [](const HttpResponse &response) {
             QList<QString> models;
             if (!response.isSuccess()) {
@@ -121,10 +110,8 @@ QString ClaudeClient::parseHttpError(const HttpResponse &response) const
         if (!message.isEmpty()) {
             if (!type.isEmpty())
                 return QString("HTTP %1: %2 (%3)")
-                    .arg(response.statusCode)
-                    .arg(message)
-                    .arg(type);
-            return QString("HTTP %1: %2").arg(response.statusCode).arg(message);
+                    .arg(QString::number(response.statusCode), message, type);
+            return QString("HTTP %1: %2").arg(QString::number(response.statusCode), message);
         }
     }
     return BaseClient::parseHttpError(response);
@@ -253,10 +240,7 @@ void ClaudeClient::processStreamEvent(const RequestID &id, const QJsonObject &ev
         }
         const QJsonObject usage = event.value("usage").toObject();
         if (!usage.isEmpty()) {
-            const auto prior = currentUsage(id);
-            if (!prior)
-                return;
-            TokenUsage u = *prior;
+            TokenUsage u = currentUsage(id).value_or(TokenUsage{});
             if (usage.contains("output_tokens"))
                 u.completionTokens = usage.value("output_tokens").toInt();
             if (usage.contains("input_tokens"))

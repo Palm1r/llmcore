@@ -22,6 +22,12 @@ public:
     explicit GoogleAIClient(QObject *parent = nullptr);
     explicit GoogleAIClient(
         const QString &url, const QString &apiKey, const QString &model, QObject *parent = nullptr);
+    explicit GoogleAIClient(
+        const QString &url,
+        const QString &apiKey,
+        const QString &model,
+        HttpTransport *transport,
+        QObject *parent = nullptr);
 
     RequestID sendMessage(
         const QJsonObject &payload,
@@ -34,7 +40,6 @@ public:
     QFuture<QList<QString>> listModels(const QString &endpoint = {}) override;
 
 protected:
-    QNetworkRequest prepareNetworkRequest(const QUrl &url) const override;
     void processData(const RequestID &id, const QByteArray &data) override;
     void processBufferedResponse(const RequestID &id, const QByteArray &data) override;
     void onStreamFinished(const RequestID &id, std::optional<QString> error) override;

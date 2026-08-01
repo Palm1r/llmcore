@@ -1,11 +1,14 @@
 # Networking layer
 
-Sits between provider clients and `QNetworkAccessManager`. Two goals:
+Sits between provider clients and `QNetworkAccessManager`. Three goals:
 
-1. Two shapes: buffered `HttpResponse` (one-shot) and streaming `HttpStream` (SSE).
+1. Two shapes: buffered `HttpResponse` (one-shot) and streaming `HttpStreamHandle` (SSE).
 2. Transport errors (`HttpTransportError`) vs HTTP status codes (`HttpResponse`) kept separate.
+3. The two shapes are an interface (`HttpTransport`), not a class, so anything above it can be driven without a socket.
 
 LLM-agnostic -- knows nothing about JSON, SSE events, MCP. Also backs `McpHttpTransport`.
+
+Authentication and request headers are not part of this layer: a fully-formed `QNetworkRequest` arrives here. `BaseClient` builds it from its own `AuthScheme` and header map (see [BaseClient contract](clients/base-client.md)); `McpHttpTransport` carries its own header map. The transport just sends what it is handed.
 
 ```mermaid
 flowchart TD
@@ -13,13 +16,13 @@ flowchart TD
         C1["provider BaseClient subclass<br/>(or McpHttpTransport, ...)"]
     end
 
-    subgraph Api["HttpClient API"]
+    subgraph Api["HttpTransport interface"]
         H1["Buffered request<br/>returns HttpResponse future"]
-        H2["Streaming request<br/>returns HttpStream handle"]
+        H2["Streaming request<br/>returns HttpStreamHandle"]
     end
 
     subgraph Stream["Streaming reply"]
-        S1["HttpStream"]
+        S1["HttpStreamHandle<br/><small>HttpStream over QNetworkReply</small>"]
         S2["headersReceived"]
         S3["chunkReceived(bytes)"]
         S4["finished"]
@@ -53,21 +56,31 @@ flowchart TD
 
 ---
 
+## HttpTransport
+
+The abstract seam every request passes through. It declares exactly what the layer above needs: a **buffered** send returning a future of `HttpResponse`, a **streaming** `openStream` returning an `HttpStreamHandle`, and the transfer timeout. Nothing else -- proxies, network managers, and reply objects belong to implementations.
+
+`BaseClient` takes an `HttpTransport *` as an optional constructor argument (every provider client forwards it). A null transport means "create a private `HttpClient`"; a supplied transport stays owned by the caller. That is the only injection point -- there is no setter, so the transport cannot change under an in-flight request.
+
+Tests use it to drive provider clients end to end without a socket: `tests/FakeHttpTransport.hpp` records the outgoing `QNetworkRequest` and body, and hands back a stream the test writes arbitrary bytes, statuses, and terminal events into.
+
+---
+
 ## HttpClient
 
-Wraps one `QNetworkAccessManager`. Must be used from the owning thread.
+The production `HttpTransport`. Wraps one `QNetworkAccessManager`. Must be used from the owning thread.
 
-`HttpClient` provides two modes of operation. The **buffered** mode returns a future that resolves to an `HttpResponse` containing the status code, headers, and body. Any HTTP status (including 4xx/5xx) produces a valid response; only transport-level failures (DNS, timeout, SSL, abort, connection refused) propagate as exceptions. This mode is used for model listing, MCP HTTP transports, and non-streamed endpoints. The **streaming** mode returns a live `HttpStream` handle (caller takes ownership) used for all streamed LLM requests and HTTP MCP client transport.
+The **buffered** mode returns a future that resolves to an `HttpResponse` containing the status code, headers, and body. Any HTTP status (including 4xx/5xx) produces a valid response; only transport-level failures (DNS, timeout, SSL, abort, connection refused) propagate as exceptions. This mode is used for model listing, MCP HTTP transports, and non-streamed endpoints. The **streaming** mode returns a live `HttpStream` (caller takes ownership) used for all streamed LLM requests and HTTP MCP client transport.
 
 Additional configuration includes proxy settings (forwarded to the underlying network manager) and a transfer timeout (default 120 seconds, can be disabled).
 
 ---
 
-## HttpStream
+## HttpStreamHandle / HttpStream
 
-`HttpStream` represents a long-lived streaming HTTP reply. It emits a sequence of signals: headers-received (after which the status code and headers are accessible), zero or more chunk-received events carrying raw bytes, and exactly one terminal event -- either a clean finish or a transport error. After an abort, neither terminal event fires.
+`HttpStreamHandle` is the streaming reply contract: status code and raw headers, an abort, and a fixed signal sequence -- headers-received (after which status and headers are readable), zero or more chunk-received events carrying raw bytes, and exactly one terminal event, either a clean finish or a transport error. After an abort, neither terminal event fires.
 
-Status code, raw headers, content type, and completion state are accessible once headers have arrived.
+`HttpStream` is the `QNetworkReply`-backed implementation, and additionally exposes content type, single-header lookup, and completion state.
 
 ---
 
@@ -81,7 +94,9 @@ Used by all providers except Ollama.
 
 ## LineBuffer
 
-Newline-framed buffer for Ollama's JSON-lines protocol. Accepts byte chunks and returns complete lines, holding any incomplete trailing bytes across calls. Intentionally separate from `SSEParser` by design.
+Newline-framed buffer for Ollama's JSON-lines protocol. Accepts byte chunks and returns complete lines as `QByteArray`, holding any incomplete trailing bytes across calls. Intentionally separate from `SSEParser` by design.
+
+Framing happens on bytes, never on decoded text. Both framers buffer `QByteArray` and hand raw bytes to the JSON parser, so a multi-byte UTF-8 sequence split across two network reads survives; decoding a partial chunk first would replace the split character with U+FFFD and lose it permanently.
 
 ---
 

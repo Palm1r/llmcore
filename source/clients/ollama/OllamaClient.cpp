@@ -8,7 +8,7 @@
 
 #include "OllamaMessage.hpp"
 #include <LLMQore/FutureUtils.hpp>
-#include <LLMQore/HttpClient.hpp>
+#include <LLMQore/HttpTransport.hpp>
 #include <LLMQore/LineBuffer.hpp>
 #include <LLMQore/Log.hpp>
 
@@ -20,18 +20,22 @@ OllamaClient::OllamaClient(QObject *parent)
 
 OllamaClient::OllamaClient(
     const QString &url, const QString &apiKey, const QString &model, QObject *parent)
-    : BaseClient(url, apiKey, model, parent)
+    : OllamaClient(url, apiKey, model, nullptr, parent)
 {}
 
-QNetworkRequest OllamaClient::prepareNetworkRequest(const QUrl &url) const
+OllamaClient::OllamaClient(
+    const QString &url,
+    const QString &apiKey,
+    const QString &model,
+    HttpTransport *transport,
+    QObject *parent)
+    : BaseClient(url, apiKey, model, transport, parent)
 {
-    QNetworkRequest request(url);
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-
-    QString key = m_apiKey;
-    if (!key.isEmpty())
-        request.setRawHeader("Authorization", ("Bearer " + key).toUtf8());
-    return request;
+    setAuthScheme(
+        {.placement = AuthScheme::Placement::Header,
+         .name = QStringLiteral("Authorization"),
+         .valuePrefix = QStringLiteral("Bearer ")});
+    setHeaders({{QStringLiteral("Content-Type"), QStringLiteral("application/json")}});
 }
 
 RequestID OllamaClient::sendMessage(
@@ -64,7 +68,7 @@ QFuture<QList<QString>> OllamaClient::listModels(const QString &endpoint)
     QUrl url(m_url + resolved);
     QNetworkRequest request = prepareNetworkRequest(url);
 
-    return LLMQore::compat(httpClient()->send(request, QByteArrayView("GET")))
+    return LLMQore::compat(transport()->send(request, QByteArrayView("GET")))
         .then(this, [](const HttpResponse &response) {
             QList<QString> models;
             if (!response.isSuccess()) {
@@ -106,15 +110,15 @@ void OllamaClient::processData(const RequestID &id, const QByteArray &data)
     if (!hasRequest(id))
         return;
 
-    QStringList lines = requestLineBuffer(id).processData(data);
+    const QByteArrayList lines = requestLineBuffer(id).processData(data);
 
-    for (const QString &line : lines) {
+    for (const QByteArray &line : lines) {
         if (line.trimmed().isEmpty())
             continue;
 
         QJsonParseError error;
-        QJsonDocument doc = QJsonDocument::fromJson(line.toUtf8(), &error);
-        if (doc.isNull()) {
+        QJsonDocument doc = QJsonDocument::fromJson(line, &error);
+        if (doc.isNull() || !doc.isObject()) {
             qCDebug(llmOllamaLog).noquote()
                 << QString("Failed to parse JSON: %1").arg(error.errorString());
             continue;
@@ -143,8 +147,6 @@ void OllamaClient::cleanupDerivedData(const RequestID &id)
 {
     if (auto *msg = m_messages.take(id))
         msg->deleteLater();
-
-    m_thinkingEmitted.remove(id);
 }
 
 QJsonObject OllamaClient::buildContinuationPayload(
@@ -156,17 +158,10 @@ QJsonObject OllamaClient::buildContinuationPayload(
     if (!ollamaMsg)
         return originalPayload;
 
-    QJsonObject request = originalPayload;
-    QJsonArray messages = request["messages"].toArray();
-
-    messages.append(ollamaMsg->toProviderFormat());
-
-    QJsonArray toolResultMessages = ollamaMsg->createToolResultMessages(toolResults);
-    for (const auto &toolMsg : toolResultMessages)
-        messages.append(toolMsg);
-
-    request["messages"] = messages;
-    return request;
+    return appendChatMessagesContinuation(
+        originalPayload,
+        ollamaMsg->toProviderFormat(),
+        ollamaMsg->createToolResultMessages(toolResults));
 }
 
 void OllamaClient::onStreamFinished(const RequestID &id, std::optional<QString> error)
@@ -174,12 +169,12 @@ void OllamaClient::onStreamFinished(const RequestID &id, std::optional<QString> 
     if (!error && hasRequest(id)) {
         LineBuffer &buffer = requestLineBuffer(id);
         if (buffer.hasIncompleteData()) {
-            QString remaining = buffer.currentBuffer().trimmed();
+            const QByteArray remaining = buffer.currentBuffer().trimmed();
             buffer.clear();
 
             if (!remaining.isEmpty()) {
                 QJsonParseError parseError;
-                QJsonDocument doc = QJsonDocument::fromJson(remaining.toUtf8(), &parseError);
+                QJsonDocument doc = QJsonDocument::fromJson(remaining, &parseError);
                 if (!doc.isNull() && doc.isObject()) {
                     QJsonObject obj = doc.object();
                     if (obj.contains("error") && !obj["error"].toString().isEmpty()) {
@@ -208,7 +203,6 @@ void OllamaClient::processStreamData(const RequestID &id, const QJsonObject &dat
         qCDebug(llmOllamaLog).noquote() << QString("Created OllamaMessage for request %1").arg(id);
     } else if (message->state() == MessageState::RequiresToolExecution) {
         message->startNewContinuation();
-        m_thinkingEmitted.remove(id);
         qCDebug(llmOllamaLog).noquote() << QString("Starting continuation for request %1").arg(id);
     }
 
@@ -230,7 +224,7 @@ void OllamaClient::processStreamData(const RequestID &id, const QJsonObject &dat
         if (messageObj.contains("content")) {
             QString content = messageObj["content"].toString();
             if (!content.isEmpty()) {
-                notifyThinkingBlocks(id, message);
+                notifyPendingThinkingBlocks(id);
                 message->handleContentDelta(content);
                 if (!message->isAccumulatingToolCall())
                     addChunk(id, content);
@@ -264,28 +258,9 @@ void OllamaClient::processStreamData(const RequestID &id, const QJsonObject &dat
             setUsage(id, u);
         }
 
-        notifyThinkingBlocks(id, message);
+        notifyPendingThinkingBlocks(id);
         executeToolsFromMessage(id);
     }
-}
-
-void OllamaClient::notifyThinkingBlocks(const RequestID &id, OllamaMessage *message)
-{
-    if (!message || m_thinkingEmitted.contains(id))
-        return;
-
-    auto thinkingBlocks = message->getCurrentThinkingContent();
-    if (thinkingBlocks.isEmpty())
-        return;
-
-    for (auto *thinkingContent : thinkingBlocks) {
-        if (!thinkingContent->thinking().trimmed().isEmpty()) {
-            emit thinkingBlockReceived(
-                id, thinkingContent->thinking(), thinkingContent->signature());
-        }
-    }
-
-    m_thinkingEmitted.insert(id);
 }
 
 void OllamaClient::processBufferedResponse(const RequestID &id, const QByteArray &data)

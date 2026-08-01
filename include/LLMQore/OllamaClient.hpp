@@ -6,7 +6,6 @@
 #include <QFuture>
 #include <QHash>
 #include <QJsonObject>
-#include <QSet>
 #include <QUrl>
 
 #include <LLMQore/BaseClient.hpp>
@@ -22,6 +21,12 @@ public:
     explicit OllamaClient(QObject *parent = nullptr);
     explicit OllamaClient(
         const QString &url, const QString &apiKey, const QString &model, QObject *parent = nullptr);
+    explicit OllamaClient(
+        const QString &url,
+        const QString &apiKey,
+        const QString &model,
+        HttpTransport *transport,
+        QObject *parent = nullptr);
 
     RequestID sendMessage(
         const QJsonObject &payload,
@@ -34,7 +39,6 @@ public:
     QFuture<QList<QString>> listModels(const QString &endpoint = {}) override;
 
 protected:
-    QNetworkRequest prepareNetworkRequest(const QUrl &url) const override;
     void processData(const RequestID &id, const QByteArray &data) override;
     void processBufferedResponse(const RequestID &id, const QByteArray &data) override;
     void onStreamFinished(const RequestID &id, std::optional<QString> error) override;
@@ -48,10 +52,8 @@ protected:
 
 private:
     void processStreamData(const RequestID &id, const QJsonObject &data);
-    void notifyThinkingBlocks(const RequestID &id, OllamaMessage *message);
 
     QHash<RequestID, OllamaMessage *> m_messages;
-    QSet<RequestID> m_thinkingEmitted;
 };
 
 } // namespace LLMQore

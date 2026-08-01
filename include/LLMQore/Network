@@ -4,6 +4,10 @@
 #pragma once
 
 #include <LLMQore/HttpClient.hpp>
+#include <LLMQore/HttpResponse.hpp>
+#include <LLMQore/HttpStream.hpp>
+#include <LLMQore/HttpTransport.hpp>
+#include <LLMQore/HttpTransportError.hpp>
+#include <LLMQore/LineBuffer.hpp>
 #include <LLMQore/RequestMode.hpp>
-#include <LLMQore/SSEBuffer.hpp>
-#include <LLMQore/SSEUtils.hpp>
+#include <LLMQore/SSEParser.hpp>

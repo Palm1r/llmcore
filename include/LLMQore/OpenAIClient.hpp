@@ -21,6 +21,12 @@ public:
     explicit OpenAIClient(QObject *parent = nullptr);
     explicit OpenAIClient(
         const QString &url, const QString &apiKey, const QString &model, QObject *parent = nullptr);
+    explicit OpenAIClient(
+        const QString &url,
+        const QString &apiKey,
+        const QString &model,
+        HttpTransport *transport,
+        QObject *parent = nullptr);
 
     RequestID sendMessage(
         const QJsonObject &payload,
@@ -33,7 +39,6 @@ public:
     QFuture<QList<QString>> listModels(const QString &endpoint = {}) override;
 
 protected:
-    QNetworkRequest prepareNetworkRequest(const QUrl &url) const override;
     void processData(const RequestID &id, const QByteArray &data) override;
     void processBufferedResponse(const RequestID &id, const QByteArray &data) override;
     BaseMessage *messageForRequest(const RequestID &id) const override;
@@ -46,7 +51,6 @@ protected:
 
 private:
     void processStreamChunk(const RequestID &id, const QJsonObject &chunk);
-    void emitReasoning(const RequestID &id, OpenAIMessage *message, const QString &reasoning);
 
     QHash<RequestID, OpenAIMessage *> m_messages;
 };

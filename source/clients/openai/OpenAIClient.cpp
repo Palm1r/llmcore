@@ -8,8 +8,9 @@
 #include <QJsonValue>
 
 #include "OpenAIMessage.hpp"
+#include "OpenAIUsage.hpp"
 #include <LLMQore/FutureUtils.hpp>
-#include <LLMQore/HttpClient.hpp>
+#include <LLMQore/HttpTransport.hpp>
 #include <LLMQore/Log.hpp>
 #include <LLMQore/SSEParser.hpp>
 
@@ -21,19 +22,22 @@ OpenAIClient::OpenAIClient(QObject *parent)
 
 OpenAIClient::OpenAIClient(
     const QString &url, const QString &apiKey, const QString &model, QObject *parent)
-    : BaseClient(url, apiKey, model, parent)
+    : OpenAIClient(url, apiKey, model, nullptr, parent)
 {}
 
-QNetworkRequest OpenAIClient::prepareNetworkRequest(const QUrl &url) const
+OpenAIClient::OpenAIClient(
+    const QString &url,
+    const QString &apiKey,
+    const QString &model,
+    HttpTransport *transport,
+    QObject *parent)
+    : BaseClient(url, apiKey, model, transport, parent)
 {
-    QNetworkRequest request(url);
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-
-    QString key = m_apiKey;
-    if (!key.isEmpty())
-        request.setRawHeader("Authorization", ("Bearer " + key).toUtf8());
-
-    return request;
+    setAuthScheme(
+        {.placement = AuthScheme::Placement::Header,
+         .name = QStringLiteral("Authorization"),
+         .valuePrefix = QStringLiteral("Bearer ")});
+    setHeaders({{QStringLiteral("Content-Type"), QStringLiteral("application/json")}});
 }
 
 RequestID OpenAIClient::sendMessage(
@@ -72,7 +76,7 @@ QFuture<QList<QString>> OpenAIClient::listModels(const QString &endpoint)
     QUrl url(m_url + resolved);
     QNetworkRequest request = prepareNetworkRequest(url);
 
-    return LLMQore::compat(httpClient()->send(request, QByteArrayView("GET")))
+    return LLMQore::compat(transport()->send(request, QByteArrayView("GET")))
         .then(this, [](const HttpResponse &response) {
             QList<QString> models;
             if (!response.isSuccess()) {
@@ -134,16 +138,8 @@ void OpenAIClient::processData(const RequestID &id, const QByteArray &data)
             processStreamChunk(id, chunk);
 
         const QJsonObject usage = chunk.value("usage").toObject();
-        if (!usage.isEmpty()) {
-            TokenUsage u;
-            u.promptTokens = usage.value("prompt_tokens").toInt();
-            u.completionTokens = usage.value("completion_tokens").toInt();
-            const QJsonObject ptd = usage.value("prompt_tokens_details").toObject();
-            u.cachedPromptTokens = ptd.value("cached_tokens").toInt();
-            const QJsonObject ctd = usage.value("completion_tokens_details").toObject();
-            u.reasoningTokens = ctd.value("reasoning_tokens").toInt();
-            setUsage(id, u);
-        }
+        if (!usage.isEmpty())
+            setUsage(id, parseOpenAIUsage(usage));
     }
 }
 
@@ -167,63 +163,11 @@ QJsonObject OpenAIClient::buildContinuationPayload(
     if (!openaiMsg)
         return originalPayload;
 
-    QJsonObject request = originalPayload;
-    QJsonArray messages = request["messages"].toArray();
-
-    messages.append(openaiMsg->toProviderFormat());
-
-    QJsonArray toolResultMessages = openaiMsg->createToolResultMessages(toolResults);
-    for (const auto &toolMsg : toolResultMessages)
-        messages.append(toolMsg);
-
-    request["messages"] = messages;
-    return request;
+    return appendChatMessagesContinuation(
+        originalPayload,
+        openaiMsg->toProviderFormat(),
+        openaiMsg->createToolResultMessages(toolResults));
 }
-
-namespace {
-
-void extractContentParts(const QJsonValue &content, QString *thinkingOut, QString *textOut)
-{
-    // Standard OpenAI-compatible providers (OpenAI, DeepSeek, etc.): "content" is a plain string
-    if (content.isString()) {
-        *textOut += content.toString();
-        return;
-    }
-    if (!content.isArray())
-        return;
-    // Mistral Magistral: "content" is an array of typed chunks (thinking + text)
-    const QJsonArray parts = content.toArray();
-    for (const auto &partVal : parts) {
-        const QJsonObject part = partVal.toObject();
-        const QString type = part.value("type").toString();
-        if (type == QLatin1String("text")) {
-            // Magistral final answer chunk
-            *textOut += part.value("text").toString();
-        } else if (type == QLatin1String("thinking")) {
-            // Magistral reasoning chunk: "thinking" is a string, an array of
-            // {type:"text", text:...} chunks, or (SDK-normalized) a flat "text" field
-            const QJsonValue th = part.value("thinking");
-            if (th.isString()) {
-                *thinkingOut += th.toString();
-            } else if (th.isArray()) {
-                const QJsonArray thArr = th.toArray();
-                for (const auto &tv : thArr) {
-                    if (tv.isString()) {
-                        *thinkingOut += tv.toString();
-                    } else {
-                        const QJsonObject thObj = tv.toObject();
-                        if (thObj.value("type").toString() == QLatin1String("text"))
-                            *thinkingOut += thObj.value("text").toString();
-                    }
-                }
-            } else {
-                *thinkingOut += part.value("text").toString();
-            }
-        }
-    }
-}
-
-} // namespace
 
 void OpenAIClient::processStreamChunk(const RequestID &id, const QJsonObject &chunk)
 {
@@ -247,17 +191,18 @@ void OpenAIClient::processStreamChunk(const RequestID &id, const QJsonObject &ch
 
     // DeepSeek-style reasoning: dedicated "reasoning_content" field
     if (delta.contains("reasoning_content") && !delta["reasoning_content"].isNull())
-        emitReasoning(id, message, delta["reasoning_content"].toString());
+        message->handleReasoningDelta(delta["reasoning_content"].toString());
 
     // Standard text (string) or Mistral Magistral thinking+text chunks (array)
     if (delta.contains("content") && !delta["content"].isNull()) {
-        QString thinking, text;
-        extractContentParts(delta["content"], &thinking, &text);
-        if (!thinking.isEmpty())
-            emitReasoning(id, message, thinking);
-        if (!text.isEmpty()) {
-            message->handleContentDelta(text);
-            addChunk(id, text);
+        const OpenAIMessage::ContentParts parts
+            = OpenAIMessage::splitContentParts(delta["content"]);
+        if (!parts.thinking.isEmpty())
+            message->handleReasoningDelta(parts.thinking);
+        if (!parts.text.isEmpty()) {
+            notifyPendingThinkingBlocks(id);
+            message->handleContentDelta(parts.text);
+            addChunk(id, parts.text);
         }
     }
 
@@ -266,23 +211,19 @@ void OpenAIClient::processStreamChunk(const RequestID &id, const QJsonObject &ch
         for (const auto &toolCallValue : toolCalls) {
             QJsonObject toolCall = toolCallValue.toObject();
             int index = toolCall["index"].toInt();
+            QJsonObject function = toolCall["function"].toObject();
 
-            if (toolCall.contains("id")) {
-                QString toolId = toolCall["id"].toString();
-                QJsonObject function = toolCall["function"].toObject();
-                QString name = function["name"].toString();
-                message->handleToolCallStart(index, toolId, name);
-            }
+            if (toolCall.contains("id"))
+                message->handleToolCallStart(index, toolCall["id"].toString(),
+                                             function["name"].toString());
 
-            if (toolCall.contains("function")) {
-                QJsonObject function = toolCall["function"].toObject();
-                if (function.contains("arguments"))
-                    message->handleToolCallDelta(index, function["arguments"].toString());
-            }
+            if (function.contains("arguments"))
+                message->handleToolCallDelta(index, function["arguments"].toString());
         }
     }
 
     if (!finishReason.isEmpty() && finishReason != "null") {
+        notifyPendingThinkingBlocks(id);
         message->completeAllPendingToolCalls();
         message->handleFinishReason(finishReason);
         executeToolsFromMessage(id);
@@ -320,19 +261,21 @@ void OpenAIClient::processBufferedResponse(const RequestID &id, const QByteArray
 
     // DeepSeek-style reasoning: dedicated "reasoning_content" field
     if (messageObj.contains("reasoning_content") && !messageObj["reasoning_content"].isNull())
-        emitReasoning(id, message, messageObj["reasoning_content"].toString());
+        message->handleReasoningDelta(messageObj["reasoning_content"].toString());
 
     // Standard text (string) or Mistral Magistral thinking+text chunks (array)
     if (messageObj.contains("content") && !messageObj["content"].isNull()) {
-        QString thinking, text;
-        extractContentParts(messageObj["content"], &thinking, &text);
-        if (!thinking.isEmpty())
-            emitReasoning(id, message, thinking);
-        if (!text.isEmpty()) {
-            message->handleContentDelta(text);
-            addChunk(id, text);
+        const OpenAIMessage::ContentParts parts
+            = OpenAIMessage::splitContentParts(messageObj["content"]);
+        if (!parts.thinking.isEmpty())
+            message->handleReasoningDelta(parts.thinking);
+        if (!parts.text.isEmpty()) {
+            message->handleContentDelta(parts.text);
+            addChunk(id, parts.text);
         }
     }
+
+    notifyPendingThinkingBlocks(id);
 
     if (messageObj.contains("tool_calls")) {
         QJsonArray toolCalls = messageObj["tool_calls"].toArray();
@@ -355,29 +298,8 @@ void OpenAIClient::processBufferedResponse(const RequestID &id, const QByteArray
     }
 
     const QJsonObject usage = response.value("usage").toObject();
-    if (!usage.isEmpty()) {
-        TokenUsage u;
-        u.promptTokens = usage.value("prompt_tokens").toInt();
-        u.completionTokens = usage.value("completion_tokens").toInt();
-        const QJsonObject ptd = usage.value("prompt_tokens_details").toObject();
-        u.cachedPromptTokens = ptd.value("cached_tokens").toInt();
-        const QJsonObject ctd = usage.value("completion_tokens_details").toObject();
-        u.reasoningTokens = ctd.value("reasoning_tokens").toInt();
-        setUsage(id, u);
-    }
-}
-
-void OpenAIClient::emitReasoning(
-    const RequestID &id, OpenAIMessage *message, const QString &reasoning)
-{
-    if (reasoning.isEmpty())
-        return;
-
-    message->handleReasoningDelta(reasoning);
-
-    const QString accumulated = message->currentThinking();
-    if (!accumulated.isEmpty())
-        emit thinkingBlockReceived(id, accumulated, QString());
+    if (!usage.isEmpty())
+        setUsage(id, parseOpenAIUsage(usage));
 }
 
 } // namespace LLMQore

@@ -13,6 +13,8 @@ target_sources(LLMQore PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/network/HttpResponse.cpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/HttpTransportError.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/network/HttpTransportError.cpp
+    ${PROJECT_SOURCE_DIR}/include/LLMQore/HttpTransport.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/network/HttpTransport.cpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/HttpStream.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/network/HttpStream.cpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/HttpClient.hpp

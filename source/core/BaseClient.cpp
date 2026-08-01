@@ -6,11 +6,12 @@
 #include <QJsonDocument>
 #include <QPointer>
 #include <QThread>
+#include <QUrlQuery>
 #include <QUuid>
 
 #include <LLMQore/FutureUtils.hpp>
 #include <LLMQore/HttpClient.hpp>
-#include <LLMQore/HttpStream.hpp>
+#include <LLMQore/HttpTransport.hpp>
 #include <LLMQore/HttpTransportError.hpp>
 #include <LLMQore/Log.hpp>
 #include <LLMQore/ToolLoopRunner.hpp>
@@ -18,26 +19,40 @@
 
 namespace LLMQore {
 
+namespace {
+constexpr qsizetype kMaxErrorBodyBytes = 64 * 1024;
+} // namespace
+
 BaseClient::BaseClient(QObject *parent)
     : LLMQore::BaseClient({}, {}, {}, parent)
 {}
 
 BaseClient::BaseClient(
     const QString &url, const QString &apiKey, const QString &model, QObject *parent)
+    : LLMQore::BaseClient(url, apiKey, model, nullptr, parent)
+{}
+
+BaseClient::BaseClient(
+    const QString &url,
+    const QString &apiKey,
+    const QString &model,
+    HttpTransport *transport,
+    QObject *parent)
     : QObject(parent)
     , m_url(url)
     , m_apiKey(apiKey)
     , m_model(model)
-    , m_httpClient(new HttpClient(this))
+    , m_transport(transport ? transport : new HttpClient(this))
 {}
 
 BaseClient::~BaseClient()
 {
     for (auto it = m_requests.begin(); it != m_requests.end(); ++it) {
-        if (it->stream) {
-            it->stream->disconnect();
-            it->stream->abort();
-        }
+        if (!it->stream)
+            continue;
+        it->stream->disconnect();
+        it->stream->abort();
+        delete it->stream;
     }
     m_requests.clear();
 }
@@ -84,19 +99,84 @@ void BaseClient::setModel(const QString &model)
     m_model = model;
 }
 
-HttpClient *BaseClient::httpClient() const
+AuthScheme BaseClient::authScheme() const
 {
-    return m_httpClient;
+    Q_ASSERT_X(thread() == QThread::currentThread(), Q_FUNC_INFO,
+               "BaseClient::authScheme called from non-owning thread");
+    return m_authScheme;
+}
+
+void BaseClient::setAuthScheme(const AuthScheme &scheme)
+{
+    Q_ASSERT_X(thread() == QThread::currentThread(), Q_FUNC_INFO,
+               "BaseClient::setAuthScheme called from non-owning thread");
+    m_authScheme = scheme;
+}
+
+QHash<QString, QString> BaseClient::headers() const
+{
+    Q_ASSERT_X(thread() == QThread::currentThread(), Q_FUNC_INFO,
+               "BaseClient::headers called from non-owning thread");
+    return m_headers;
+}
+
+void BaseClient::setHeader(const QString &name, const QString &value)
+{
+    Q_ASSERT_X(thread() == QThread::currentThread(), Q_FUNC_INFO,
+               "BaseClient::setHeader called from non-owning thread");
+    m_headers.insert(name, value);
+}
+
+void BaseClient::setHeaders(const QHash<QString, QString> &headers)
+{
+    Q_ASSERT_X(thread() == QThread::currentThread(), Q_FUNC_INFO,
+               "BaseClient::setHeaders called from non-owning thread");
+    m_headers = headers;
+}
+
+QNetworkRequest BaseClient::prepareNetworkRequest(const QUrl &url) const
+{
+    QNetworkRequest request(url);
+
+    for (auto it = m_headers.cbegin(); it != m_headers.cend(); ++it)
+        request.setRawHeader(it.key().toUtf8(), it.value().toUtf8());
+
+    if (m_apiKey.isEmpty() || m_authScheme.name.isEmpty())
+        return request;
+
+    switch (m_authScheme.placement) {
+    case AuthScheme::Placement::Header:
+        request.setRawHeader(
+            m_authScheme.name.toUtf8(), (m_authScheme.valuePrefix + m_apiKey).toUtf8());
+        break;
+    case AuthScheme::Placement::QueryParam: {
+        QUrl requestUrl = request.url();
+        QUrlQuery query(requestUrl.query());
+        query.addQueryItem(m_authScheme.name, m_authScheme.valuePrefix + m_apiKey);
+        requestUrl.setQuery(query);
+        request.setUrl(requestUrl);
+        break;
+    }
+    case AuthScheme::Placement::None:
+        break;
+    }
+
+    return request;
+}
+
+HttpTransport *BaseClient::transport() const
+{
+    return m_transport;
 }
 
 int BaseClient::transferTimeoutMs() const
 {
-    return m_httpClient->transferTimeoutMs();
+    return m_transport->transferTimeoutMs();
 }
 
 void BaseClient::setTransferTimeout(int milliseconds)
 {
-    m_httpClient->setTransferTimeout(milliseconds);
+    m_transport->setTransferTimeout(milliseconds);
 }
 
 ToolsManager *BaseClient::tools()
@@ -193,7 +273,7 @@ void BaseClient::startHttpRequest(
     const QByteArray body = QJsonDocument(payload).toJson(QJsonDocument::Compact);
 
     if (mode == RequestMode::Buffered) {
-        (void)LLMQore::compat(m_httpClient->send(request, QByteArrayView("POST"), body))
+        (void)LLMQore::compat(m_transport->send(request, QByteArrayView("POST"), body))
             .then(this, [this, id](const HttpResponse &response) {
                 if (!hasRequest(id))
                     return;
@@ -218,14 +298,25 @@ void BaseClient::startHttpRequest(
         return;
     }
 
-    HttpStream *stream = m_httpClient->openStream(request, QByteArrayView("POST"), body);
+    HttpStreamHandle *stream = m_transport->openStream(request, QByteArrayView("POST"), body);
+
+    it = m_requests.find(id);
+    if (it == m_requests.end()) {
+        delete stream;
+        return;
+    }
+    if (!stream) {
+        onStreamFinished(id, QStringLiteral("Transport returned no stream"));
+        return;
+    }
+
     it->stream = stream;
     it->errorMode = false;
     it->errorBody.clear();
 
-    QPointer<HttpStream> guardedStream(stream);
+    QPointer<HttpStreamHandle> guardedStream(stream);
 
-    connect(stream, &HttpStream::headersReceived, this, [this, id, guardedStream]() {
+    connect(stream, &HttpStreamHandle::headersReceived, this, [this, id, guardedStream]() {
         if (!guardedStream)
             return;
         auto it = m_requests.find(id);
@@ -236,20 +327,22 @@ void BaseClient::startHttpRequest(
             it->errorMode = true;
     });
 
-    connect(stream, &HttpStream::chunkReceived, this, [this, id, guardedStream](const QByteArray &chunk) {
+    connect(stream, &HttpStreamHandle::chunkReceived, this, [this, id, guardedStream](const QByteArray &chunk) {
         if (!guardedStream)
             return;
         auto it = m_requests.find(id);
         if (it == m_requests.end() || it->stream != guardedStream)
             return;
         if (it->errorMode) {
-            it->errorBody.append(chunk);
+            const qsizetype room = kMaxErrorBodyBytes - it->errorBody.size();
+            if (room > 0)
+                it->errorBody.append(chunk.left(room));
             return;
         }
         processData(id, chunk);
     });
 
-    connect(stream, &HttpStream::finished, this, [this, id, guardedStream]() {
+    connect(stream, &HttpStreamHandle::finished, this, [this, id, guardedStream]() {
         if (!guardedStream) {
             return;
         }
@@ -280,7 +373,7 @@ void BaseClient::startHttpRequest(
         onStreamFinished(id, error);
     });
 
-    connect(stream, &HttpStream::errorOccurred, this,
+    connect(stream, &HttpStreamHandle::errorOccurred, this,
             [this, id, guardedStream](const HttpTransportError &e) {
         if (!guardedStream)
             return;
@@ -329,9 +422,12 @@ void BaseClient::addChunk(const RequestID &id, const QString &chunk)
         return;
 
     it->buffers.responseContent += chunk;
+    const QString accumulated = it->buffers.responseContent;
 
     emit chunkReceived(id, chunk);
-    emit accumulatedReceived(id, it->buffers.responseContent);
+    if (!m_requests.contains(id))
+        return;
+    emit accumulatedReceived(id, accumulated);
 }
 
 void BaseClient::completeRequest(const RequestID &id)
@@ -510,6 +606,8 @@ void BaseClient::continueRequest(const RequestID &id, const QJsonObject &payload
         return;
     }
 
+    it->emittedThinkingBlocksCount = 0;
+
     finalizeTurn(id);
     sendRequest(id, it->url, payload, it->mode);
 }
@@ -530,6 +628,22 @@ void BaseClient::cleanupFullRequest(const RequestID &id)
         m_toolsManager->cleanupRequest(id);
 }
 
+QJsonObject BaseClient::appendChatMessagesContinuation(
+    const QJsonObject &originalPayload,
+    const QJsonObject &assistantMessage,
+    const QJsonArray &toolMessages)
+{
+    QJsonObject request = originalPayload;
+    QJsonArray messages = request["messages"].toArray();
+
+    messages.append(assistantMessage);
+    for (const auto &toolMessage : toolMessages)
+        messages.append(toolMessage);
+
+    request["messages"] = messages;
+    return request;
+}
+
 void BaseClient::notifyPendingThinkingBlocks(const RequestID &id)
 {
     auto *message = messageForRequest(id);
@@ -544,18 +658,19 @@ void BaseClient::notifyPendingThinkingBlocks(const RequestID &id)
     if (it == m_requests.end())
         return;
 
-    int alreadyEmitted = it->emittedThinkingBlocksCount;
-    int totalBlocks = thinkingBlocks.size();
+    const int alreadyEmitted = it->emittedThinkingBlocksCount;
+    const int totalBlocks = thinkingBlocks.size();
+
+    it->emittedThinkingBlocksCount = totalBlocks;
 
     for (int i = alreadyEmitted; i < totalBlocks; ++i) {
         auto *thinkingContent = thinkingBlocks[i];
-        if (!thinkingContent->thinking().trimmed().isEmpty()) {
-            emit thinkingBlockReceived(
-                id, thinkingContent->thinking(), thinkingContent->signature());
-        }
+        if (thinkingContent->thinking().trimmed().isEmpty())
+            continue;
+        emit thinkingBlockReceived(id, thinkingContent->thinking(), thinkingContent->signature());
+        if (!m_requests.contains(id))
+            return;
     }
-
-    it->emittedThinkingBlocksCount = totalBlocks;
 }
 
 void BaseClient::storeRequestContext(const RequestID &id, const QUrl &url, const QJsonObject &payload)
@@ -612,6 +727,7 @@ void BaseClient::cleanupRequest(const RequestID &id)
 
     if (it->stream) {
         it->stream->disconnect();
+        it->stream->abort();
         it->stream->deleteLater();
         it->stream = nullptr;
     }

@@ -3,7 +3,7 @@
 
 #include <LLMQore/OpenAIResponsesClient.hpp>
 
-#include <LLMQore/HttpClient.hpp>
+#include <LLMQore/HttpTransport.hpp>
 #include <LLMQore/SSEParser.hpp>
 
 #include <QJsonArray>
@@ -21,19 +21,22 @@ OpenAIResponsesClient::OpenAIResponsesClient(QObject *parent)
 
 OpenAIResponsesClient::OpenAIResponsesClient(
     const QString &url, const QString &apiKey, const QString &model, QObject *parent)
-    : BaseClient(url, apiKey, model, parent)
+    : OpenAIResponsesClient(url, apiKey, model, nullptr, parent)
 {}
 
-QNetworkRequest OpenAIResponsesClient::prepareNetworkRequest(const QUrl &url) const
+OpenAIResponsesClient::OpenAIResponsesClient(
+    const QString &url,
+    const QString &apiKey,
+    const QString &model,
+    HttpTransport *transport,
+    QObject *parent)
+    : BaseClient(url, apiKey, model, transport, parent)
 {
-    QNetworkRequest request(url);
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-
-    QString key = m_apiKey;
-    if (!key.isEmpty())
-        request.setRawHeader("Authorization", QString("Bearer %1").arg(key).toUtf8());
-
-    return request;
+    setAuthScheme(
+        {.placement = AuthScheme::Placement::Header,
+         .name = QStringLiteral("Authorization"),
+         .valuePrefix = QStringLiteral("Bearer ")});
+    setHeaders({{QStringLiteral("Content-Type"), QStringLiteral("application/json")}});
 }
 
 RequestID OpenAIResponsesClient::sendMessage(
@@ -66,7 +69,7 @@ QFuture<QList<QString>> OpenAIResponsesClient::listModels(const QString &endpoin
     QUrl url(m_url + resolved);
     QNetworkRequest request = prepareNetworkRequest(url);
 
-    return LLMQore::compat(httpClient()->send(request, QByteArrayView("GET")))
+    return LLMQore::compat(transport()->send(request, QByteArrayView("GET")))
         .then(this, [](const HttpResponse &response) {
             QList<QString> models;
             if (!response.isSuccess()) {
