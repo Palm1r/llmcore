@@ -73,9 +73,11 @@ void OllamaMessage::handleThinkingComplete(const QString &signature)
     }
 }
 
-void OllamaMessage::handleDone(bool done)
+void OllamaMessage::handleDone(bool done, const QString &doneReason)
 {
     m_done = done;
+    if (!doneReason.isEmpty())
+        m_doneReason = doneReason;
     if (done) {
         bool isToolCall = tryParseToolCall();
 
@@ -176,6 +178,7 @@ bool OllamaMessage::tryParseToolCall()
     }
     qDeleteAll(m_currentBlocks);
     m_currentBlocks.clear();
+    m_currentThinkingContent = nullptr;
 
     addCurrentContent<ToolUseContent>(toolId, name, arguments);
 
@@ -305,6 +308,7 @@ void OllamaMessage::startNewContinuation()
     BaseMessage::startNewContinuation();
     m_accumulatedContent.clear();
     m_done = false;
+    m_doneReason.clear();
     m_contentAddedToTextBlock = false;
     m_currentThinkingContent = nullptr;
 }

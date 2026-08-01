@@ -23,6 +23,8 @@ public:
     void handleReasoningComplete(const QString &itemId);
     void handleStatus(const QString &status);
 
+    QString stopReason() const override { return m_status; }
+
     QList<QJsonObject> toItemsFormat() const;
     QJsonArray createToolResultItems(const QHash<QString, ToolResult> &toolResults) const;
 

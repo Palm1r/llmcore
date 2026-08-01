@@ -249,7 +249,7 @@ void OllamaClient::processStreamData(const RequestID &id, const QJsonObject &dat
             message->handleThinkingComplete(data["signature"].toString());
         }
 
-        message->handleDone(true);
+        message->handleDone(true, data.value("done_reason").toString());
 
         if (data.contains("prompt_eval_count") || data.contains("eval_count")) {
             TokenUsage u;

@@ -122,29 +122,54 @@ QString GoogleAIClient::parseHttpError(const HttpResponse &response) const
     return BaseClient::parseHttpError(response);
 }
 
+std::optional<QString> GoogleAIClient::JsonErrorSniffer::append(const QByteArray &chunk)
+{
+    if (!m_active)
+        return std::nullopt;
+
+    m_buffer.append(chunk);
+
+    const QByteArray trimmed = m_buffer.trimmed();
+    if (trimmed.isEmpty())
+        return std::nullopt;
+
+    // SSE framing never starts with '{': stop sniffing for the rest of the stream.
+    if (!trimmed.startsWith('{') || m_buffer.size() > kMaxBytes) {
+        m_active = false;
+        m_buffer.clear();
+        return std::nullopt;
+    }
+
+    const QJsonDocument doc = QJsonDocument::fromJson(trimmed);
+    if (doc.isNull() || !doc.isObject())
+        return std::nullopt;
+
+    m_active = false;
+    m_buffer.clear();
+
+    const QJsonObject obj = doc.object();
+    if (!obj.contains("error"))
+        return std::nullopt;
+
+    const QJsonObject error = obj.value("error").toObject();
+    return QString("Google AI API Error %1: %2")
+        .arg(error.value("code").toInt())
+        .arg(error.value("message").toString());
+}
+
 void GoogleAIClient::processData(const RequestID &id, const QByteArray &data)
 {
     if (data.isEmpty())
         return;
 
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    if (!doc.isNull() && doc.isObject()) {
-        QJsonObject obj = doc.object();
-        if (obj.contains("error")) {
-            QJsonObject error = obj["error"].toObject();
-            QString errorMessage = error["message"].toString();
-            int errorCode = error["code"].toInt();
-            QString fullError
-                = QString("Google AI API Error %1: %2").arg(errorCode).arg(errorMessage);
-
-            qCDebug(llmGoogleLog).noquote() << fullError;
-            m_failedRequests.insert(id, fullError);
-            return;
-        }
-    }
-
     if (!hasRequest(id))
         return;
+
+    if (const auto error = m_errorSniffers[id].append(data)) {
+        qCDebug(llmGoogleLog).noquote() << *error;
+        m_failedRequests.insert(id, *error);
+        return;
+    }
 
     const QList<SSEEvent> events = requestSSEParser(id).append(data);
     for (const SSEEvent &ev : events) {
@@ -184,6 +209,8 @@ void GoogleAIClient::onStreamFinished(const RequestID &id, std::optional<QString
             return;
         }
     }
+
+    captureStopReason(id);
 
     cleanupFullRequest(id);
     completeRequest(id);
@@ -287,6 +314,7 @@ void GoogleAIClient::cleanupDerivedData(const RequestID &id)
         msg->deleteLater();
 
     m_failedRequests.remove(id);
+    m_errorSniffers.remove(id);
 }
 
 QJsonObject GoogleAIClient::buildContinuationPayload(

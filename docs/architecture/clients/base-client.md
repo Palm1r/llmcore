@@ -26,7 +26,7 @@ Each provider must supply implementations for several categories of functionalit
 
 - **Wire format**: declare which tool schema format the provider uses, and seed the default `AuthScheme` and header map in the constructor. Building the request is the base's job, not the subclass's.
 - **Streaming parser**: accept raw bytes from the HTTP stream and push them through the appropriate framer (SSE or JSON-lines), updating the provider's message object as events arrive. A separate path handles buffered (non-streamed) responses.
-- **Message bookkeeping**: maintain a per-request message object (a `BaseMessage` subclass) and clean it up when the request ends.
+- **Message bookkeeping**: maintain a per-request message object (a `BaseMessage` subclass) and clean it up when the request ends. The object is created lazily, on the first stream event that has something to record -- not in `sendMessage`, which may never see a response at all.
 - **Continuation**: given the original payload, the current message state, and the collected tool results, build a new JSON payload that includes the assistant's response and the tool results in the provider's wire format.
 - **Error parsing** (optional): extract a human-readable error message from provider-specific HTTP error response bodies.
 
@@ -38,11 +38,14 @@ RequestID FooClient::sendMessage(
 {
     const RequestID id = createRequest();
     const QString resolved = endpoint.isEmpty() ? QStringLiteral("/chat") : endpoint;
-    m_messages.insert(id, new FooMessage(/*...*/));
     sendRequest(id, QUrl(m_url + resolved), payload, mode);
     return id;
 }
 ```
+
+The `FooMessage` for `id` is allocated later, by the stream handler, on the
+first chunk that carries content -- see the lazy `m_messages.value(id)` /
+`new FooMessage` pattern in every provider's stream-processing method.
 
 `endpoint` lets the caller pick a non-default path on providers that
 expose more than one (e.g. Mistral's `/fim/completions`). Passing an

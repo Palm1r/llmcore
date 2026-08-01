@@ -45,6 +45,7 @@ add_executable(LLMQoreUnitTests
     tst_ClientTransport.cpp
     tst_RequestHeaders.cpp
     tst_ThinkingBlocks.cpp
+    tst_ReviewRegressions.cpp
 )
 
 set_target_properties(LLMQoreUnitTests PROPERTIES

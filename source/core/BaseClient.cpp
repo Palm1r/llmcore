@@ -403,14 +403,21 @@ void BaseClient::onStreamFinished(const RequestID &id, std::optional<QString> er
     if (msg && msg->state() == MessageState::RequiresToolExecution)
         return;
 
-    if (msg) {
-        auto it = m_requests.find(id);
-        if (it != m_requests.end())
-            it->stopReason = msg->stopReason();
-    }
+    captureStopReason(id);
 
     cleanupFullRequest(id);
     completeRequest(id);
+}
+
+void BaseClient::captureStopReason(const RequestID &id)
+{
+    auto *msg = messageForRequest(id);
+    if (!msg)
+        return;
+
+    auto it = m_requests.find(id);
+    if (it != m_requests.end())
+        it->stopReason = msg->stopReason();
 }
 
 void BaseClient::addChunk(const RequestID &id, const QString &chunk)
@@ -443,6 +450,8 @@ void BaseClient::completeRequest(const RequestID &id)
     QString fullText = it->buffers.responseContent;
     QString stopReason = it->stopReason;
     std::optional<TokenUsage> usage = it->usage;
+    QJsonObject requestPayload = it->finalPayload.isEmpty() ? it->originalPayload
+                                                           : it->finalPayload;
     cleanupRequest(id);
 
     CompletionInfo info;
@@ -450,6 +459,7 @@ void BaseClient::completeRequest(const RequestID &id)
     info.model = m_model;
     info.stopReason = stopReason;
     info.usage = usage;
+    info.requestPayload = requestPayload;
     emit requestFinalized(id, info);
     emit requestCompleted(id, fullText);
 }
@@ -619,6 +629,7 @@ void BaseClient::cleanupFullRequest(const RequestID &id)
     auto it = m_requests.find(id);
     if (it != m_requests.end()) {
         it->url.clear();
+        it->finalPayload = it->originalPayload;
         it->originalPayload = {};
         it->emittedThinkingBlocksCount = 0;
         it->mode = RequestMode::Streaming;
@@ -715,8 +726,11 @@ QString BaseClient::responseContent(const RequestID &id) const
 void BaseClient::setResponseContent(const RequestID &id, const QString &content)
 {
     auto it = m_requests.find(id);
-    if (it != m_requests.end())
-        it->buffers.responseContent = content;
+    if (it == m_requests.end() || it->buffers.responseContent == content)
+        return;
+
+    it->buffers.responseContent = content;
+    emit accumulatedReceived(id, content);
 }
 
 void BaseClient::cleanupRequest(const RequestID &id)

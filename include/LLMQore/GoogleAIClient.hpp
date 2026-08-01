@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include <QFuture>
 #include <QHash>
 #include <QJsonObject>
@@ -52,10 +54,25 @@ protected:
     [[nodiscard]] QString parseHttpError(const HttpResponse &response) const override;
 
 private:
+    // A 200-with-error-body response is not SSE-framed, so it has to be
+    // reassembled across chunks before it can be recognised.
+    class JsonErrorSniffer
+    {
+    public:
+        static constexpr qsizetype kMaxBytes = 64 * 1024;
+
+        std::optional<QString> append(const QByteArray &chunk);
+
+    private:
+        bool m_active = true;
+        QByteArray m_buffer;
+    };
+
     void processStreamChunk(const RequestID &id, const QJsonObject &chunk);
 
     QHash<RequestID, GoogleMessage *> m_messages;
     QHash<RequestID, QString> m_failedRequests;
+    QHash<RequestID, JsonErrorSniffer> m_errorSniffers;
 };
 
 } // namespace LLMQore

@@ -63,6 +63,11 @@ struct LLMQORE_EXPORT CompletionInfo
     QString model;
     QString stopReason;
     std::optional<TokenUsage> usage;
+
+    // Payload of the last turn actually sent, including every tool round-trip
+    // the loop added. Callers keeping their own history must carry this forward
+    // instead of their original request, or the tool exchange is lost.
+    QJsonObject requestPayload;
 };
 
 struct DataBuffers
@@ -90,6 +95,7 @@ struct ActiveRequest
 
     QUrl url = {};
     QJsonObject originalPayload = {};
+    QJsonObject finalPayload = {};
     int emittedThinkingBlocksCount = 0;
     RequestMode mode = RequestMode::Streaming;
     QString stopReason = {};
@@ -208,6 +214,8 @@ protected:
     void addChunk(const RequestID &id, const QString &chunk);
     void completeRequest(const RequestID &id);
     void failRequest(const RequestID &id, const QString &error);
+
+    void captureStopReason(const RequestID &id);
 
     void setUsage(const RequestID &id, const TokenUsage &usage);
     void accumulateUsage(const RequestID &id, const TokenUsage &delta);

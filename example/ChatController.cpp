@@ -223,9 +223,18 @@ void ChatController::createClient(const QString &provider, const QString &url, c
                    const QString &result) {
                 m_messages.append("tool", QString("[%1]: %2").arg(toolName, result));
             });
+    connect(m_client, &LLMQore::BaseClient::requestFinalized, this,
+            [this](const LLMQore::RequestID &, const LLMQore::CompletionInfo &info) {
+                const QJsonArray sent = info.requestPayload.value("messages").toArray();
+                if (!sent.isEmpty())
+                    m_history = sent;
+                if (!info.fullText.isEmpty()) {
+                    m_history.append(
+                        QJsonObject{{"role", "assistant"}, {"content", info.fullText}});
+                }
+            });
     connect(m_client, &LLMQore::BaseClient::requestCompleted, this,
-            [this](const LLMQore::RequestID &, const QString &fullText) {
-                m_history.append(QJsonObject{{"role", "assistant"}, {"content", fullText}});
+            [this](const LLMQore::RequestID &, const QString &) {
                 setBusy(false);
                 setStatus("Ready");
             });

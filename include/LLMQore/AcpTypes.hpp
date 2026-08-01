@@ -403,6 +403,8 @@ struct LLMQORE_EXPORT SessionUpdate
     std::optional<Acp::Plan> plan;              // plan
     QList<AvailableCommand> availableCommands;  // available_commands_update
     QString currentModeId;                      // current_mode_update
+    QJsonObject usage;                          // usage_update, agent-defined shape
+    QString title;                              // session_info_update
 
     QJsonObject toJson() const;
     static SessionUpdate fromJson(const QJsonObject &obj);

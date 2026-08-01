@@ -211,6 +211,51 @@ TEST(AcpTypes, SessionUpdateToolCallAndPlan)
     EXPECT_EQ(plBack.plan->entries.first().priority, "high");
 }
 
+TEST(AcpTypes, SessionUpdateUsageRoundTrip)
+{
+    SessionUpdate u;
+    u.sessionUpdate = SessionUpdateKind::UsageUpdate;
+    u.usage = QJsonObject{{"inputTokens", 120}, {"outputTokens", 34}};
+
+    const QJsonObject obj = u.toJson();
+    EXPECT_EQ(obj.value("sessionUpdate").toString(), "usage_update");
+    EXPECT_EQ(obj.value("inputTokens").toInt(), 120);
+    EXPECT_EQ(obj.value("outputTokens").toInt(), 34);
+
+    const SessionUpdate back = SessionUpdate::fromJson(obj);
+    EXPECT_EQ(back.sessionUpdate, "usage_update");
+    EXPECT_EQ(back.usage.value("inputTokens").toInt(), 120);
+    EXPECT_EQ(back.usage.value("outputTokens").toInt(), 34);
+}
+
+TEST(AcpTypes, SessionUpdateSessionInfoRoundTrip)
+{
+    SessionUpdate u;
+    u.sessionUpdate = SessionUpdateKind::SessionInfoUpdate;
+    u.title = "Refactor the parser";
+
+    const QJsonObject obj = u.toJson();
+    EXPECT_EQ(obj.value("sessionUpdate").toString(), "session_info_update");
+    EXPECT_EQ(obj.value("title").toString(), "Refactor the parser");
+
+    const SessionUpdate back = SessionUpdate::fromJson(obj);
+    EXPECT_EQ(back.title, "Refactor the parser");
+}
+
+TEST(AcpTypes, SessionUpdateUnknownKindKeepsItsPayloadOut)
+{
+    SessionUpdate u;
+    u.sessionUpdate = SessionUpdateKind::CurrentModeUpdate;
+    u.currentModeId = "plan";
+    u.usage = QJsonObject{{"inputTokens", 5}};
+    u.title = "ignored";
+
+    const QJsonObject obj = u.toJson();
+    EXPECT_EQ(obj.value("currentModeId").toString(), "plan");
+    EXPECT_FALSE(obj.contains("inputTokens"));
+    EXPECT_FALSE(obj.contains("title"));
+}
+
 TEST(AcpTypes, SessionNotificationRoundTrip)
 {
     SessionNotification n;
