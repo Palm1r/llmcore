@@ -12,6 +12,7 @@
 #include <QPair>
 #include <QString>
 
+#include <LLMQore/HttpTransport.hpp>
 #include <LLMQore/HttpTransportError.hpp>
 #include <LLMQore/LLMQore_global.h>
 
@@ -21,26 +22,20 @@ namespace LLMQore {
 
 class HttpClient;
 
-class LLMQORE_EXPORT HttpStream : public QObject
+class LLMQORE_EXPORT HttpStream : public HttpStreamHandle
 {
     Q_OBJECT
 public:
     ~HttpStream() override;
 
-    [[nodiscard]] int statusCode() const;
-    [[nodiscard]] QList<QPair<QByteArray, QByteArray>> rawHeaders() const;
+    [[nodiscard]] int statusCode() const override;
+    [[nodiscard]] QList<QPair<QByteArray, QByteArray>> rawHeaders() const override;
     [[nodiscard]] QByteArray rawHeader(QByteArrayView name) const;
     [[nodiscard]] QString contentType() const;
 
     [[nodiscard]] bool isFinished() const noexcept;
 
-    void abort();
-
-signals:
-    void headersReceived();
-    void chunkReceived(QByteArray chunk);
-    void finished();
-    void errorOccurred(LLMQore::HttpTransportError error);
+    void abort() override;
 
 private:
     friend class HttpClient;

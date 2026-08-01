@@ -7,16 +7,22 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QPromise>
 #include <QSignalSpy>
 
+#include <LLMQore/BaseTool.hpp>
 #include <LLMQore/ClaudeClient.hpp>
 #include <LLMQore/GoogleAIClient.hpp>
 #include <LLMQore/LlamaCppClient.hpp>
 #include <LLMQore/OllamaClient.hpp>
 #include <LLMQore/OpenAIClient.hpp>
 #include <LLMQore/OpenAIResponsesClient.hpp>
+#include <LLMQore/ToolsManager.hpp>
+
+#include "FakeHttpTransport.hpp"
 
 using namespace LLMQore;
+using LLMQoreTest::FakeHttpTransport;
 
 namespace {
 const int kRegisterMetaTypes = []() {
@@ -62,43 +68,120 @@ TEST(TokenUsage, TotalTokensSumsPromptAndCompletion)
 namespace {
 
 template<typename ClientT>
-class UsageDriver : public ClientT
+CompletionInfo streamTurn(ClientT &client, FakeHttpTransport &transport, const QByteArray &wire)
 {
-public:
-    using ClientT::ClientT;
-    using BaseClient::accumulateUsage;
-    using BaseClient::completeRequest;
-    using BaseClient::createRequest;
-    using BaseClient::currentUsage;
-    using BaseClient::finalizeTurn;
-    using BaseClient::setUsage;
-    using BaseClient::totalUsage;
-    using ClientT::processBufferedResponse;
-    using ClientT::processData;
-};
+    QSignalSpy spy(&client, &BaseClient::requestFinalized);
 
-template<typename ClientT, typename ActionT>
-CompletionInfo runAndCapture(UsageDriver<ClientT> &c, const RequestID &id, ActionT &&action)
-{
-    QSignalSpy spy(&c, &BaseClient::requestFinalized);
-    action();
-    if (spy.count() == 0)
-        c.completeRequest(id);
+    client.ask(QStringLiteral("hi"));
+    if (transport.streamCount() != 1) {
+        ADD_FAILURE() << "client did not open a stream";
+        return {};
+    }
+
+    transport.lastStream()->sendAll(wire);
+
     EXPECT_EQ(spy.count(), 1);
     if (spy.isEmpty())
         return {};
-    const auto args = spy.takeFirst();
-    return args.at(1).value<CompletionInfo>();
+    return spy.first().at(1).value<CompletionInfo>();
+}
+
+template<typename ClientT>
+CompletionInfo bufferedTurn(ClientT &client, FakeHttpTransport &transport, const QByteArray &body)
+{
+    QSignalSpy spy(&client, &BaseClient::requestFinalized);
+
+    client.ask(QStringLiteral("hi"), RequestMode::Buffered);
+    if (transport.bufferedCount() != 1) {
+        ADD_FAILURE() << "client did not send a buffered request";
+        return {};
+    }
+
+    transport.respondToLast(200, body);
+    spy.wait(3000);
+
+    EXPECT_EQ(spy.count(), 1);
+    if (spy.isEmpty())
+        return {};
+    return spy.first().at(1).value<CompletionInfo>();
+}
+
+class StubTool : public BaseTool
+{
+    Q_OBJECT
+public:
+    using BaseTool::BaseTool;
+
+    QString id() const override { return QStringLiteral("stub"); }
+    QString displayName() const override { return QStringLiteral("Stub"); }
+    QString description() const override { return QStringLiteral("Returns a fixed value"); }
+    QJsonObject parametersSchema() const override { return QJsonObject{{"type", "object"}}; }
+
+    QFuture<ToolResult> executeAsync(const QJsonObject &) override
+    {
+        QPromise<ToolResult> promise;
+        QFuture<ToolResult> future = promise.future();
+        promise.start();
+        promise.addResult(ToolResult::text(QStringLiteral("ok")));
+        promise.finish();
+        return future;
+    }
+};
+
+QByteArray claudeToolUseTurn(int inputTokens, int cacheCreation, int cacheRead, int outputTokens)
+{
+    return QByteArray(
+               "event: message_start\n"
+               "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":")
+        + QByteArray::number(inputTokens)
+        + ",\"output_tokens\":1,\"cache_read_input_tokens\":" + QByteArray::number(cacheRead)
+        + ",\"cache_creation_input_tokens\":" + QByteArray::number(cacheCreation)
+        + "}}}\n\n"
+          "event: content_block_start\n"
+          "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":"
+          "{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"stub\",\"input\":{}}}\n\n"
+          "event: content_block_stop\n"
+          "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n"
+          "event: message_delta\n"
+          "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"},"
+          "\"usage\":{\"output_tokens\":"
+        + QByteArray::number(outputTokens)
+        + "}}\n\n"
+          "event: message_stop\n"
+          "data: {\"type\":\"message_stop\"}\n\n";
+}
+
+QByteArray claudeTextTurn(int inputTokens, int cacheRead, int outputTokens)
+{
+    return QByteArray(
+               "event: message_start\n"
+               "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":")
+        + QByteArray::number(inputTokens)
+        + ",\"output_tokens\":1,\"cache_read_input_tokens\":" + QByteArray::number(cacheRead)
+        + "}}}\n\n"
+          "event: content_block_start\n"
+          "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\"}}"
+          "\n\n"
+          "event: content_block_delta\n"
+          "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\","
+          "\"text\":\"answer\"}}\n\n"
+          "event: message_delta\n"
+          "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},"
+          "\"usage\":{\"output_tokens\":"
+        + QByteArray::number(outputTokens)
+        + "}}\n\n"
+          "event: message_stop\n"
+          "data: {\"type\":\"message_stop\"}\n\n";
 }
 
 } // namespace
 
 TEST(TokenUsageClaude, BufferedExtractsAllFields)
 {
-    UsageDriver<ClaudeClient> client;
-    const auto id = client.createRequest();
+    FakeHttpTransport transport;
+    ClaudeClient client("http://fake.local", "sk-test", "claude-test", &transport);
 
-    const QByteArray body = R"({
+    const auto info = bufferedTurn(client, transport, R"({
         "content": [{"type":"text","text":"hi"}],
         "stop_reason": "end_turn",
         "usage": {
@@ -106,9 +189,7 @@ TEST(TokenUsageClaude, BufferedExtractsAllFields)
             "output_tokens": 250,
             "cache_read_input_tokens": 800
         }
-    })";
-
-    const auto info = runAndCapture(client, id, [&] { client.processBufferedResponse(id, body); });
+    })");
 
     ASSERT_TRUE(info.usage.has_value());
     EXPECT_EQ(info.usage->promptTokens, 1500);
@@ -119,24 +200,24 @@ TEST(TokenUsageClaude, BufferedExtractsAllFields)
 
 TEST(TokenUsageClaude, BufferedMissingUsageLeavesNullopt)
 {
-    UsageDriver<ClaudeClient> client;
-    const auto id = client.createRequest();
+    FakeHttpTransport transport;
+    ClaudeClient client("http://fake.local", "sk-test", "claude-test", &transport);
 
-    const QByteArray body = R"({
+    const auto info = bufferedTurn(client, transport, R"({
         "content": [{"type":"text","text":"hi"}],
         "stop_reason": "end_turn"
-    })";
+    })");
 
-    const auto info = runAndCapture(client, id, [&] { client.processBufferedResponse(id, body); });
     EXPECT_FALSE(info.usage.has_value());
 }
 
 TEST(TokenUsageClaude, StreamingMessageDeltaUpdatesCumulativeOutputTokens)
 {
-    UsageDriver<ClaudeClient> client;
-    const auto id = client.createRequest();
+    FakeHttpTransport transport;
+    ClaudeClient client("http://fake.local", "sk-test", "claude-test", &transport);
 
-    const QByteArray sse =
+    const auto info = streamTurn(
+        client, transport,
         "event: message_start\n"
         "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":300,"
         "\"output_tokens\":1,\"cache_read_input_tokens\":50}}}\n\n"
@@ -149,9 +230,7 @@ TEST(TokenUsageClaude, StreamingMessageDeltaUpdatesCumulativeOutputTokens)
         "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},"
         "\"usage\":{\"output_tokens\":75}}\n\n"
         "event: message_stop\n"
-        "data: {\"type\":\"message_stop\"}\n\n";
-
-    const auto info = runAndCapture(client, id, [&] { client.processData(id, sse); });
+        "data: {\"type\":\"message_stop\"}\n\n");
 
     ASSERT_TRUE(info.usage.has_value());
     EXPECT_EQ(info.usage->promptTokens, 300);
@@ -161,10 +240,10 @@ TEST(TokenUsageClaude, StreamingMessageDeltaUpdatesCumulativeOutputTokens)
 
 TEST(TokenUsageOpenAI, BufferedExtractsBasicAndDetails)
 {
-    UsageDriver<OpenAIClient> client;
-    const auto id = client.createRequest();
+    FakeHttpTransport transport;
+    OpenAIClient client("http://fake.local/v1", "sk-test", "gpt-test", &transport);
 
-    const QByteArray body = R"({
+    const auto info = bufferedTurn(client, transport, R"({
         "choices": [{"finish_reason":"stop","message":{"content":"hi"}}],
         "usage": {
             "prompt_tokens": 1200,
@@ -172,9 +251,7 @@ TEST(TokenUsageOpenAI, BufferedExtractsBasicAndDetails)
             "prompt_tokens_details": {"cached_tokens": 600},
             "completion_tokens_details": {"reasoning_tokens": 30}
         }
-    })";
-
-    const auto info = runAndCapture(client, id, [&] { client.processBufferedResponse(id, body); });
+    })");
 
     ASSERT_TRUE(info.usage.has_value());
     EXPECT_EQ(info.usage->promptTokens, 1200);
@@ -185,16 +262,15 @@ TEST(TokenUsageOpenAI, BufferedExtractsBasicAndDetails)
 
 TEST(TokenUsageOpenAI, StreamingFinalChunkWithEmptyChoicesCarriesUsage)
 {
-    UsageDriver<OpenAIClient> client;
-    const auto id = client.createRequest();
+    FakeHttpTransport transport;
+    OpenAIClient client("http://fake.local/v1", "sk-test", "gpt-test", &transport);
 
-    const QByteArray sse =
+    const auto info = streamTurn(
+        client, transport,
         "data: {\"choices\":[{\"finish_reason\":null,\"delta\":{\"content\":\"hi\"}}]}\n\n"
         "data: {\"choices\":[{\"finish_reason\":\"stop\",\"delta\":{}}]}\n\n"
         "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":42,\"completion_tokens\":7}}\n\n"
-        "data: [DONE]\n\n";
-
-    const auto info = runAndCapture(client, id, [&] { client.processData(id, sse); });
+        "data: [DONE]\n\n");
 
     ASSERT_TRUE(info.usage.has_value());
     EXPECT_EQ(info.usage->promptTokens, 42);
@@ -203,10 +279,10 @@ TEST(TokenUsageOpenAI, StreamingFinalChunkWithEmptyChoicesCarriesUsage)
 
 TEST(TokenUsageOpenAIResponses, BufferedExtractsDetailedUsage)
 {
-    UsageDriver<OpenAIResponsesClient> client;
-    const auto id = client.createRequest();
+    FakeHttpTransport transport;
+    OpenAIResponsesClient client("http://fake.local/v1", "sk-test", "o-test", &transport);
 
-    const QByteArray body = R"({
+    const auto info = bufferedTurn(client, transport, R"({
         "output": [],
         "status": "completed",
         "usage": {
@@ -215,9 +291,7 @@ TEST(TokenUsageOpenAIResponses, BufferedExtractsDetailedUsage)
             "input_tokens_details": {"cached_tokens": 1000},
             "output_tokens_details": {"reasoning_tokens": 150}
         }
-    })";
-
-    const auto info = runAndCapture(client, id, [&] { client.processBufferedResponse(id, body); });
+    })");
 
     ASSERT_TRUE(info.usage.has_value());
     EXPECT_EQ(info.usage->promptTokens, 2000);
@@ -228,18 +302,17 @@ TEST(TokenUsageOpenAIResponses, BufferedExtractsDetailedUsage)
 
 TEST(TokenUsageOpenAIResponses, StreamingResponseCompletedCarriesUsage)
 {
-    UsageDriver<OpenAIResponsesClient> client;
-    const auto id = client.createRequest();
+    FakeHttpTransport transport;
+    OpenAIResponsesClient client("http://fake.local/v1", "sk-test", "o-test", &transport);
 
-    const QByteArray sse =
+    const auto info = streamTurn(
+        client, transport,
         "event: response.output_text.delta\n"
         "data: {\"delta\":\"hi\"}\n\n"
         "event: response.completed\n"
         "data: {\"response\":{\"status\":\"completed\",\"usage\":"
         "{\"input_tokens\":120,\"output_tokens\":30,"
-        "\"output_tokens_details\":{\"reasoning_tokens\":8}}}}\n\n";
-
-    const auto info = runAndCapture(client, id, [&] { client.processData(id, sse); });
+        "\"output_tokens_details\":{\"reasoning_tokens\":8}}}}\n\n");
 
     ASSERT_TRUE(info.usage.has_value());
     EXPECT_EQ(info.usage->promptTokens, 120);
@@ -249,14 +322,13 @@ TEST(TokenUsageOpenAIResponses, StreamingResponseCompletedCarriesUsage)
 
 TEST(TokenUsageOllama, FinalDoneLineCarriesEvalCounts)
 {
-    UsageDriver<OllamaClient> client;
-    const auto id = client.createRequest();
+    FakeHttpTransport transport;
+    OllamaClient client("http://fake.local", "", "llama-test", &transport);
 
-    const QByteArray ndjson =
+    const auto info = streamTurn(
+        client, transport,
         "{\"message\":{\"content\":\"hi\"},\"done\":false}\n"
-        "{\"done\":true,\"prompt_eval_count\":256,\"eval_count\":64}\n";
-
-    const auto info = runAndCapture(client, id, [&] { client.processData(id, ndjson); });
+        "{\"done\":true,\"prompt_eval_count\":256,\"eval_count\":64}\n");
 
     ASSERT_TRUE(info.usage.has_value());
     EXPECT_EQ(info.usage->promptTokens, 256);
@@ -265,13 +337,12 @@ TEST(TokenUsageOllama, FinalDoneLineCarriesEvalCounts)
 
 TEST(TokenUsageOllama, BufferedDelegatesToSameExtraction)
 {
-    UsageDriver<OllamaClient> client;
-    const auto id = client.createRequest();
+    FakeHttpTransport transport;
+    OllamaClient client("http://fake.local", "", "llama-test", &transport);
 
-    const QByteArray body =
-        R"({"message":{"content":"hi"},"done":true,"prompt_eval_count":12,"eval_count":3})";
-
-    const auto info = runAndCapture(client, id, [&] { client.processBufferedResponse(id, body); });
+    const auto info = bufferedTurn(
+        client, transport,
+        R"({"message":{"content":"hi"},"done":true,"prompt_eval_count":12,"eval_count":3})");
 
     ASSERT_TRUE(info.usage.has_value());
     EXPECT_EQ(info.usage->promptTokens, 12);
@@ -280,13 +351,12 @@ TEST(TokenUsageOllama, BufferedDelegatesToSameExtraction)
 
 TEST(TokenUsageLlamaCpp, NativeCompletionEndpointUsesTokensEvaluatedPredicted)
 {
-    UsageDriver<LlamaCppClient> client;
-    const auto id = client.createRequest();
+    FakeHttpTransport transport;
+    LlamaCppClient client("http://fake.local", "", "local-model", &transport);
 
-    const QByteArray body =
-        R"({"content":"hi","stop":true,"tokens_evaluated":88,"tokens_predicted":22})";
-
-    const auto info = runAndCapture(client, id, [&] { client.processBufferedResponse(id, body); });
+    const auto info = bufferedTurn(
+        client, transport,
+        R"({"content":"hi","stop":true,"tokens_evaluated":88,"tokens_predicted":22})");
 
     ASSERT_TRUE(info.usage.has_value());
     EXPECT_EQ(info.usage->promptTokens, 88);
@@ -295,15 +365,13 @@ TEST(TokenUsageLlamaCpp, NativeCompletionEndpointUsesTokensEvaluatedPredicted)
 
 TEST(TokenUsageLlamaCpp, OpenAICompatPathUsesPromptCompletionTokens)
 {
-    UsageDriver<LlamaCppClient> client;
-    const auto id = client.createRequest();
+    FakeHttpTransport transport;
+    LlamaCppClient client("http://fake.local", "", "local-model", &transport);
 
-    const QByteArray body = R"({
+    const auto info = bufferedTurn(client, transport, R"({
         "choices": [{"finish_reason":"stop","message":{"content":"hi"}}],
         "usage": {"prompt_tokens": 33, "completion_tokens": 11}
-    })";
-
-    const auto info = runAndCapture(client, id, [&] { client.processBufferedResponse(id, body); });
+    })");
 
     ASSERT_TRUE(info.usage.has_value());
     EXPECT_EQ(info.usage->promptTokens, 33);
@@ -312,10 +380,10 @@ TEST(TokenUsageLlamaCpp, OpenAICompatPathUsesPromptCompletionTokens)
 
 TEST(TokenUsageGoogleAI, UsageMetadataExtractsAllFields)
 {
-    UsageDriver<GoogleAIClient> client;
-    const auto id = client.createRequest();
+    FakeHttpTransport transport;
+    GoogleAIClient client("http://fake.local", "AIza-test", "gemini-test", &transport);
 
-    const QByteArray body = R"({
+    const auto info = bufferedTurn(client, transport, R"({
         "candidates": [{
             "content": {"parts": [{"text": "hi"}]},
             "finishReason": "STOP"
@@ -326,9 +394,7 @@ TEST(TokenUsageGoogleAI, UsageMetadataExtractsAllFields)
             "cachedContentTokenCount": 200,
             "thoughtsTokenCount": 40
         }
-    })";
-
-    const auto info = runAndCapture(client, id, [&] { client.processBufferedResponse(id, body); });
+    })");
 
     ASSERT_TRUE(info.usage.has_value());
     EXPECT_EQ(info.usage->promptTokens, 500);
@@ -337,99 +403,113 @@ TEST(TokenUsageGoogleAI, UsageMetadataExtractsAllFields)
     EXPECT_EQ(info.usage->reasoningTokens, 40);
 }
 
-TEST(TokenUsageAccumulation, FinalizeTurnIsNoopWhenNoTurnUsage)
+TEST(TokenUsageClaude, StreamingMessageDeltaWithoutMessageStartIsIgnored)
 {
-    UsageDriver<ClaudeClient> client;
-    const auto id = client.createRequest();
+    FakeHttpTransport transport;
+    ClaudeClient client("http://fake.local", "sk-test", "claude-test", &transport);
 
-    client.finalizeTurn(id);
-    EXPECT_FALSE(client.currentUsage(id).has_value());
-    EXPECT_FALSE(client.totalUsage(id).has_value());
+    const auto info = streamTurn(
+        client, transport,
+        "event: message_delta\n"
+        "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},"
+        "\"usage\":{\"output_tokens\":50,\"input_tokens\":100}}\n\n");
+
+    EXPECT_FALSE(info.usage.has_value());
 }
 
-TEST(TokenUsageAccumulation, CompleteRequestFlushesTurnIntoUsage)
+TEST(TokenUsageClaude, StreamingToolUseDoesNotResetCacheTokensAcrossTurns)
 {
-    UsageDriver<ClaudeClient> client;
-    const auto id = client.createRequest();
+    FakeHttpTransport transport;
+    ClaudeClient client("http://fake.local", "sk-test", "claude-test", &transport);
+    client.tools()->addTool(new StubTool);
 
-    TokenUsage u;
-    u.promptTokens = 100;
-    u.completionTokens = 50;
-    u.cachedPromptTokens = 25;
-    u.reasoningTokens = 5;
-    client.setUsage(id, u);
+    QSignalSpy finalizedSpy(&client, &BaseClient::requestFinalized);
 
-    const auto info = runAndCapture(client, id, [&] {});
+    client.ask(QStringLiteral("hi"));
+    ASSERT_EQ(transport.streamCount(), 1);
+    transport.lastStream()->sendAll(claudeToolUseTurn(1000, 900, 0, 40));
 
+    ASSERT_TRUE(waitForStreams(transport, 2)) << "tool round-trip did not continue";
+    EXPECT_EQ(finalizedSpy.count(), 0);
+
+    transport.lastStream()->sendAll(claudeTextTurn(120, 1000, 60));
+
+    ASSERT_EQ(finalizedSpy.count(), 1);
+    const auto info = finalizedSpy.first().at(1).value<CompletionInfo>();
     ASSERT_TRUE(info.usage.has_value());
-    EXPECT_EQ(info.usage->promptTokens, 100);
-    EXPECT_EQ(info.usage->completionTokens, 50);
-    EXPECT_EQ(info.usage->cachedPromptTokens, 25);
-    EXPECT_EQ(info.usage->reasoningTokens, 5);
+    EXPECT_EQ(info.usage->promptTokens, 1120);
+    EXPECT_EQ(info.usage->completionTokens, 100);
+    EXPECT_EQ(info.usage->cachedPromptTokens, 1000);
 }
 
-TEST(TokenUsageAccumulation, MultiTurnSumsAcrossFinalizeTurn)
+TEST(TokenUsageClaude, ContinuationWithoutUsageLeavesNullopt)
 {
-    UsageDriver<ClaudeClient> client;
-    const auto id = client.createRequest();
+    FakeHttpTransport transport;
+    ClaudeClient client("http://fake.local", "sk-test", "claude-test", &transport);
+    client.tools()->addTool(new StubTool);
 
-    TokenUsage turn1;
-    turn1.promptTokens = 1000;
-    turn1.completionTokens = 80;
-    turn1.cachedPromptTokens = 0;
-    turn1.reasoningTokens = 10;
-    client.setUsage(id, turn1);
-    client.finalizeTurn(id);
+    QSignalSpy finalizedSpy(&client, &BaseClient::requestFinalized);
 
-    TokenUsage turn2;
-    turn2.promptTokens = 1200;
-    turn2.completionTokens = 150;
-    turn2.cachedPromptTokens = 800;
-    turn2.reasoningTokens = 20;
-    client.setUsage(id, turn2);
+    client.ask(QStringLiteral("hi"));
+    ASSERT_EQ(transport.streamCount(), 1);
+    transport.lastStream()->sendAll(
+        "event: message_start\n"
+        "data: {\"type\":\"message_start\",\"message\":{}}\n\n"
+        "event: content_block_start\n"
+        "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":"
+        "{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"stub\",\"input\":{}}}\n\n"
+        "event: content_block_stop\n"
+        "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n"
+        "event: message_delta\n"
+        "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"}}\n\n"
+        "event: message_stop\n"
+        "data: {\"type\":\"message_stop\"}\n\n");
 
-    const auto info = runAndCapture(client, id, [&] {});
+    ASSERT_TRUE(waitForStreams(transport, 2)) << "tool round-trip did not continue";
 
-    ASSERT_TRUE(info.usage.has_value());
-    EXPECT_EQ(info.usage->promptTokens, 2200);
-    EXPECT_EQ(info.usage->completionTokens, 230);
-    EXPECT_EQ(info.usage->cachedPromptTokens, 800);
-    EXPECT_EQ(info.usage->reasoningTokens, 30);
+    transport.lastStream()->sendAll(
+        "event: message_start\n"
+        "data: {\"type\":\"message_start\",\"message\":{}}\n\n"
+        "event: content_block_start\n"
+        "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\"}}\n\n"
+        "event: content_block_delta\n"
+        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\","
+        "\"text\":\"ok\"}}\n\n"
+        "event: message_delta\n"
+        "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"}}\n\n"
+        "event: message_stop\n"
+        "data: {\"type\":\"message_stop\"}\n\n");
+
+    ASSERT_EQ(finalizedSpy.count(), 1);
+    const auto info = finalizedSpy.first().at(1).value<CompletionInfo>();
+    EXPECT_FALSE(info.usage.has_value());
 }
 
-TEST(TokenUsageAccumulation, TotalUsageReflectsBothAccumulatedAndCurrent)
+namespace {
+
+class UsageHelperProbe : public ClaudeClient
 {
-    UsageDriver<ClaudeClient> client;
-    const auto id = client.createRequest();
+public:
+    using ClaudeClient::ClaudeClient;
+    using BaseClient::accumulateUsage;
+    using BaseClient::currentUsage;
+    using BaseClient::totalUsage;
+};
 
-    TokenUsage turn1;
-    turn1.promptTokens = 500;
-    turn1.completionTokens = 40;
-    turn1.cachedPromptTokens = 100;
-    client.setUsage(id, turn1);
-    client.finalizeTurn(id);
-
-    EXPECT_EQ(client.totalUsage(id)->promptTokens, 500);
-    EXPECT_FALSE(client.currentUsage(id).has_value());
-
-    TokenUsage turn2;
-    turn2.promptTokens = 700;
-    turn2.completionTokens = 20;
-    client.setUsage(id, turn2);
-
-    const auto total = client.totalUsage(id);
-    ASSERT_TRUE(total.has_value());
-    EXPECT_EQ(total->promptTokens, 1200);
-    EXPECT_EQ(total->completionTokens, 60);
-    EXPECT_EQ(total->cachedPromptTokens, 100);
-
-    client.completeRequest(id);
+RequestID startedRequest(UsageHelperProbe &client, const FakeHttpTransport &transport)
+{
+    const RequestID id = client.ask(QStringLiteral("hi"));
+    EXPECT_EQ(transport.streamCount(), 1);
+    return id;
 }
+
+} // namespace
 
 TEST(TokenUsageAccumulation, AccumulateUsageAddsIntoTurnSnapshot)
 {
-    UsageDriver<ClaudeClient> client;
-    const auto id = client.createRequest();
+    FakeHttpTransport transport;
+    UsageHelperProbe client("http://fake.local", "sk-test", "claude-test", &transport);
+    const RequestID id = startedRequest(client, transport);
 
     TokenUsage a;
     a.promptTokens = 10;
@@ -447,67 +527,37 @@ TEST(TokenUsageAccumulation, AccumulateUsageAddsIntoTurnSnapshot)
     EXPECT_EQ(turn->completionTokens, 3);
     EXPECT_EQ(turn->cachedPromptTokens, 7);
 
-    client.completeRequest(id);
+    client.cancelRequest(id);
 }
 
-TEST(TokenUsageClaude, StreamingMessageDeltaWithoutMessageStartIsIgnored)
+TEST(TokenUsageAccumulation, TotalUsageReflectsBothAccumulatedAndCurrent)
 {
-    UsageDriver<ClaudeClient> client;
-    const auto id = client.createRequest();
+    FakeHttpTransport transport;
+    UsageHelperProbe client("http://fake.local", "sk-test", "claude-test", &transport);
+    const RequestID id = startedRequest(client, transport);
 
-    const QByteArray sse =
-        "event: message_delta\n"
-        "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},"
-        "\"usage\":{\"output_tokens\":50,\"input_tokens\":100}}\n\n";
+    TokenUsage turn1;
+    turn1.promptTokens = 500;
+    turn1.completionTokens = 40;
+    turn1.cachedPromptTokens = 100;
+    client.accumulateUsage(id, turn1);
+    client.continueRequest(id, QJsonObject{{"messages", QJsonArray{}}});
 
-    client.processData(id, sse);
+    EXPECT_EQ(client.totalUsage(id)->promptTokens, 500);
     EXPECT_FALSE(client.currentUsage(id).has_value());
 
-    client.completeRequest(id);
+    TokenUsage turn2;
+    turn2.promptTokens = 700;
+    turn2.completionTokens = 20;
+    client.accumulateUsage(id, turn2);
+
+    const auto total = client.totalUsage(id);
+    ASSERT_TRUE(total.has_value());
+    EXPECT_EQ(total->promptTokens, 1200);
+    EXPECT_EQ(total->completionTokens, 60);
+    EXPECT_EQ(total->cachedPromptTokens, 100);
+
+    client.cancelRequest(id);
 }
 
-TEST(TokenUsageClaude, StreamingToolUseDoesNotResetCacheTokensAcrossTurns)
-{
-    UsageDriver<ClaudeClient> client;
-    const auto id = client.createRequest();
-
-    const QByteArray turn1 =
-        "event: message_start\n"
-        "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":1000,"
-        "\"output_tokens\":1,\"cache_read_input_tokens\":0,\"cache_creation_input_tokens\":900}}}\n\n"
-        "event: content_block_start\n"
-        "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\"}}\n\n"
-        "event: content_block_delta\n"
-        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\","
-        "\"text\":\"thinking\"}}\n\n"
-        "event: message_delta\n"
-        "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},"
-        "\"usage\":{\"output_tokens\":40}}\n\n"
-        "event: message_stop\n"
-        "data: {\"type\":\"message_stop\"}\n\n";
-
-    client.processData(id, turn1);
-    client.finalizeTurn(id);
-
-    const QByteArray turn2 =
-        "event: message_start\n"
-        "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":120,"
-        "\"output_tokens\":1,\"cache_read_input_tokens\":1000}}}\n\n"
-        "event: content_block_start\n"
-        "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\"}}\n\n"
-        "event: content_block_delta\n"
-        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\","
-        "\"text\":\"answer\"}}\n\n"
-        "event: message_delta\n"
-        "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},"
-        "\"usage\":{\"output_tokens\":60}}\n\n"
-        "event: message_stop\n"
-        "data: {\"type\":\"message_stop\"}\n\n";
-
-    const auto info = runAndCapture(client, id, [&] { client.processData(id, turn2); });
-
-    ASSERT_TRUE(info.usage.has_value());
-    EXPECT_EQ(info.usage->promptTokens, 1120);
-    EXPECT_EQ(info.usage->completionTokens, 100);
-    EXPECT_EQ(info.usage->cachedPromptTokens, 1000);
-}
+#include "tst_TokenUsage.moc"

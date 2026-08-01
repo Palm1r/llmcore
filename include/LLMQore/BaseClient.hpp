@@ -28,8 +28,8 @@
 
 namespace LLMQore {
 
-class HttpClient;
-class HttpStream;
+class HttpStreamHandle;
+class HttpTransport;
 class ToolLoopRunner;
 class ToolsManager;
 
@@ -70,7 +70,7 @@ struct DataBuffers
 
 struct ActiveRequest
 {
-    HttpStream *stream = nullptr;
+    HttpStreamHandle *stream = nullptr;
 
     bool errorMode = false;
     QByteArray errorBody = {};
@@ -93,6 +93,12 @@ public:
     explicit BaseClient(QObject *parent = nullptr);
     explicit BaseClient(
         const QString &url, const QString &apiKey, const QString &model, QObject *parent = nullptr);
+    explicit BaseClient(
+        const QString &url,
+        const QString &apiKey,
+        const QString &model,
+        HttpTransport *transport,
+        QObject *parent = nullptr);
     ~BaseClient() override;
 
     virtual RequestID sendMessage(
@@ -168,7 +174,8 @@ protected:
 
     virtual void onStreamFinished(const RequestID &id, std::optional<QString> error);
 
-    HttpClient *httpClient() const;
+    HttpTransport *transport() const;
+    HttpTransport *httpClient() const;
     [[nodiscard]] RequestID createRequest();
     void sendRequest(
         const RequestID &id,
@@ -210,7 +217,7 @@ private:
         const QJsonObject &payload,
         RequestMode mode);
 
-    HttpClient *m_httpClient;
+    HttpTransport *m_transport;
     ToolsManager *m_toolsManager = nullptr;
     ToolLoopRunner *m_toolLoop = nullptr;
     QHash<RequestID, ActiveRequest> m_requests;

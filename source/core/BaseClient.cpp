@@ -10,7 +10,7 @@
 
 #include <LLMQore/FutureUtils.hpp>
 #include <LLMQore/HttpClient.hpp>
-#include <LLMQore/HttpStream.hpp>
+#include <LLMQore/HttpTransport.hpp>
 #include <LLMQore/HttpTransportError.hpp>
 #include <LLMQore/Log.hpp>
 #include <LLMQore/ToolLoopRunner.hpp>
@@ -24,11 +24,20 @@ BaseClient::BaseClient(QObject *parent)
 
 BaseClient::BaseClient(
     const QString &url, const QString &apiKey, const QString &model, QObject *parent)
+    : LLMQore::BaseClient(url, apiKey, model, nullptr, parent)
+{}
+
+BaseClient::BaseClient(
+    const QString &url,
+    const QString &apiKey,
+    const QString &model,
+    HttpTransport *transport,
+    QObject *parent)
     : QObject(parent)
     , m_url(url)
     , m_apiKey(apiKey)
     , m_model(model)
-    , m_httpClient(new HttpClient(this))
+    , m_transport(transport ? transport : new HttpClient(this))
 {}
 
 BaseClient::~BaseClient()
@@ -84,19 +93,24 @@ void BaseClient::setModel(const QString &model)
     m_model = model;
 }
 
-HttpClient *BaseClient::httpClient() const
+HttpTransport *BaseClient::transport() const
 {
-    return m_httpClient;
+    return m_transport;
+}
+
+HttpTransport *BaseClient::httpClient() const
+{
+    return m_transport;
 }
 
 int BaseClient::transferTimeoutMs() const
 {
-    return m_httpClient->transferTimeoutMs();
+    return m_transport->transferTimeoutMs();
 }
 
 void BaseClient::setTransferTimeout(int milliseconds)
 {
-    m_httpClient->setTransferTimeout(milliseconds);
+    m_transport->setTransferTimeout(milliseconds);
 }
 
 ToolsManager *BaseClient::tools()
@@ -193,7 +207,7 @@ void BaseClient::startHttpRequest(
     const QByteArray body = QJsonDocument(payload).toJson(QJsonDocument::Compact);
 
     if (mode == RequestMode::Buffered) {
-        (void)LLMQore::compat(m_httpClient->send(request, QByteArrayView("POST"), body))
+        (void)LLMQore::compat(m_transport->send(request, QByteArrayView("POST"), body))
             .then(this, [this, id](const HttpResponse &response) {
                 if (!hasRequest(id))
                     return;
@@ -218,14 +232,14 @@ void BaseClient::startHttpRequest(
         return;
     }
 
-    HttpStream *stream = m_httpClient->openStream(request, QByteArrayView("POST"), body);
+    HttpStreamHandle *stream = m_transport->openStream(request, QByteArrayView("POST"), body);
     it->stream = stream;
     it->errorMode = false;
     it->errorBody.clear();
 
-    QPointer<HttpStream> guardedStream(stream);
+    QPointer<HttpStreamHandle> guardedStream(stream);
 
-    connect(stream, &HttpStream::headersReceived, this, [this, id, guardedStream]() {
+    connect(stream, &HttpStreamHandle::headersReceived, this, [this, id, guardedStream]() {
         if (!guardedStream)
             return;
         auto it = m_requests.find(id);
@@ -236,7 +250,7 @@ void BaseClient::startHttpRequest(
             it->errorMode = true;
     });
 
-    connect(stream, &HttpStream::chunkReceived, this, [this, id, guardedStream](const QByteArray &chunk) {
+    connect(stream, &HttpStreamHandle::chunkReceived, this, [this, id, guardedStream](const QByteArray &chunk) {
         if (!guardedStream)
             return;
         auto it = m_requests.find(id);
@@ -249,7 +263,7 @@ void BaseClient::startHttpRequest(
         processData(id, chunk);
     });
 
-    connect(stream, &HttpStream::finished, this, [this, id, guardedStream]() {
+    connect(stream, &HttpStreamHandle::finished, this, [this, id, guardedStream]() {
         if (!guardedStream) {
             return;
         }
@@ -280,7 +294,7 @@ void BaseClient::startHttpRequest(
         onStreamFinished(id, error);
     });
 
-    connect(stream, &HttpStream::errorOccurred, this,
+    connect(stream, &HttpStreamHandle::errorOccurred, this,
             [this, id, guardedStream](const HttpTransportError &e) {
         if (!guardedStream)
             return;

@@ -9,7 +9,7 @@
 
 #include "ClaudeMessage.hpp"
 #include <LLMQore/FutureUtils.hpp>
-#include <LLMQore/HttpClient.hpp>
+#include <LLMQore/HttpTransport.hpp>
 #include <LLMQore/Log.hpp>
 #include <LLMQore/SSEParser.hpp>
 
@@ -22,6 +22,15 @@ ClaudeClient::ClaudeClient(QObject *parent)
 ClaudeClient::ClaudeClient(
     const QString &url, const QString &apiKey, const QString &model, QObject *parent)
     : BaseClient(url, apiKey, model, parent)
+{}
+
+ClaudeClient::ClaudeClient(
+    const QString &url,
+    const QString &apiKey,
+    const QString &model,
+    HttpTransport *transport,
+    QObject *parent)
+    : BaseClient(url, apiKey, model, transport, parent)
 {}
 
 QNetworkRequest ClaudeClient::prepareNetworkRequest(const QUrl &url) const
@@ -84,7 +93,7 @@ QFuture<QList<QString>> ClaudeClient::listModels(const QString &endpoint)
 
     QNetworkRequest request = prepareNetworkRequest(url);
 
-    return LLMQore::compat(httpClient()->send(request, QByteArrayView("GET")))
+    return LLMQore::compat(transport()->send(request, QByteArrayView("GET")))
         .then(this, [](const HttpResponse &response) {
             QList<QString> models;
             if (!response.isSuccess()) {

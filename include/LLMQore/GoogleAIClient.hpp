@@ -22,6 +22,12 @@ public:
     explicit GoogleAIClient(QObject *parent = nullptr);
     explicit GoogleAIClient(
         const QString &url, const QString &apiKey, const QString &model, QObject *parent = nullptr);
+    explicit GoogleAIClient(
+        const QString &url,
+        const QString &apiKey,
+        const QString &model,
+        HttpTransport *transport,
+        QObject *parent = nullptr);
 
     RequestID sendMessage(
         const QJsonObject &payload,

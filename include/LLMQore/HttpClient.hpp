@@ -12,6 +12,8 @@
 #include <QObject>
 
 #include <LLMQore/HttpResponse.hpp>
+#include <LLMQore/HttpStream.hpp>
+#include <LLMQore/HttpTransport.hpp>
 #include <LLMQore/HttpTransportError.hpp>
 #include <LLMQore/LLMQore_global.h>
 
@@ -20,33 +22,27 @@ class QNetworkRequest;
 
 namespace LLMQore {
 
-class HttpStream;
-
-class LLMQORE_EXPORT HttpClient : public QObject
+class LLMQORE_EXPORT HttpClient : public HttpTransport
 {
     Q_OBJECT
 public:
-    static constexpr int DefaultTransferTimeoutMs = 120000;
-
     explicit HttpClient(QObject *parent = nullptr);
     ~HttpClient() override;
 
     [[nodiscard]] QFuture<HttpResponse> send(
         const QNetworkRequest &request,
         QByteArrayView verb,
-        const QByteArray &body = {});
+        const QByteArray &body = {}) override;
 
     [[nodiscard]] HttpStream *openStream(
         const QNetworkRequest &request,
         QByteArrayView verb,
-        const QByteArray &body = {});
+        const QByteArray &body = {}) override;
 
     void setProxy(const QNetworkProxy &proxy);
 
-    void setTransferTimeout(int milliseconds);
+    using HttpTransport::setTransferTimeout;
     void setTransferTimeout(std::chrono::milliseconds timeout);
-
-    [[nodiscard]] int transferTimeoutMs() const noexcept;
 
 private:
     struct Impl;

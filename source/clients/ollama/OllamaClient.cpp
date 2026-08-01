@@ -8,7 +8,7 @@
 
 #include "OllamaMessage.hpp"
 #include <LLMQore/FutureUtils.hpp>
-#include <LLMQore/HttpClient.hpp>
+#include <LLMQore/HttpTransport.hpp>
 #include <LLMQore/LineBuffer.hpp>
 #include <LLMQore/Log.hpp>
 
@@ -21,6 +21,15 @@ OllamaClient::OllamaClient(QObject *parent)
 OllamaClient::OllamaClient(
     const QString &url, const QString &apiKey, const QString &model, QObject *parent)
     : BaseClient(url, apiKey, model, parent)
+{}
+
+OllamaClient::OllamaClient(
+    const QString &url,
+    const QString &apiKey,
+    const QString &model,
+    HttpTransport *transport,
+    QObject *parent)
+    : BaseClient(url, apiKey, model, transport, parent)
 {}
 
 QNetworkRequest OllamaClient::prepareNetworkRequest(const QUrl &url) const
@@ -64,7 +73,7 @@ QFuture<QList<QString>> OllamaClient::listModels(const QString &endpoint)
     QUrl url(m_url + resolved);
     QNetworkRequest request = prepareNetworkRequest(url);
 
-    return LLMQore::compat(httpClient()->send(request, QByteArrayView("GET")))
+    return LLMQore::compat(transport()->send(request, QByteArrayView("GET")))
         .then(this, [](const HttpResponse &response) {
             QList<QString> models;
             if (!response.isSuccess()) {

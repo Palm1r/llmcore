@@ -6,7 +6,7 @@ Abstract base for every LLM provider client. Owns HTTP transport, request bookke
 
 ## Responsibilities
 
-**HTTP transport.** `BaseClient` wraps `HttpClient` to issue both buffered and streaming HTTP requests. It manages the lifecycle of each streaming reply, wiring chunk and completion signals into internal handlers.
+**HTTP transport.** `BaseClient` issues both buffered and streaming HTTP requests through an `HttpTransport`, and manages the lifecycle of each streaming reply, wiring chunk and completion signals into internal handlers. The transport is a constructor argument -- every provider client accepts one after `model` -- and defaults to a privately owned `HttpClient`; a supplied transport stays owned by the caller. Passing a fake transport is how provider clients are tested end to end (see `tests/FakeHttpTransport.hpp`): SSE bytes go in, `chunkReceived` / `requestCompleted` come out, and the continuation request of a tool round-trip can be inspected as it is sent.
 
 **Request bookkeeping.** Every in-flight request is tracked in a central map keyed by a unique request ID. Each entry holds the stream handle, response buffers, the original URL and payload (needed for tool continuations), a continuation counter, and the captured stop reason. This map is the single source of truth for request state.
 

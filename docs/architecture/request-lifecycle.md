@@ -5,8 +5,8 @@ sequenceDiagram
     participant App as Host app
     participant CC as Provider<br/>(ClaudeClient, ...)
     participant BC as BaseClient
-    participant HC as HttpClient
-    participant HS as HttpStream
+    participant HC as HttpTransport<br/>(HttpClient by default)
+    participant HS as HttpStreamHandle<br/>(HttpStream by default)
     participant SSE as SSEParser
     participant MSG as BaseMessage<br/>(e.g. ClaudeMessage)
     participant TM as ToolsManager
@@ -18,7 +18,7 @@ sequenceDiagram
     CC->>BC: sendRequest(id, url, payload, Streaming)
     BC->>BC: storeRequestContext(id, url, payload)
     BC->>HC: openStream(request, "POST", body)
-    HC->>HS: HttpStream *
+    HC->>HS: HttpStreamHandle *
     Note right of HS: signals: headersReceived,<br/>chunkReceived, finished,<br/>errorOccurred
 
     HS-->>BC: headersReceived

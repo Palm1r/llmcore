@@ -9,7 +9,7 @@
 
 #include "GoogleMessage.hpp"
 #include <LLMQore/FutureUtils.hpp>
-#include <LLMQore/HttpClient.hpp>
+#include <LLMQore/HttpTransport.hpp>
 #include <LLMQore/Log.hpp>
 #include <LLMQore/SSEParser.hpp>
 
@@ -22,6 +22,15 @@ GoogleAIClient::GoogleAIClient(QObject *parent)
 GoogleAIClient::GoogleAIClient(
     const QString &url, const QString &apiKey, const QString &model, QObject *parent)
     : BaseClient(url, apiKey, model, parent)
+{}
+
+GoogleAIClient::GoogleAIClient(
+    const QString &url,
+    const QString &apiKey,
+    const QString &model,
+    HttpTransport *transport,
+    QObject *parent)
+    : BaseClient(url, apiKey, model, transport, parent)
 {}
 
 QNetworkRequest GoogleAIClient::prepareNetworkRequest(const QUrl &url) const
@@ -77,7 +86,7 @@ QFuture<QList<QString>> GoogleAIClient::listModels(const QString &endpoint)
     QUrl url(m_url + resolved);
     QNetworkRequest request = prepareNetworkRequest(url);
 
-    return LLMQore::compat(httpClient()->send(request, QByteArrayView("GET")))
+    return LLMQore::compat(transport()->send(request, QByteArrayView("GET")))
         .then(this, [](const HttpResponse &response) {
             QList<QString> models;
             if (!response.isSuccess()) {

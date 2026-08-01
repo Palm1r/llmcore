@@ -30,8 +30,9 @@ flowchart TD
     end
 
     subgraph Network["Network layer"]
+        HT["HttpTransport<br/><small>injectable transport seam</small>"]
         HC["HttpClient<br/><small>async HTTP transport</small>"]
-        HS["HttpStream<br/><small>streaming reply handle</small>"]
+        HS["HttpStreamHandle / HttpStream<br/><small>streaming reply handle</small>"]
         SSE["SSEParser + LineBuffer<br/><small>event-stream framing</small>"]
     end
 
@@ -46,7 +47,8 @@ flowchart TD
     Public --> BC
     BC --> BM
     BC --> TM
-    BC --> HC
+    BC --> HT
+    HT --> HC
     HC --> HS
     HS --> SSE
     TM --> BT
@@ -68,6 +70,7 @@ include/LLMQore/
 ├── BaseMessage.hpp              ← streaming parser base
 ├── BaseTool.hpp                 ← tool interface
 ├── ContentBlocks.hpp            ← model-output content shapes
+├── HttpTransport.hpp            ← transport interface + stream handle
 ├── HttpClient.hpp               ← transport primitive
 ├── HttpStream.hpp               ← streaming reply handle
 ├── HttpResponse.hpp             ← buffered reply value
@@ -87,8 +90,8 @@ include/LLMQore/
 source/
 ├── core/          BaseClient.cpp, BaseMessage.cpp, Log.cpp
 ├── clients/       claude/, openai/, google/, ollama/, llamacpp/
-├── network/       HttpClient.cpp, HttpStream.cpp, SSEParser.cpp,
-│                  LineBuffer.cpp, HttpRequestParser.cpp,
+├── network/       HttpTransport.cpp, HttpClient.cpp, HttpStream.cpp,
+│                  SSEParser.cpp, LineBuffer.cpp, HttpRequestParser.cpp,
 │                  HttpResponse.cpp, HttpTransportError.cpp
 ├── tools/         BaseTool.cpp, ToolRegistry.cpp, ToolsManager.cpp, ToolResult.cpp,
 │                  ToolHandler.{hpp,cpp}
@@ -103,6 +106,7 @@ Each `source/clients/<vendor>/` holds the `*Client.cpp` + `*Message.{hpp,cpp}` p
 
 - **Provider clients never talk to `McpSession` directly.** MCP tools appear as ordinary `BaseTool` instances in `ToolRegistry`/`ToolsManager` via `McpRemoteTool`. The provider layer is unaware of their origin.
 - **`HttpClient` knows nothing about LLMs, JSON, or MCP.** It is a pure HTTP transport. Only DNS, timeout, SSL, abort, and connection-refused failures surface as transport errors; all HTTP status codes are passed through as response values.
+- **`HttpTransport` is the only way a provider client reaches the network.** `BaseClient` never touches `QNetworkAccessManager` or `QNetworkReply`; it holds an `HttpTransport *` supplied at construction (defaulting to a private `HttpClient`) and consumes streams through the abstract `HttpStreamHandle`. Substituting a transport is therefore enough to drive any provider client end to end without a socket.
 - **`McpTransport` is the only byte-level boundary** on the MCP side. Everything above it operates on parsed JSON objects.
 - **`McpServer` depends on `ToolRegistry`, not `ToolsManager`** -- no `ToolSchemaFormat` needed for MCP servers.
 - **One `ToolsManager` holds tools from multiple sources** (local and MCP), and they are indistinguishable to the continuation payload builder.
