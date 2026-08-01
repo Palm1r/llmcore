@@ -32,6 +32,7 @@ OpenAIResponsesClient::OpenAIResponsesClient(
     QObject *parent)
     : BaseClient(url, apiKey, model, transport, parent)
 {
+    setLogCategory(llmOpenAILog());
     setAuthScheme(
         {.placement = AuthScheme::Placement::Header,
          .name = QStringLiteral("Authorization"),
@@ -66,11 +67,6 @@ RequestID OpenAIResponsesClient::ask(const QString &prompt, RequestMode mode)
 const ToolDialect &OpenAIResponsesClient::toolDialect() const
 {
     return OpenAIResponsesMessage::toolDialect();
-}
-
-const QLoggingCategory &OpenAIResponsesClient::logCategory() const
-{
-    return llmOpenAILog();
 }
 
 QFuture<QList<QString>> OpenAIResponsesClient::listModels(const QString &endpoint)

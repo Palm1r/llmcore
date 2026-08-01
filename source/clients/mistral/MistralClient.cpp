@@ -18,7 +18,7 @@ MistralClient::MistralClient(QObject *parent)
 
 MistralClient::MistralClient(
     const QString &url, const QString &apiKey, const QString &model, QObject *parent)
-    : OpenAIClient(url, apiKey, model, parent)
+    : MistralClient(url, apiKey, model, nullptr, parent)
 {}
 
 MistralClient::MistralClient(
@@ -28,11 +28,8 @@ MistralClient::MistralClient(
     HttpTransport *transport,
     QObject *parent)
     : OpenAIClient(url, apiKey, model, transport, parent)
-{}
-
-const QLoggingCategory &MistralClient::logCategory() const
 {
-    return llmMistralLog();
+    setLogCategory(llmMistralLog());
 }
 
 RequestID MistralClient::sendMessage(

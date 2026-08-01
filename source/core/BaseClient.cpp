@@ -65,6 +65,7 @@ struct BaseClient::Impl
     QHash<QString, QString> headers;
     ToolsManager *toolsManager = nullptr;
     int maxToolRounds = BaseClient::kDefaultMaxToolRounds;
+    const QLoggingCategory *logCategory = &llmQoreLog();
     QHash<RequestID, ActiveRequest> requests;
 };
 
@@ -326,7 +327,12 @@ void BaseClient::sendRequest(
 
 const QLoggingCategory &BaseClient::logCategory() const
 {
-    return llmQoreLog();
+    return *m_impl->logCategory;
+}
+
+void BaseClient::setLogCategory(const QLoggingCategory &category)
+{
+    m_impl->logCategory = &category;
 }
 
 void BaseClient::cleanupDerivedData(const RequestID &)

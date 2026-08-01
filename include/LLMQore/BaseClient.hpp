@@ -163,8 +163,9 @@ protected:
     virtual void cleanupDerivedData(const RequestID &id);
 
     // Which category the shared code logs under, so each provider still
-    // reports under its own name.
-    [[nodiscard]] virtual const QLoggingCategory &logCategory() const;
+    // reports under its own name. Set once, in the subclass constructor.
+    [[nodiscard]] const QLoggingCategory &logCategory() const;
+    void setLogCategory(const QLoggingCategory &category);
 
     [[nodiscard]] virtual QString parseHttpError(const HttpResponse &response) const;
 

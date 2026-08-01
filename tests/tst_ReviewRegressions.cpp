@@ -21,6 +21,7 @@
 #include <LLMQore/HttpClient.hpp>
 #include <LLMQore/HttpStream.hpp>
 #include <LLMQore/LlamaCppClient.hpp>
+#include <LLMQore/MistralClient.hpp>
 #include <LLMQore/OllamaClient.hpp>
 #include <LLMQore/OpenAIClient.hpp>
 #include <LLMQore/OpenAIResponsesClient.hpp>
@@ -358,6 +359,45 @@ TEST(ListModels, ClaudeAsksForTheFullPage)
     EXPECT_EQ(models, (QList<QString>{"claude-x"}));
 }
 
+TEST(ListModels, MistralKeepsTheV1Prefix)
+{
+    FakeHttpTransport transport;
+    MistralClient client("http://fake.local", "sk-test", "mistral-test", &transport);
+
+    auto future = client.listModels();
+    ASSERT_EQ(transport.bufferedCount(), 1);
+    EXPECT_EQ(transport.bufferedRequest(0).url(), QUrl("http://fake.local/v1/models"));
+
+    const auto models = resolveModels(transport, future, 200, R"({"data":[{"id":"mistral-a"}]})");
+    EXPECT_EQ(models, (QList<QString>{"mistral-a"}));
+}
+
+TEST(ListModels, LlamaCppKeepsTheV1Prefix)
+{
+    FakeHttpTransport transport;
+    LlamaCppClient client("http://fake.local", "", "local-test", &transport);
+
+    auto future = client.listModels();
+    ASSERT_EQ(transport.bufferedCount(), 1);
+    EXPECT_EQ(transport.bufferedRequest(0).url(), QUrl("http://fake.local/v1/models"));
+
+    const auto models = resolveModels(transport, future, 200, R"({"data":[{"id":"qwen.gguf"}]})");
+    EXPECT_EQ(models, (QList<QString>{"qwen.gguf"}));
+}
+
+TEST(ListModels, OpenAIResponsesReadsDataIdPairs)
+{
+    FakeHttpTransport transport;
+    OpenAIResponsesClient client("http://fake.local/v1", "sk-test", "gpt-test", &transport);
+
+    auto future = client.listModels();
+    ASSERT_EQ(transport.bufferedCount(), 1);
+    EXPECT_EQ(transport.bufferedRequest(0).url(), QUrl("http://fake.local/v1/models"));
+
+    const auto models = resolveModels(transport, future, 200, R"({"data":[{"id":"gpt-5"}]})");
+    EXPECT_EQ(models, (QList<QString>{"gpt-5"}));
+}
+
 TEST(ListModels, HttpErrorYieldsAnEmptyList)
 {
     FakeHttpTransport transport;
@@ -436,6 +476,41 @@ TEST(ParseHttpError, OpenAILabelsTypeAndCodeAndSkipsMissingOnes)
     ASSERT_EQ(failed.count(), 1);
     EXPECT_EQ(failed.first().at(1).toString(),
               QStringLiteral("HTTP 400: bad request (type: invalid_request_error)"));
+}
+
+TEST(ParseHttpError, OllamaReadsTheBareErrorString)
+{
+    FakeHttpTransport transport;
+    OllamaClient client("http://fake.local", "", "llama-test", &transport);
+
+    QSignalSpy failed(&client, &BaseClient::requestFailed);
+
+    client.ask(QStringLiteral("hi"));
+    auto *stream = transport.lastStream();
+    stream->sendHeaders(404);
+    stream->sendChunk(R"({"error":"model 'llama-test' not found"})");
+    stream->sendFinished();
+
+    ASSERT_EQ(failed.count(), 1);
+    EXPECT_EQ(failed.first().at(1).toString(),
+              QStringLiteral("HTTP 404: model 'llama-test' not found"));
+}
+
+TEST(ParseHttpError, OllamaWithoutAnErrorFieldFallsBackToTheSnippet)
+{
+    FakeHttpTransport transport;
+    OllamaClient client("http://fake.local", "", "llama-test", &transport);
+
+    QSignalSpy failed(&client, &BaseClient::requestFailed);
+
+    client.ask(QStringLiteral("hi"));
+    auto *stream = transport.lastStream();
+    stream->sendHeaders(500);
+    stream->sendChunk(R"({"detail":"boom"})");
+    stream->sendFinished();
+
+    ASSERT_EQ(failed.count(), 1);
+    EXPECT_EQ(failed.first().at(1).toString(), QStringLiteral(R"(HTTP 500: {"detail":"boom"})"));
 }
 
 TEST(ParseHttpError, BodyWithoutAnErrorObjectFallsBackToTheSnippet)
@@ -798,6 +873,48 @@ TEST(ListModels, TransportFailureYieldsAnEmptyList)
 
     ASSERT_TRUE(future.isFinished());
     EXPECT_TRUE(future.result().isEmpty());
+}
+
+namespace {
+
+template<typename T>
+class CategoryProbe : public T
+{
+public:
+    using T::T;
+    using T::logCategory;
+};
+
+} // namespace
+
+TEST(LogCategory, EveryProviderReportsUnderItsOwnName)
+{
+    CategoryProbe<ClaudeClient> claude;
+    CategoryProbe<OpenAIClient> openai;
+    CategoryProbe<OllamaClient> ollama;
+    CategoryProbe<GoogleAIClient> google;
+
+    EXPECT_STREQ(claude.logCategory().categoryName(), "llmqore.claude");
+    EXPECT_STREQ(openai.logCategory().categoryName(), "llmqore.openai");
+    EXPECT_STREQ(ollama.logCategory().categoryName(), "llmqore.ollama");
+    EXPECT_STREQ(google.logCategory().categoryName(), "llmqore.google");
+}
+
+TEST(LogCategory, OpenAIDerivedClientsKeepTheirOwnNameOnEveryConstructor)
+{
+    CategoryProbe<MistralClient> mistralPlain;
+    CategoryProbe<LlamaCppClient> llamaPlain;
+
+    EXPECT_STREQ(mistralPlain.logCategory().categoryName(), "llmqore.mistral");
+    EXPECT_STREQ(llamaPlain.logCategory().categoryName(), "llmqore.llamacpp");
+
+    CategoryProbe<MistralClient> mistral("http://fake.local", "k", "m");
+    CategoryProbe<LlamaCppClient> llama("http://fake.local", "", "m");
+
+    EXPECT_STREQ(mistral.logCategory().categoryName(), "llmqore.mistral")
+        << "the transport-less constructor must not fall through to the OpenAI category";
+    EXPECT_STREQ(llama.logCategory().categoryName(), "llmqore.llamacpp")
+        << "the transport-less constructor must not fall through to the OpenAI category";
 }
 
 #include "tst_ReviewRegressions.moc"

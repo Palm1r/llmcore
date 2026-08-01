@@ -41,7 +41,6 @@ protected:
     void processBufferedResponse(const RequestID &id, const QByteArray &data) override;
     void processSseEvent(
         const RequestID &id, const SSEEvent &event, const QJsonObject &json) override;
-    [[nodiscard]] const QLoggingCategory &logCategory() const override;
 
 private:
     // llama.cpp's own /completion shape: bare text, no `choices` envelope.

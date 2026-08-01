@@ -44,19 +44,7 @@ BridgeServer::BridgeServer(const BridgeConfig &config, QObject *parent)
 
 void BridgeServer::start()
 {
-    for (const UpstreamEntry &entry : m_config.upstreams) {
-        ServerEndpoint endpoint;
-        endpoint.name = entry.name;
-        if (entry.type == UpstreamType::Sse) {
-            endpoint.url = entry.url;
-            endpoint.headers = entry.headers;
-            endpoint.httpSpec = entry.httpSpec;
-        } else {
-            endpoint.command = entry.command;
-            endpoint.arguments = entry.args;
-            endpoint.env = entry.env;
-        }
-
+    for (const ServerEndpoint &endpoint : m_config.upstreams) {
         Rpc::Transport *transport = makeTransport(endpoint, this);
         if (!transport)
             continue;
@@ -68,12 +56,12 @@ void BridgeServer::start()
             this);
 
         Upstream upstream;
-        upstream.name = entry.name;
+        upstream.name = endpoint.name;
         upstream.transport = transport;
         upstream.client = client;
         m_upstreams.append(upstream);
 
-        const QString name = entry.name;
+        const QString name = endpoint.name;
         connect(client, &McpClient::errorOccurred, this, [name](const QString &err) {
             qWarning().noquote() << QString("[%1] error: %2").arg(name, err);
         });

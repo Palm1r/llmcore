@@ -18,7 +18,7 @@ LlamaCppClient::LlamaCppClient(QObject *parent)
 
 LlamaCppClient::LlamaCppClient(
     const QString &url, const QString &apiKey, const QString &model, QObject *parent)
-    : OpenAIClient(url, apiKey, model, parent)
+    : LlamaCppClient(url, apiKey, model, nullptr, parent)
 {}
 
 LlamaCppClient::LlamaCppClient(
@@ -28,11 +28,8 @@ LlamaCppClient::LlamaCppClient(
     HttpTransport *transport,
     QObject *parent)
     : OpenAIClient(url, apiKey, model, transport, parent)
-{}
-
-const QLoggingCategory &LlamaCppClient::logCategory() const
 {
-    return llmLlamaCppLog();
+    setLogCategory(llmLlamaCppLog());
 }
 
 RequestID LlamaCppClient::sendMessage(

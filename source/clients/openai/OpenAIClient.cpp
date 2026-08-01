@@ -33,6 +33,7 @@ OpenAIClient::OpenAIClient(
     QObject *parent)
     : BaseClient(url, apiKey, model, transport, parent)
 {
+    setLogCategory(llmOpenAILog());
     setAuthScheme(
         {.placement = AuthScheme::Placement::Header,
          .name = QStringLiteral("Authorization"),
@@ -43,11 +44,6 @@ OpenAIClient::OpenAIClient(
 const ToolDialect &OpenAIClient::toolDialect() const
 {
     return OpenAIMessage::toolDialect();
-}
-
-const QLoggingCategory &OpenAIClient::logCategory() const
-{
-    return llmOpenAILog();
 }
 
 RequestID OpenAIClient::sendMessage(

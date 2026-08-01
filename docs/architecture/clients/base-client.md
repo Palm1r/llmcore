@@ -49,8 +49,9 @@ Override only when the provider deviates:
 - `takePendingStreamError(id)` -- an error the provider recognised mid-stream but could not act on yet. The base drains it before concluding the stream succeeded. Google alone uses it, for the 200-with-error-body case its sniffer catches.
 - `onStreamDrained(id)` -- the stream is drained and the request is still alive; last chance to finish the message off before the base reads its state. Google dispatches its tool calls here, because its finish reason arrives inside a candidate rather than as an event of its own.
 - `cleanupDerivedData(id)` -- per-request state beyond the message object. Only providers that keep survives-the-turn bookkeeping need it (Google's failed-request set and error sniffers, Responses' item-id map).
-- `logCategory()` -- the category the shared base code logs under, so a subclass does not report under its parent's name.
 - `onStreamFinished(id, error)` -- the whole end-of-stream sequence. Nothing in the tree overrides it, and nothing should: the hooks above are the seams cut out of it.
+
+Not a hook, but the same idea: `setLogCategory()` decides which category the shared base code logs under, so a subclass does not report under its parent's name. Call it once, first thing in the constructor. A client that derives from another (Mistral, llama.cpp) must route every one of its constructors through the one that sets it.
 
 ### End of stream
 
@@ -123,6 +124,6 @@ Errors reach the caller through three paths:
 2. Add a public header under `include/LLMQore/`, and list it in the `include/LLMQore/Clients` umbrella header.
 3. In the translator's `.cpp`, define the provider's `ToolDialect` subclass (anonymous namespace) and expose it through a static `FooMessage::toolDialect()`. Both directions of the format -- schema out, tool results back -- belong in this one file.
 4. Implement the pure virtuals: `sendMessage`, `ask`, `listModels`, `toolDialect`, `processBufferedResponse`, `buildContinuationPayload`. Seed the default `AuthScheme` and header map in the constructor -- there is no request-building hook to override.
-5. Override `processSseEvent()` for the streaming path, and `logCategory()` so the shared base code logs under the new provider's name. A provider that is not SSE-framed overrides `processData()` and `flushStreamBuffers()` instead.
+5. Override `processSseEvent()` for the streaming path, and call `setLogCategory()` in the constructor so the shared base code logs under the new provider's name. A provider that is not SSE-framed overrides `processData()` and `flushStreamBuffers()` instead.
 6. Use `ensureMessage<FooMessage>(id)` in the stream handler; do not keep a message map in the client.
 7. Add unit tests: constructor sanity and header shape (`tst_RequestHeaders` is parameterised over every provider), the tool schema shape in `tst_ToolsManager`, model listing over `FakeHttpTransport` in `ListModels`, error rendering in `ParseHttpError`, and translator behaviour in a `tst_FooMessage` suite that needs no event loop.

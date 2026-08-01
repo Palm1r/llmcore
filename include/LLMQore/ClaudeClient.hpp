@@ -48,7 +48,6 @@ protected:
         BaseMessage *message,
         const QHash<QString, ToolResult> &toolResults) override;
     [[nodiscard]] QString parseHttpError(const HttpResponse &response) const override;
-    [[nodiscard]] const QLoggingCategory &logCategory() const override;
 
 };
 

@@ -31,6 +31,7 @@ OllamaClient::OllamaClient(
     QObject *parent)
     : BaseClient(url, apiKey, model, transport, parent)
 {
+    setLogCategory(llmOllamaLog());
     setAuthScheme(
         {.placement = AuthScheme::Placement::Header,
          .name = QStringLiteral("Authorization"),
@@ -65,11 +66,6 @@ RequestID OllamaClient::ask(const QString &prompt, RequestMode mode)
 const ToolDialect &OllamaClient::toolDialect() const
 {
     return OllamaMessage::toolDialect();
-}
-
-const QLoggingCategory &OllamaClient::logCategory() const
-{
-    return llmOllamaLog();
 }
 
 QFuture<QList<QString>> OllamaClient::listModels(const QString &endpoint)

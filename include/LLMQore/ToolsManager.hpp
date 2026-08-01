@@ -15,6 +15,7 @@
 #include <QUrl>
 
 #include <LLMQore/LLMQore_global.h>
+#include <LLMQore/McpProvisioning.hpp>
 #include <LLMQore/ToolRegistry.hpp>
 #include <LLMQore/ToolResult.hpp>
 #include <LLMQore/ToolDialect.hpp>
@@ -22,26 +23,6 @@
 namespace LLMQore::Mcp {
 class McpClient;
 struct ToolInfo;
-}
-
-namespace LLMQore {
-
-struct LLMQORE_EXPORT McpServerEntry
-{
-    QString name;
-
-    // stdio
-    QString command;
-    QStringList arguments;
-    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-    QString workingDirectory;
-
-    // http (if set, stdio fields are ignored)
-    QUrl url;
-    QHash<QString, QString> headers;
-    QString httpSpec; // "2024-11-05" for legacy SSE, empty for latest
-};
-
 }
 
 namespace LLMQore {
@@ -82,7 +63,7 @@ class LLMQORE_EXPORT ToolsManager : public ToolRegistry
 public:
     explicit ToolsManager(const ToolDialect &dialect, QObject *parent = nullptr);
 
-    void addMcpServer(const McpServerEntry &entry);
+    void addMcpServer(const Mcp::ServerEndpoint &endpoint);
     void loadMcpServers(const QJsonObject &config);
     void addMcpClient(Mcp::McpClient *client);
     void removeMcpClient(Mcp::McpClient *client);

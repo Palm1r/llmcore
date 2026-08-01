@@ -35,31 +35,25 @@ void ToolsManager::removeAllTools()
     m_mcpClientTools.clear();
 }
 
-void ToolsManager::addMcpServer(const McpServerEntry &entry)
+void ToolsManager::addMcpServer(const Mcp::ServerEndpoint &endpoint)
 {
-    Mcp::ServerEndpoint endpoint;
-    endpoint.name = entry.name;
-    endpoint.url = entry.url;
-    endpoint.headers = entry.headers;
-    endpoint.httpSpec = entry.httpSpec;
-    endpoint.command = entry.command;
-    endpoint.arguments = entry.arguments;
-    endpoint.env = entry.env;
-    endpoint.workingDirectory = entry.workingDirectory;
-
     Rpc::Transport *transport = Mcp::makeTransport(endpoint, this);
     if (!transport)
         return;
 
     auto *client = new Mcp::McpClient(
-        transport, Mcp::Implementation{entry.name, QStringLiteral(LLMQORE_VERSION_STRING)}, this);
+        transport,
+        Mcp::Implementation{endpoint.name, QStringLiteral(LLMQORE_VERSION_STRING)},
+        this);
+
+    const QString name = endpoint.name;
 
     (void)LLMQore::compat(client->connectAndInitialize())
         .then(this, [this, client](const Mcp::InitializeResult &) { addMcpClient(client); })
-        .onFailed(this, [entry](const std::exception &e) {
+        .onFailed(this, [name](const std::exception &e) {
             qCWarning(llmToolsLog).noquote()
                 << QString("Failed to connect MCP server '%1': %2")
-                       .arg(entry.name, QString::fromUtf8(e.what()));
+                       .arg(name, QString::fromUtf8(e.what()));
         });
 }
 
@@ -68,29 +62,29 @@ void ToolsManager::loadMcpServers(const QJsonObject &config)
     const QJsonObject servers = config["mcpServers"].toObject();
     for (auto it = servers.begin(); it != servers.end(); ++it) {
         const QJsonObject server = it.value().toObject();
-        McpServerEntry entry;
-        entry.name = it.key();
+        Mcp::ServerEndpoint endpoint;
+        endpoint.name = it.key();
 
         if (server.contains("url")) {
-            entry.url = QUrl(server["url"].toString());
-            entry.httpSpec = server["spec"].toString();
+            endpoint.url = QUrl(server["url"].toString());
+            endpoint.httpSpec = server["spec"].toString();
             const QJsonObject headers = server["headers"].toObject();
             for (auto h = headers.begin(); h != headers.end(); ++h)
-                entry.headers.insert(h.key(), h.value().toString());
+                endpoint.headers.insert(h.key(), h.value().toString());
         } else {
-            entry.command = server["command"].toString();
+            endpoint.command = server["command"].toString();
             const QJsonArray args = server["args"].toArray();
             for (const auto &arg : args)
-                entry.arguments.append(arg.toString());
+                endpoint.arguments.append(arg.toString());
             const QJsonObject envObj = server["env"].toObject();
             if (!envObj.isEmpty()) {
                 for (auto e = envObj.begin(); e != envObj.end(); ++e)
-                    entry.env.insert(e.key(), e.value().toString());
+                    endpoint.env.insert(e.key(), e.value().toString());
             }
-            entry.workingDirectory = server["workingDirectory"].toString();
+            endpoint.workingDirectory = server["workingDirectory"].toString();
         }
 
-        addMcpServer(entry);
+        addMcpServer(endpoint);
     }
 }
 

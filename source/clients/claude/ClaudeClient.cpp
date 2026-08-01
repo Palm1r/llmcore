@@ -32,6 +32,7 @@ ClaudeClient::ClaudeClient(
     QObject *parent)
     : BaseClient(url, apiKey, model, transport, parent)
 {
+    setLogCategory(llmClaudeLog());
     setAuthScheme({.placement = AuthScheme::Placement::Header, .name = QStringLiteral("x-api-key")});
     setHeaders(
         {{QStringLiteral("Content-Type"), QStringLiteral("application/json")},
@@ -66,11 +67,6 @@ RequestID ClaudeClient::ask(const QString &prompt, RequestMode mode)
 const ToolDialect &ClaudeClient::toolDialect() const
 {
     return ClaudeMessage::toolDialect();
-}
-
-const QLoggingCategory &ClaudeClient::logCategory() const
-{
-    return llmClaudeLog();
 }
 
 QFuture<QList<QString>> ClaudeClient::listModels(const QString &endpoint)

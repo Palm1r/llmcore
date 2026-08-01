@@ -55,10 +55,6 @@ protected:
     // Reads `usage` off any response object -- streamed chunk or buffered body.
     void applyUsage(const RequestID &id, const QJsonObject &responseObject);
 
-    // Which category the shared code logs under, so an OpenAI-compatible
-    // provider still reports under its own name.
-    [[nodiscard]] const QLoggingCategory &logCategory() const override;
-
 private:
     static QString takeReasoningAndText(OpenAIMessage *message, const QJsonObject &source);
     void processStreamChunk(const RequestID &id, const QJsonObject &chunk);

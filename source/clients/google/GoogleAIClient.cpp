@@ -31,6 +31,7 @@ GoogleAIClient::GoogleAIClient(
     QObject *parent)
     : BaseClient(url, apiKey, model, transport, parent)
 {
+    setLogCategory(llmGoogleLog());
     setAuthScheme(
         {.placement = AuthScheme::Placement::QueryParam, .name = QStringLiteral("key")});
     setHeaders({{QStringLiteral("Content-Type"), QStringLiteral("application/json")}});
@@ -69,11 +70,6 @@ RequestID GoogleAIClient::ask(const QString &prompt, RequestMode mode)
 const ToolDialect &GoogleAIClient::toolDialect() const
 {
     return GoogleMessage::toolDialect();
-}
-
-const QLoggingCategory &GoogleAIClient::logCategory() const
-{
-    return llmGoogleLog();
 }
 
 QFuture<QList<QString>> GoogleAIClient::listModels(const QString &endpoint)

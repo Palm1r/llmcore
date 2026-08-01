@@ -27,9 +27,6 @@ public:
         RequestMode mode = RequestMode::Streaming) override;
 
     QFuture<QList<QString>> listModels(const QString &endpoint = {}) override;
-
-protected:
-    [[nodiscard]] const QLoggingCategory &logCategory() const override;
 };
 
 } // namespace LLMQore
