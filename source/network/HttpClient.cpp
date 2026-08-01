@@ -3,6 +3,7 @@
 
 #include <LLMQore/HttpClient.hpp>
 
+#include <algorithm>
 #include <memory>
 
 #include <QNetworkAccessManager>
@@ -132,7 +133,15 @@ HttpStream *HttpClient::openStream(
 
     QNetworkReply *reply = dispatchVerb(m_impl->manager, req, verb, body);
     auto *stream = new HttpStream(reply);
-    m_impl->streams.append(stream);
+
+    auto &streams = m_impl->streams;
+    streams.erase(
+        std::remove_if(
+            streams.begin(),
+            streams.end(),
+            [](const QPointer<HttpStream> &s) { return s.isNull(); }),
+        streams.end());
+    streams.append(stream);
     return stream;
 }
 

@@ -64,14 +64,12 @@ struct PendingTool
 // swallowed by the dedup.
 struct ToolRound
 {
-    int index = 0;
     QList<PendingTool> queue;
     QHash<QString, PendingTool> completed;
     bool isExecuting = false;
 
     void beginNextRound()
     {
-        ++index;
         queue.clear();
         completed.clear();
     }

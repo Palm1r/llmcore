@@ -714,4 +714,77 @@ TEST(ThinkingEmission, ABlockIsAnnouncedOnlyOnceAcrossRepeatedNotifications)
     EXPECT_EQ(thinking.first().at(1).toString(), QStringLiteral("one two"));
 }
 
+// --- T12: defects found while verifying T1-T9 ---
+
+TEST(ReviewRegression, HttpClientForgetsStreamsTheCallerAlreadyTook)
+{
+    auto client = std::make_unique<HttpClient>();
+    QNetworkRequest request(QUrl("http://127.0.0.1:1/never"));
+
+    for (int i = 0; i < 8; ++i) {
+        QPointer<HttpStreamHandle> taken = client->openStream(request, QByteArrayView("GET"));
+        ASSERT_FALSE(taken.isNull());
+        delete taken.data();
+        ASSERT_TRUE(taken.isNull());
+    }
+
+    QPointer<HttpStreamHandle> live = client->openStream(request, QByteArrayView("GET"));
+    ASSERT_FALSE(live.isNull());
+
+    client.reset();
+    EXPECT_TRUE(live.isNull())
+        << "pruning the dead entries must not lose the one stream still owned by the client";
+}
+
+TEST(ReviewRegression, GoogleCompletionInfoCarriesItsOwnConversationKey)
+{
+    FakeHttpTransport transport;
+    GoogleAIClient client("http://fake.local", "key", "gemini-test", &transport);
+    client.tools()->addTool(new EchoTool(QStringLiteral("42")));
+
+    QSignalSpy finalized(&client, &BaseClient::requestFinalized);
+
+    client.ask(QStringLiteral("what is six times seven?"));
+    ASSERT_EQ(transport.streamCount(), 1);
+
+    transport.lastStream()->sendAll(
+        "data: {\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":"
+        "{\"name\":\"echo\",\"args\":{\"value\":\"7\"}}}]},\"finishReason\":\"STOP\"}]}\n\n");
+
+    ASSERT_TRUE(LLMQoreTest::waitForStreams(transport, 2));
+
+    transport.lastStream()->sendAll(
+        "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"42\"}]},"
+        "\"finishReason\":\"STOP\"}]}\n\n");
+
+    ASSERT_EQ(finalized.count(), 1);
+    const QJsonObject payload = finalizedInfo(finalized).requestPayload;
+
+    EXPECT_FALSE(payload.contains("messages"))
+        << "a host that reads `messages` back gets nothing from Gemini";
+
+    const QJsonArray contents = payload.value("contents").toArray();
+    ASSERT_EQ(contents.size(), 3)
+        << "the model turn and the function response must survive the loop";
+    EXPECT_EQ(contents.at(0).toObject().value("role").toString(), QStringLiteral("user"));
+    EXPECT_EQ(contents.at(1).toObject().value("role").toString(), QStringLiteral("model"));
+    EXPECT_EQ(contents.at(2).toObject().value("role").toString(), QStringLiteral("function"));
+}
+
+TEST(ListModels, TransportFailureYieldsAnEmptyList)
+{
+    FakeHttpTransport transport;
+    OpenAIClient client("http://fake.local/v1", "sk-test", "gpt-test", &transport);
+
+    auto future = client.listModels();
+    ASSERT_EQ(transport.bufferedCount(), 1);
+
+    transport.failLast(QStringLiteral("connection refused"));
+    for (int i = 0; i < 16 && !future.isFinished(); ++i)
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
+
+    ASSERT_TRUE(future.isFinished());
+    EXPECT_TRUE(future.result().isEmpty());
+}
+
 #include "tst_ReviewRegressions.moc"

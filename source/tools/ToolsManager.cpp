@@ -283,9 +283,7 @@ void ToolsManager::executeNextTool(const QString &requestId)
     }
 
     qCDebug(llmToolsLog).noquote()
-        << QString("All tools complete for request %1 (round %2), emitting results")
-               .arg(requestId)
-               .arg(queue.index);
+        << QString("All tools complete for request %1, emitting results").arg(requestId);
 
     const QHash<QString, ToolResult> results = getToolResults(requestId);
 

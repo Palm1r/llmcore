@@ -224,8 +224,8 @@ TEST(AcpTypes, SessionUpdateUsageRoundTrip)
 
     const SessionUpdate back = SessionUpdate::fromJson(obj);
     EXPECT_EQ(back.sessionUpdate, "usage_update");
-    EXPECT_EQ(back.usage.value("inputTokens").toInt(), 120);
-    EXPECT_EQ(back.usage.value("outputTokens").toInt(), 34);
+    EXPECT_EQ(back.usage, u.usage)
+        << "usage must come back exactly as written, without the envelope's own key";
 }
 
 TEST(AcpTypes, SessionUpdateSessionInfoRoundTrip)

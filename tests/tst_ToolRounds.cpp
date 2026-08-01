@@ -120,7 +120,6 @@ TEST(ToolRounds, ResultsHandedToTheLoopAreScopedToTheClosingRound)
     transport.lastStream()->sendAll(toolCallTurn("call_b"));
     ASSERT_TRUE(LLMQoreTest::waitForStreams(transport, 3));
 
-    // Round 2's continuation must carry one tool message, not both rounds'.
     const QJsonArray messages = transport.streamRequest(2).payload().value("messages").toArray();
     int toolMessages = 0;
     for (const QJsonValue &m : messages) {
@@ -232,6 +231,29 @@ TEST(ToolRounds, MaxToolContinuationsIsClampedToAtLeastOne)
 
     client.setMaxToolContinuations(0);
     EXPECT_EQ(client.maxToolContinuations(), 1);
+}
+
+TEST(ToolRounds, ASecondRequestStartsItsOwnRoundCount)
+{
+    FakeHttpTransport transport;
+    OpenAIClient client("http://fake.local/v1", "sk-test", "gpt-test", &transport);
+    client.tools()->addTool(new CountingTool(&client));
+
+    const RequestID first = client.ask(QStringLiteral("one"));
+    transport.lastStream()->sendAll(toolCallTurn("call_1"));
+    ASSERT_TRUE(LLMQoreTest::waitForStreams(transport, 2));
+    transport.lastStream()->sendAll(toolCallTurn("call_2"));
+    ASSERT_TRUE(LLMQoreTest::waitForStreams(transport, 3));
+    EXPECT_EQ(client.toolRounds(first), 2);
+
+    transport.lastStream()->sendAll(finalTurn("done"));
+    EXPECT_EQ(client.toolRounds(first), 0);
+
+    const RequestID second = client.ask(QStringLiteral("two"));
+    transport.lastStream()->sendAll(toolCallTurn("call_1"));
+    ASSERT_TRUE(LLMQoreTest::waitForStreams(transport, 5));
+    EXPECT_EQ(client.toolRounds(second), 1)
+        << "the round count is the request's own, not a counter carried over by ToolsManager";
 }
 
 TEST(ToolRounds, CancelClearsTheLedger)

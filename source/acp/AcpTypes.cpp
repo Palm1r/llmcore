@@ -758,8 +758,10 @@ SessionUpdate SessionUpdate::fromJson(const QJsonObject &obj)
     for (const QJsonValue &v : obj.value("availableCommands").toArray())
         u.availableCommands.append(AvailableCommand::fromJson(v.toObject()));
     u.currentModeId = obj.value("currentModeId").toString();
-    if (u.sessionUpdate == QLatin1String(SessionUpdateKind::UsageUpdate))
+    if (u.sessionUpdate == QLatin1String(SessionUpdateKind::UsageUpdate)) {
         u.usage = obj;
+        u.usage.remove(QStringLiteral("sessionUpdate"));
+    }
     u.title = obj.value("title").toString();
     return u;
 }

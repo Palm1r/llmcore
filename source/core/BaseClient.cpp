@@ -369,13 +369,13 @@ QFuture<QList<QString>> BaseClient::fetchModelList(
     const std::function<QString(QString)> &idMapper)
 {
     const QNetworkRequest request = prepareNetworkRequest(url);
-    const QLoggingCategory &cat = logCategory();
+    const QLoggingCategory *cat = &logCategory();
 
     return LLMQore::compat(transport()->send(request, QByteArrayView("GET")))
-        .then(this, [&cat, arrayKey, idKey, idMapper](const HttpResponse &response) {
+        .then(this, [cat, arrayKey, idKey, idMapper](const HttpResponse &response) {
             QList<QString> models;
             if (!response.isSuccess()) {
-                qCDebug(cat).noquote()
+                qCDebug(*cat).noquote()
                     << QString("Error fetching models: HTTP %1").arg(response.statusCode);
                 return models;
             }
@@ -393,8 +393,8 @@ QFuture<QList<QString>> BaseClient::fetchModelList(
             }
             return models;
         })
-        .onFailed(this, [&cat](const std::exception &e) {
-            qCDebug(cat).noquote() << QString("Error fetching models: %1").arg(e.what());
+        .onFailed(this, [cat](const std::exception &e) {
+            qCDebug(*cat).noquote() << QString("Error fetching models: %1").arg(e.what());
             return QList<QString>{};
         });
 }
