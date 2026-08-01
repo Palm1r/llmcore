@@ -31,6 +31,7 @@ add_executable(LLMQoreUnitTests
     tst_McpTypes.cpp
     tst_McpLoopback.cpp
     tst_McpToolBinder.cpp
+    tst_McpStdioServerTransport.cpp
     tst_AcpTypes.cpp
     tst_AcpLoopback.cpp
     tst_AcpProviders.cpp
