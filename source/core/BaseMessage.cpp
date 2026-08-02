@@ -3,8 +3,6 @@
 
 #include <LLMQore/BaseMessage.hpp>
 
-#include <QJsonDocument>
-
 namespace LLMQore {
 
 BaseMessage::BaseMessage(QObject *parent)
@@ -13,7 +11,7 @@ BaseMessage::BaseMessage(QObject *parent)
 
 BaseMessage::~BaseMessage() = default;
 
-QList<ToolUseContent> BaseMessage::getCurrentToolUseContent() const
+QList<ToolUseContent> BaseMessage::currentToolUseContent() const
 {
     QList<ToolUseContent> toolBlocks;
     for (const TurnContent &block : m_currentBlocks) {
@@ -23,7 +21,7 @@ QList<ToolUseContent> BaseMessage::getCurrentToolUseContent() const
     return toolBlocks;
 }
 
-QList<ThinkingContent> BaseMessage::getCurrentThinkingContent() const
+QList<ThinkingContent> BaseMessage::currentThinkingContent() const
 {
     QList<ThinkingContent> thinkingBlocks;
     for (const TurnContent &block : m_currentBlocks) {
@@ -37,16 +35,18 @@ QList<PendingThinkingNotification> BaseMessage::takePendingThinkingNotifications
 {
     QList<PendingThinkingNotification> pending;
 
-    for (TurnContent &block : m_currentBlocks) {
-        if (auto *thinking = std::get_if<ThinkingContent>(&block)) {
-            if (thinking->notified || thinking->thinking.trimmed().isEmpty())
+    for (int i = 0; i < m_currentBlocks.size(); ++i) {
+        if (m_notifiedThinking.contains(i))
+            continue;
+
+        const TurnContent &block = m_currentBlocks.at(i);
+        if (const auto *thinking = std::get_if<ThinkingContent>(&block)) {
+            if (thinking->thinking.trimmed().isEmpty())
                 continue;
-            thinking->notified = true;
+            m_notifiedThinking.insert(i);
             pending.append({thinking->thinking, thinking->signature});
-        } else if (auto *redacted = std::get_if<RedactedThinkingContent>(&block)) {
-            if (redacted->notified)
-                continue;
-            redacted->notified = true;
+        } else if (const auto *redacted = std::get_if<RedactedThinkingContent>(&block)) {
+            m_notifiedThinking.insert(i);
             pending.append({QString(), redacted->signature});
         }
     }
@@ -54,9 +54,34 @@ QList<PendingThinkingNotification> BaseMessage::takePendingThinkingNotifications
     return pending;
 }
 
-void BaseMessage::startNewContinuation()
+void BaseMessage::removeBlocksIf(const std::function<bool(const TurnContent &)> &predicate)
+{
+    QSet<int> remapped;
+    int kept = 0;
+
+    for (int i = 0; i < m_currentBlocks.size(); ++i) {
+        if (predicate(m_currentBlocks.at(i)))
+            continue;
+        if (m_notifiedThinking.contains(i))
+            remapped.insert(kept);
+        if (kept != i)
+            m_currentBlocks[kept] = std::move(m_currentBlocks[i]);
+        ++kept;
+    }
+
+    m_currentBlocks.resize(kept);
+    m_notifiedThinking = std::move(remapped);
+}
+
+void BaseMessage::clearBlocks()
 {
     m_currentBlocks.clear();
+    m_notifiedThinking.clear();
+}
+
+void BaseMessage::startNewContinuation()
+{
+    clearBlocks();
     m_state = MessageState::Building;
 }
 
@@ -82,7 +107,7 @@ QJsonArray BaseMessage::mapToolResults(
 {
     QJsonArray out;
 
-    for (const ToolUseContent &use : getCurrentToolUseContent()) {
+    for (const ToolUseContent &use : currentToolUseContent()) {
         const auto result = toolResults.constFind(use.id);
         if (result == toolResults.constEnd())
             continue;
@@ -90,17 +115,6 @@ QJsonArray BaseMessage::mapToolResults(
     }
 
     return out;
-}
-
-QString BaseMessage::toolResultText(const ToolResult &result)
-{
-    const QString text = result.asText();
-    if (result.structuredContent.isEmpty())
-        return text;
-
-    const QString json = QString::fromUtf8(
-        QJsonDocument(result.structuredContent).toJson(QJsonDocument::Compact));
-    return text.isEmpty() ? json : text + QLatin1Char('\n') + json;
 }
 
 } // namespace LLMQore

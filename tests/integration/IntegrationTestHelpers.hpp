@@ -143,7 +143,7 @@ public:
         return QtConcurrent::run([]() -> ToolResult {
             const QByteArray png = QByteArray::fromBase64(QByteArray(kTinyPngBase64));
             ToolResult r;
-            r.content.append(TextContent("Here is the sample image:"));
+            r.content.append(TextContent{"Here is the sample image:"});
             r.content.append(ImageContent::fromBytes(png, "image/png"));
             return r;
         });
@@ -255,46 +255,53 @@ struct TestResult
 // --- Helper to wire all BaseClient signals to TestResult with logging ---
 //
 // Call this BEFORE sendMessage() — connections established afterwards may
-// miss synchronous failure signals. Connections live until `client` is
-// destroyed, so same-client reuse across tests is fine; tests that create
-// a fresh client per case don't need to disconnect manually.
-inline void wireLoggingSignals(BaseClient *client, TestResult &result, QEventLoop &loop)
+// miss synchronous failure signals.
+//
+// `scope` owns the connections: they are severed when it dies. It must not
+// outlive `result`, because every handler writes through that reference. When
+// omitted the loop itself is the scope, which is right only when `result` and
+// `loop` share a stack frame — pass an explicit scope otherwise.
+inline void wireLoggingSignals(
+    BaseClient *client, TestResult &result, QEventLoop &loop, QObject *scope = nullptr)
 {
-    QObject::connect(client, &BaseClient::requestFinalized, &loop,
+    if (!scope)
+        scope = &loop;
+
+    QObject::connect(client, &BaseClient::requestFinalized, scope,
                      [&result](const RequestID &, const CompletionInfo &info) {
         result.conversation = info.conversation;
     });
 
-    QObject::connect(client, &BaseClient::chunkReceived, &loop,
+    QObject::connect(client, &BaseClient::chunkReceived, scope,
                      [&result](const RequestID &, const QString &chunk) {
                          result.chunks.append(chunk);
                      });
-    QObject::connect(client, &BaseClient::accumulatedReceived, &loop,
+    QObject::connect(client, &BaseClient::accumulatedReceived, scope,
                      [&result](const RequestID &, const QString &acc) {
                          result.fullText = acc;
                      });
     QObject::connect(
-        client, &BaseClient::thinkingBlockReceived, &loop,
+        client, &BaseClient::thinkingBlockReceived, scope,
         [&result](const RequestID &, const QString &thinking, const QString &signature) {
             result.thinkingBlocks.append({thinking, signature});
         });
-    QObject::connect(client, &BaseClient::toolStarted, &loop,
+    QObject::connect(client, &BaseClient::toolStarted, scope,
                      [&result](const RequestID &, const QString &toolId, const QString &name) {
                          result.toolCalls.append({name, QString("started:%1").arg(toolId)});
                      });
     QObject::connect(
-        client, &BaseClient::toolResultReady, &loop,
+        client, &BaseClient::toolResultReady, scope,
         [&result](const RequestID &, const QString &toolId, const QString &name, const QString &res) {
             result.toolCalls.append({name + "_result", res});
             Q_UNUSED(toolId);
         });
-    QObject::connect(client, &BaseClient::requestCompleted, &loop,
+    QObject::connect(client, &BaseClient::requestCompleted, scope,
                      [&result, &loop](const RequestID &, const QString &fullText) {
                          result.completed = true;
                          result.fullText = fullText;
                          loop.quit();
                      });
-    QObject::connect(client, &BaseClient::requestFailed, &loop,
+    QObject::connect(client, &BaseClient::requestFailed, scope,
                      [&result, &loop](const RequestID &, const QString &error) {
                          result.failed = true;
                          result.errorMessage = error;
@@ -304,12 +311,14 @@ inline void wireLoggingSignals(BaseClient *client, TestResult &result, QEventLoo
 
 // --- Helper to run event loop with timeout and mark result ---
 
-inline void waitWithTimeout(QEventLoop &loop, TestResult &result, int timeoutMs)
+inline void waitWithTimeout(
+    QEventLoop &loop, TestResult &result, int timeoutMs, QObject *scope = nullptr)
 {
-    QTimer::singleShot(timeoutMs, &loop, [&loop, &result]() {
-        result.timedOut = true;
-        loop.quit();
-    });
+    QTimer::singleShot(timeoutMs, scope ? scope : static_cast<QObject *>(&loop),
+                       [&loop, &result]() {
+                           result.timedOut = true;
+                           loop.quit();
+                       });
     loop.exec();
 }
 
@@ -355,9 +364,12 @@ inline TestResult runConversation(
     BaseClient *client, const Conversation &conversation, QEventLoop &loop)
 {
     TestResult result;
-    wireLoggingSignals(client, result, loop);
+    QObject scope;
+
+    wireLoggingSignals(client, result, loop, &scope);
     client->ask(conversation);
-    waitWithTimeout(loop, result, kRequestTimeoutMs);
+    waitWithTimeout(loop, result, kRequestTimeoutMs, &scope);
+
     return result;
 }
 
@@ -395,27 +407,27 @@ inline void expectMultiTurnAccepted(BaseClient *client)
 inline void expectAskOnceResolves(BaseClient *client)
 {
     QEventLoop loop;
+    QObject scope;
     bool settled = false;
     CompletionInfo received;
     QString error;
 
     LLMQore::compat(client->askOnce("Reply with exactly: ok"))
-        .then(client, [&](const CompletionInfo &info) -> int {
+        .then(&scope, [&](const CompletionInfo &info) -> int {
             received = info;
             settled = true;
             loop.quit();
             return 0;
         })
-        .onFailed(client, [&](const std::exception &e) -> int {
+        .onFailed(&scope, [&](const std::exception &e) -> int {
             error = QString::fromUtf8(e.what());
             settled = true;
             loop.quit();
             return 0;
         });
 
-    QTimer::singleShot(kRequestTimeoutMs, &loop, &QEventLoop::quit);
-    if (!settled)
-        loop.exec();
+    QTimer::singleShot(kRequestTimeoutMs, &scope, [&loop]() { loop.quit(); });
+    loop.exec();
 
     ASSERT_TRUE(settled) << "askOnce future never settled";
     ASSERT_TRUE(error.isEmpty()) << "askOnce rejected: " << error.toStdString();

@@ -18,6 +18,7 @@ add_executable(LLMQoreUnitTests
     main.cpp
     tst_ContentBlocks.cpp
     tst_Conversation.cpp
+    tst_TurnSerializerParity.cpp
     tst_SSEParser.cpp
     tst_ToolsManager.cpp
     tst_ToolHandler.cpp

@@ -40,12 +40,12 @@ TurnRole roleFromString(const QString &role)
 QJsonObject turnContentToJson(const TurnContent &block)
 {
     return std::visit(
-        overloaded{
+        detail::overloaded{
             [](const TextContent &c) -> QJsonObject {
                 return QJsonObject{{"type", "text"}, {"text", c.text}};
             },
             [](const ImageContent &c) -> QJsonObject {
-                QJsonObject obj{{"type", "image"}};
+                QJsonObject obj = {{"type", "image"}};
                 if (!c.mimeType.isEmpty())
                     obj.insert("mimeType", c.mimeType);
                 if (c.isUrl())
@@ -55,7 +55,7 @@ QJsonObject turnContentToJson(const TurnContent &block)
                 return obj;
             },
             [](const AudioContent &c) -> QJsonObject {
-                QJsonObject obj{
+                QJsonObject obj = {
                     {"type", "audio"}, {"data", QString::fromUtf8(c.data.toBase64())}};
                 if (!c.mimeType.isEmpty())
                     obj.insert("mimeType", c.mimeType);
@@ -70,7 +70,7 @@ QJsonObject turnContentToJson(const TurnContent &block)
                 for (const ToolContent &part : c.content)
                     inner.append(toolContentToJson(part));
 
-                QJsonObject obj{
+                QJsonObject obj = {
                     {"type", "tool_result"},
                     {"toolUseId", c.toolUseId},
                     {"name", c.name},
@@ -82,7 +82,7 @@ QJsonObject turnContentToJson(const TurnContent &block)
                 return obj;
             },
             [](const ThinkingContent &c) -> QJsonObject {
-                QJsonObject obj{{"type", "thinking"}, {"thinking", c.thinking}};
+                QJsonObject obj = {{"type", "thinking"}, {"thinking", c.thinking}};
                 if (!c.signature.isEmpty())
                     obj.insert("signature", c.signature);
                 if (!c.itemId.isEmpty())
@@ -92,7 +92,7 @@ QJsonObject turnContentToJson(const TurnContent &block)
                 return obj;
             },
             [](const RedactedThinkingContent &c) -> QJsonObject {
-                QJsonObject obj{{"type", "redacted_thinking"}};
+                QJsonObject obj = {{"type", "redacted_thinking"}};
                 if (!c.signature.isEmpty())
                     obj.insert("signature", c.signature);
                 return obj;
@@ -147,7 +147,7 @@ TurnContent turnContentFromJson(const QJsonObject &obj)
     }
 
     if (type == QLatin1String("redacted_thinking"))
-        return RedactedThinkingContent{obj.value("signature").toString(), false};
+        return RedactedThinkingContent{obj.value("signature").toString()};
 
     return TextContent{obj.value("text").toString()};
 }
@@ -194,7 +194,7 @@ void Conversation::addAssistant(QList<TurnContent> content)
     m_turns.append(Turn{TurnRole::Assistant, std::move(content)});
 }
 
-void Conversation::addToolResults(const QList<ToolResultContent> &results)
+void Conversation::addToolResults(QList<ToolResultContent> results)
 {
     if (results.isEmpty())
         return;
@@ -202,8 +202,8 @@ void Conversation::addToolResults(const QList<ToolResultContent> &results)
     Turn turn;
     turn.role = TurnRole::Tool;
     turn.content.reserve(results.size());
-    for (const ToolResultContent &result : results)
-        turn.content.append(result);
+    for (ToolResultContent &result : results)
+        turn.content.append(std::move(result));
     m_turns.append(std::move(turn));
 }
 
@@ -238,7 +238,7 @@ QJsonObject Conversation::toJson() const
         turns.append(QJsonObject{{"role", roleToString(turn.role)}, {"content", content}});
     }
 
-    QJsonObject obj{{"turns", turns}};
+    QJsonObject obj = {{"turns", turns}};
     if (!m_system.isEmpty())
         obj.insert("system", m_system);
     return obj;
@@ -264,27 +264,6 @@ Conversation Conversation::fromJson(const QJsonObject &obj)
     }
 
     return conversation;
-}
-
-ToolResult toToolResult(const ToolResultContent &content)
-{
-    ToolResult result;
-    result.content = content.content;
-    result.isError = content.isError;
-    result.structuredContent = content.structuredContent;
-    return result;
-}
-
-ToolResultContent makeToolResultContent(
-    const QString &toolUseId, const QString &name, const ToolResult &result)
-{
-    ToolResultContent content;
-    content.toolUseId = toolUseId;
-    content.name = name;
-    content.content = result.content;
-    content.isError = result.isError;
-    content.structuredContent = result.structuredContent;
-    return content;
 }
 
 } // namespace LLMQore

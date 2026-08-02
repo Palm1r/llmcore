@@ -143,20 +143,36 @@ void OpenAIMessage::handleFinishReason(const QString &finishReason)
     updateStateFromFinishReason();
 }
 
-QJsonObject OpenAIMessage::toProviderFormat() const
+QJsonObject OpenAIMessage::serializeTurn(TurnRole role, const QList<TurnContent> &blocks)
 {
-    QJsonObject message;
-    message["role"] = "assistant";
+    const bool isAssistant = role == TurnRole::Assistant;
 
     QString textContent;
     QString reasoningContent;
+    QJsonArray parts;
     QJsonArray toolCalls;
 
-    for (const TurnContent &block : m_currentBlocks) {
+    for (const TurnContent &block : blocks) {
         std::visit(
-            overloaded{
-                [&](const TextContent &c) { textContent += c.text; },
-                [&](const ImageContent &) {},
+            detail::overloaded{
+                [&](const TextContent &c) {
+                    textContent += c.text;
+                    if (!isAssistant)
+                        parts.append(QJsonObject{{"type", "text"}, {"text", c.text}});
+                },
+                [&](const ImageContent &c) {
+                    if (isAssistant)
+                        return;
+                    const QString url = c.isUrl()
+                        ? c.url().toString()
+                        : QStringLiteral("data:%1;base64,%2")
+                              .arg(
+                                  c.mimeType.isEmpty() ? QStringLiteral("image/png") : c.mimeType,
+                                  c.base64());
+                    parts.append(
+                        QJsonObject{
+                            {"type", "image_url"}, {"image_url", QJsonObject{{"url", url}}}});
+                },
                 [&](const AudioContent &) {},
                 [&](const ToolUseContent &c) {
                     const QJsonDocument doc(c.input);
@@ -176,20 +192,30 @@ QJsonObject OpenAIMessage::toProviderFormat() const
             block);
     }
 
-    if (!textContent.isEmpty()) {
+    QJsonObject message;
+    message["role"] = isAssistant ? QStringLiteral("assistant") : QStringLiteral("user");
+
+    const bool hasNonText = parts.size() > 1
+        || (parts.size() == 1 && parts.first().toObject().value("type").toString() != "text");
+
+    if (!isAssistant && hasNonText)
+        message["content"] = parts;
+    else if (!textContent.isEmpty())
         message["content"] = textContent;
-    } else {
+    else if (isAssistant)
         message["content"] = QJsonValue();
-    }
 
     if (!reasoningContent.isEmpty())
         message["reasoning_content"] = reasoningContent;
-
-    if (!toolCalls.isEmpty()) {
+    if (!toolCalls.isEmpty())
         message["tool_calls"] = toolCalls;
-    }
 
     return message;
+}
+
+QJsonObject OpenAIMessage::toProviderFormat() const
+{
+    return serializeTurn(TurnRole::Assistant, m_currentBlocks);
 }
 
 QJsonArray OpenAIMessage::createToolResultMessages(
@@ -235,7 +261,7 @@ int OpenAIMessage::getOrCreateThinkingContentIndex()
 
 void OpenAIMessage::updateStateFromFinishReason()
 {
-    if (m_finishReason == "tool_calls" && !getCurrentToolUseContent().empty()) {
+    if (m_finishReason == "tool_calls" && !currentToolUseContent().empty()) {
         m_state = MessageState::RequiresToolExecution;
     } else if (m_finishReason == "stop") {
         m_state = MessageState::Final;

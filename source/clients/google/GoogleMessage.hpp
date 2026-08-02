@@ -4,6 +4,7 @@
 #pragma once
 
 #include <LLMQore/BaseMessage.hpp>
+#include <LLMQore/Conversation.hpp>
 #include <LLMQore/ToolDialect.hpp>
 #include <LLMQore/ToolResult.hpp>
 
@@ -25,6 +26,12 @@ public:
     void handleFunctionCallArgsDelta(const QString &argsJson);
     void handleFunctionCallComplete();
     void handleFinishReason(const QString &reason);
+
+    // The single turn-to-wire mapping for this provider, shared by the in-flight
+    // continuation path (toProviderFormat) and the Conversation replay path
+    // (GoogleAIClient::buildConversationPayload) so the two cannot drift.
+    [[nodiscard]] static QJsonObject serializeTurn(
+        TurnRole role, const QList<TurnContent> &blocks);
 
     QJsonObject toProviderFormat() const;
     QJsonArray createToolResultParts(const QHash<QString, ToolResult> &toolResults) const;

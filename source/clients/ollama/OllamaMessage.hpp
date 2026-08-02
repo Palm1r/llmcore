@@ -4,6 +4,7 @@
 #pragma once
 
 #include <LLMQore/BaseMessage.hpp>
+#include <LLMQore/Conversation.hpp>
 #include <LLMQore/ToolDialect.hpp>
 #include <LLMQore/ToolResult.hpp>
 
@@ -25,6 +26,12 @@ public:
     void handleDone(bool done, const QString &doneReason = {});
 
     QString stopReason() const override { return m_doneReason; }
+
+    // The single turn-to-wire mapping for this provider, shared by the in-flight
+    // continuation path (toProviderFormat) and the Conversation replay path
+    // (OllamaClient::buildConversationPayload) so the two cannot drift.
+    [[nodiscard]] static QJsonObject serializeTurn(
+        TurnRole role, const QList<TurnContent> &blocks);
 
     QJsonObject toProviderFormat() const;
     QJsonArray createToolResultMessages(const QHash<QString, ToolResult> &toolResults) const;

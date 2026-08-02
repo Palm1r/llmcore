@@ -6,6 +6,7 @@
 #include <QJsonValue>
 
 #include <LLMQore/BaseMessage.hpp>
+#include <LLMQore/Conversation.hpp>
 #include <LLMQore/ToolDialect.hpp>
 #include <LLMQore/ToolResult.hpp>
 
@@ -39,6 +40,13 @@ public:
     void handleFinishReason(const QString &finishReason);
 
     QString stopReason() const override { return m_finishReason; }
+
+    // The single turn-to-wire mapping for this provider. Both the in-flight
+    // continuation path (toProviderFormat) and the Conversation replay path
+    // (OpenAIClient::buildConversationPayload) go through it, so the two cannot
+    // drift.
+    [[nodiscard]] static QJsonObject serializeTurn(
+        TurnRole role, const QList<TurnContent> &blocks);
 
     QJsonObject toProviderFormat() const;
     QJsonArray createToolResultMessages(const QHash<QString, ToolResult> &toolResults) const;

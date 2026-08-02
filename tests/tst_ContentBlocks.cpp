@@ -32,7 +32,7 @@ TEST(TurnContent, HoldsEachAlternative)
 
 TEST(TurnContent, IsCopyable)
 {
-    TurnContent original{TextContent{"hello"}};
+    TurnContent original = {TextContent{"hello"}};
     TurnContent copy = original;
 
     std::get<TextContent>(original).text = "changed";
@@ -110,7 +110,7 @@ TEST(Overloaded, DispatchesToMatchingAlternative)
 {
     const auto describe = [](const TurnContent &block) {
         return std::visit(
-            overloaded{
+            detail::overloaded{
                 [](const TextContent &) -> QString { return "text"; },
                 [](const ImageContent &) -> QString { return "image"; },
                 [](const AudioContent &) -> QString { return "audio"; },
@@ -142,5 +142,4 @@ TEST(ThinkingContent, CarriesProviderContinuationTokens)
     EXPECT_EQ(thinking.signature, "sig");
     EXPECT_EQ(thinking.itemId, "rs_123");
     EXPECT_EQ(thinking.encryptedContent, "encrypted");
-    EXPECT_FALSE(thinking.notified);
 }

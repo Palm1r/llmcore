@@ -28,7 +28,7 @@ public:
     QJsonObject toProviderFormat() const;
     QJsonArray createToolResultsContent(const QHash<QString, ToolResult> &toolResults) const;
 
-    QList<RedactedThinkingContent> getCurrentRedactedThinkingContent() const;
+    QList<RedactedThinkingContent> currentRedactedThinkingContent() const;
 
     static QJsonValue serializeTurnContent(const TurnContent &block);
 

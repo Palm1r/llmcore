@@ -68,14 +68,15 @@ void ClaudeMessage::handleContentBlockStart(
         const QString signature = data["signature"].toString();
         qCDebug(llmClaudeLog).noquote()
             << QString("Creating thinking block with signature length=%1").arg(signature.length());
-        addCurrentContent(ThinkingContent{data["thinking"].toString(), signature, {}, {}, false});
+        addCurrentContent(ThinkingContent{.thinking = data["thinking"].toString(),
+                                          .signature = signature});
 
     } else if (blockType == "redacted_thinking") {
         const QString signature = data["signature"].toString();
         qCDebug(llmClaudeLog).noquote()
             << QString("Creating redacted_thinking block with signature length=%1")
                    .arg(signature.length());
-        addCurrentContent(RedactedThinkingContent{signature, false});
+        addCurrentContent(RedactedThinkingContent{.signature = signature});
     }
 }
 
@@ -149,7 +150,7 @@ namespace {
 QJsonObject toClaudeInnerBlock(const ToolContent &block)
 {
     return std::visit(
-        overloaded{
+        detail::overloaded{
             [](const TextContent &c) -> QJsonObject {
                 return QJsonObject{{"type", "text"}, {"text", c.text}};
             },
@@ -207,7 +208,7 @@ QJsonValue buildClaudeToolResultContent(const ToolResult &r)
 QJsonValue ClaudeMessage::serializeTurnContent(const TurnContent &block)
 {
     return std::visit(
-        overloaded{
+        detail::overloaded{
             [](const TextContent &c) -> QJsonValue {
                 return QJsonObject{{"type", "text"}, {"text", c.text}};
             },
@@ -236,7 +237,7 @@ QJsonValue ClaudeMessage::serializeTurnContent(const TurnContent &block)
                     {"type", "tool_use"}, {"id", c.id}, {"name", c.name}, {"input", c.input}};
             },
             [](const ToolResultContent &c) -> QJsonValue {
-                QJsonObject block{
+                QJsonObject block = {
                     {"type", "tool_result"},
                     {"tool_use_id", c.toolUseId},
                     {"content", buildClaudeToolResultContent(toToolResult(c))}};
@@ -245,13 +246,13 @@ QJsonValue ClaudeMessage::serializeTurnContent(const TurnContent &block)
                 return block;
             },
             [](const ThinkingContent &c) -> QJsonValue {
-                QJsonObject obj{{"type", "thinking"}, {"thinking", c.thinking}};
+                QJsonObject obj = {{"type", "thinking"}, {"thinking", c.thinking}};
                 if (!c.signature.isEmpty())
                     obj["signature"] = c.signature;
                 return obj;
             },
             [](const RedactedThinkingContent &c) -> QJsonValue {
-                QJsonObject obj{{"type", "redacted_thinking"}};
+                QJsonObject obj = {{"type", "redacted_thinking"}};
                 if (!c.signature.isEmpty())
                     obj["signature"] = c.signature;
                 return obj;
@@ -295,7 +296,7 @@ QJsonArray ClaudeMessage::createToolResultsContent(
         });
 }
 
-QList<RedactedThinkingContent> ClaudeMessage::getCurrentRedactedThinkingContent() const
+QList<RedactedThinkingContent> ClaudeMessage::currentRedactedThinkingContent() const
 {
     QList<RedactedThinkingContent> redactedBlocks;
     for (const TurnContent &block : m_currentBlocks) {
@@ -316,7 +317,7 @@ void ClaudeMessage::startNewContinuation()
 
 void ClaudeMessage::updateStateFromStopReason()
 {
-    if (m_stopReason == "tool_use" && !getCurrentToolUseContent().empty()) {
+    if (m_stopReason == "tool_use" && !currentToolUseContent().empty()) {
         m_state = MessageState::RequiresToolExecution;
     } else if (m_stopReason == "end_turn") {
         m_state = MessageState::Final;

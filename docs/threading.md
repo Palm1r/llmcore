@@ -7,8 +7,13 @@ parent passed to its constructor.
 - **All public methods must be called from that thread.**
 - **All signals are emitted on that thread.**
 
-Debug builds enforce the first rule with `Q_ASSERT_X` on every mutating or
-raw-pointer-returning method. A release build will not warn you; it will race.
+Debug builds enforce the first rule with `Q_ASSERT_X` on the public mutating and
+raw-pointer-returning methods of those classes. A release build will not warn you; it will
+race.
+
+The one exception is `BaseClient::cancelRequest()`. It marshals itself onto the client's
+thread, so it is safe to call from anywhere — cancelling from a UI thread while the client
+runs on a worker is a supported pattern.
 
 ## Consuming from another thread
 
@@ -45,6 +50,12 @@ for (const auto &snapshot : client->tools()->toolsSnapshot())
 
 Before 0.8.0, `BaseMessage` handed out `ContentBlock *` into a list that reallocated on
 every append, so holding one across a parse step was a use-after-free waiting to happen.
-Content is now a `std::variant` stored by value: `getCurrentBlocks()` returns
-`const QList<TurnContent> &`, and `getCurrentToolUseContent()` /
-`getCurrentThinkingContent()` return copies. There is no pointer to outlive.
+Content is now a `std::variant` stored by value: `currentBlocks()` returns
+`const QList<TurnContent> &`, and `currentToolUseContent()` /
+`currentThinkingContent()` return copies. There is no pointer to outlive.
+
+`currentBlocks()` still hands back a reference into the message's own storage, which the
+next tool round clears and which dies with the message. Copy it before it crosses an
+event-loop iteration or a thread boundary — the same rule `registeredTools()` follows above.
+The two `current*Content()` accessors already return detached values, so they need no
+such care.

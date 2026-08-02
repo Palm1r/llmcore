@@ -8,6 +8,8 @@
 #include <LLMQore/McpToolBinder.hpp>
 #include <LLMQore/ToolsManager.hpp>
 
+#include "core/ThreadAffinity.hpp"
+
 namespace LLMQore {
 
 ToolRound::ToolRound(ToolsManager *manager, QString requestId)
@@ -181,37 +183,44 @@ void ToolsManager::initConnections()
 
 void ToolsManager::setMcpClientInfo(Mcp::Implementation info)
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     m_binder->setClientInfo(std::move(info));
 }
 
 bool ToolsManager::addMcpServer(const Mcp::ServerEndpoint &endpoint)
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     return m_binder->addServer(endpoint);
 }
 
 int ToolsManager::loadMcpServers(const QJsonObject &config)
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     return m_binder->loadServers(config);
 }
 
 void ToolsManager::addMcpClient(
     Mcp::McpClient *client, const QString &serverName, bool autoReconnect)
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     m_binder->addClient(client, serverName, autoReconnect);
 }
 
 void ToolsManager::removeMcpClient(Mcp::McpClient *client)
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     m_binder->removeClient(client);
 }
 
 void ToolsManager::shutdownMcp()
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     m_binder->shutdown();
 }
 
 QString ToolsManager::displayName(const QString &toolName) const
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     if (auto *t = m_tools.value(toolName)) {
         return t->displayName();
     }
@@ -220,6 +229,7 @@ QString ToolsManager::displayName(const QString &toolName) const
 
 void ToolsManager::beginRound(const QString &requestId, const QList<ToolRound::Call> &calls)
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     if (calls.isEmpty())
         return;
 
@@ -239,11 +249,13 @@ void ToolsManager::executeToolCall(
     const QString &toolName,
     const QJsonObject &input)
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     beginRound(requestId, {ToolRound::Call{toolId, toolName, input}});
 }
 
 void ToolsManager::setExecutionGate(ExecutionGate gate)
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     m_executionGate = std::move(gate);
 }
 
@@ -292,6 +304,7 @@ void ToolsManager::startExecution(
 
 QJsonArray ToolsManager::getToolsDefinitions() const
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     return buildToolsDefinitions();
 }
 
@@ -313,6 +326,7 @@ QJsonArray ToolsManager::buildToolsDefinitions() const
 
 void ToolsManager::cleanupRequest(const QString &requestId)
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     const std::shared_ptr<ToolRound> round = m_toolRounds.take(requestId);
     if (round)
         round->abandon();

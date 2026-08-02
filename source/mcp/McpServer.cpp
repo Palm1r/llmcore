@@ -22,6 +22,8 @@
 
 #include <optional>
 
+#include "core/ThreadAffinity.hpp"
+
 namespace LLMQore::Mcp {
 
 namespace {
@@ -438,6 +440,7 @@ void McpServer::installHandlers()
 
 void McpServer::setToolRegistry(LLMQore::ToolRegistry *registry)
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     if (m_toolRegistry) {
         disconnect(m_toolRegistry, nullptr, this, nullptr);
     }
@@ -465,6 +468,7 @@ void McpServer::notifyToolsChanged()
 
 void McpServer::addTool(LLMQore::BaseTool *tool)
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     if (!tool)
         return;
     m_standaloneTools.insert(tool->id(), tool);
@@ -473,12 +477,14 @@ void McpServer::addTool(LLMQore::BaseTool *tool)
 
 void McpServer::removeTool(const QString &name)
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     if (m_standaloneTools.remove(name))
         notifyToolsChanged();
 }
 
 void McpServer::addResourceProvider(BaseResourceProvider *provider)
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     if (!provider)
         return;
     m_resourceProviders.append(provider);
@@ -497,6 +503,7 @@ void McpServer::addResourceProvider(BaseResourceProvider *provider)
 
 void McpServer::removeResourceProvider(BaseResourceProvider *provider)
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     m_resourceProviders.removeAll(provider);
     if (provider)
         disconnect(provider, nullptr, this, nullptr);
@@ -504,6 +511,7 @@ void McpServer::removeResourceProvider(BaseResourceProvider *provider)
 
 void McpServer::addPromptProvider(BasePromptProvider *provider)
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     if (!provider)
         return;
     m_promptProviders.append(provider);
@@ -515,6 +523,7 @@ void McpServer::addPromptProvider(BasePromptProvider *provider)
 
 void McpServer::removePromptProvider(BasePromptProvider *provider)
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     m_promptProviders.removeAll(provider);
     if (provider)
         disconnect(provider, nullptr, this, nullptr);
@@ -560,6 +569,7 @@ void McpServer::sendLogMessage(
     const QJsonValue &data,
     const QString &message)
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     if (!m_initialized)
         return;
     QJsonObject params{
@@ -575,11 +585,13 @@ void McpServer::sendLogMessage(
 
 void McpServer::start()
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     m_peer->open();
 }
 
 void McpServer::stop()
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     m_peer->close();
     m_initialized = false;
 }

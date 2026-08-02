@@ -125,8 +125,9 @@ void LlmChatController::send(const QString &text, const QString &model)
     setBusy(true);
     setStatus("Waiting for response...");
 
-    m_conversation.addUser(trimmed);
-    m_currentRequest = m_client->ask(m_conversation);
+    LLMQore::Conversation pending = m_conversation;
+    pending.addUser(trimmed);
+    m_currentRequest = m_client->ask(pending);
 }
 
 void LlmChatController::stop()
@@ -159,7 +160,7 @@ void LlmChatController::registerTools()
             qWarning().noquote()
                 << "LlmChatController: cannot open" << mcpConfigPath << ":" << file.errorString();
         } else {
-            QJsonParseError error{};
+            QJsonParseError error = {};
             const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &error);
             if (error.error != QJsonParseError::NoError || !doc.isObject()) {
                 qWarning().noquote() << "LlmChatController: cannot parse" << mcpConfigPath << ":"
@@ -224,8 +225,10 @@ void LlmChatController::fetchModels()
         m_modelWatcher = nullptr;
 
         QStringList ids;
-        for (const LLMQore::ModelInfo &info : watcher->result())
-            ids.append(info.id);
+        if (!watcher->isCanceled() && watcher->future().resultCount() > 0) {
+            for (const LLMQore::ModelInfo &info : watcher->result())
+                ids.append(info.id);
+        }
 
         setModelList(ids);
         setLoadingModels(false);

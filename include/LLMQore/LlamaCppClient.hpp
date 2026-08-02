@@ -31,6 +31,7 @@ public:
         RequestMode mode = RequestMode::Streaming) override;
     RequestID ask(
         const QString &prompt, RequestMode mode = RequestMode::Streaming) override;
+    using OpenAIClient::ask;
 
     QFuture<QList<ModelInfo>> listModels(const QString &endpoint = {}) override;
 

@@ -249,7 +249,7 @@ TEST(Conversation, ResponsesReplaysReasoningOnlyWhenEnabled)
 TEST(AskOnce, ResolvesWithCompletionInfo)
 {
     LLMQoreTest::FakeHttpTransport transport;
-    ClaudeClient client("http://fake.local", "sk-test", "claude-test", &transport);
+    ClaudeClient client("https://fake.local", "sk-test", "claude-test", &transport);
 
     auto future = client.askOnce("ping", RequestMode::Buffered);
     ASSERT_EQ(transport.bufferedCount(), 1);
@@ -273,7 +273,7 @@ TEST(AskOnce, ResolvesWithCompletionInfo)
 TEST(AskOnce, RejectsOnHttpError)
 {
     LLMQoreTest::FakeHttpTransport transport;
-    ClaudeClient client("http://fake.local", "sk-test", "claude-test", &transport);
+    ClaudeClient client("https://fake.local", "sk-test", "claude-test", &transport);
 
     auto future = client.askOnce("ping", RequestMode::Buffered);
     transport.respondToLast(401, R"({"error":{"type":"authentication_error"}})");
@@ -288,7 +288,7 @@ TEST(AskOnce, RejectsOnHttpError)
 TEST(AskOnce, CarriesConversationForward)
 {
     LLMQoreTest::FakeHttpTransport transport;
-    ClaudeClient client("http://fake.local", "sk-test", "claude-test", &transport);
+    ClaudeClient client("https://fake.local", "sk-test", "claude-test", &transport);
 
     Conversation conversation;
     conversation.addUser("What is Qt?");
@@ -305,6 +305,74 @@ TEST(AskOnce, CarriesConversationForward)
     ASSERT_EQ(back.turns().size(), 2);
     EXPECT_EQ(back.turns()[1].role, TurnRole::Assistant);
     EXPECT_EQ(back.turns()[1].text(), "A framework.");
+}
+
+// The assistant turn must survive as blocks, not be flattened to text. Reading them
+// off the message after it was torn down silently dropped thinking and tool_use.
+TEST(AskOnce, CarriesAssistantBlocksNotJustText)
+{
+    LLMQoreTest::FakeHttpTransport transport;
+    ClaudeClient client("https://fake.local", "sk-test", "claude-test", &transport);
+
+    Conversation conversation;
+    conversation.addUser("Think about Qt.");
+
+    auto future = client.askOnce(conversation, {}, RequestMode::Buffered);
+    transport.respondToLast(
+        200,
+        R"({"content":[{"type":"thinking","thinking":"pondering","signature":"sig-9"},)"
+        R"({"type":"text","text":"A framework."}],"stop_reason":"end_turn"})");
+
+    for (int i = 0; i < 32 && !future.isFinished(); ++i)
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
+
+    ASSERT_TRUE(future.isFinished());
+    const Conversation back = future.result().conversation;
+    ASSERT_EQ(back.turns().size(), 2);
+
+    const QList<TurnContent> &blocks = back.turns()[1].content;
+    ASSERT_EQ(blocks.size(), 2);
+
+    const auto *thinking = std::get_if<ThinkingContent>(&blocks[0]);
+    ASSERT_NE(thinking, nullptr);
+    EXPECT_EQ(thinking->thinking, "pondering");
+    EXPECT_EQ(thinking->signature, "sig-9");
+    EXPECT_EQ(back.turns()[1].text(), "A framework.");
+}
+
+// A request the library did not build a payload for owns no conversation, so it must
+// not hand back a headless [Assistant, ...] history the provider would reject.
+TEST(AskOnce, PromptRequestReturnsNoConversation)
+{
+    LLMQoreTest::FakeHttpTransport transport;
+    ClaudeClient client("https://fake.local", "sk-test", "claude-test", &transport);
+
+    auto future = client.askOnce("ping", RequestMode::Buffered);
+    transport.respondToLast(
+        200, R"({"content":[{"type":"text","text":"pong"}],"stop_reason":"end_turn"})");
+
+    for (int i = 0; i < 32 && !future.isFinished(); ++i)
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
+
+    ASSERT_TRUE(future.isFinished());
+    EXPECT_TRUE(future.result().conversation.isEmpty());
+}
+
+// Destroying the client mid-flight must settle the future through the error channel
+// rather than abandoning it, or the caller's .onFailed never runs.
+TEST(AskOnce, RejectsWhenClientIsDestroyedMidFlight)
+{
+    LLMQoreTest::FakeHttpTransport transport;
+    QFuture<CompletionInfo> future;
+
+    {
+        ClaudeClient client("https://fake.local", "sk-test", "claude-test", &transport);
+        future = client.askOnce("ping", RequestMode::Buffered);
+        ASSERT_FALSE(future.isFinished());
+    }
+
+    ASSERT_TRUE(future.isFinished());
+    EXPECT_THROW(future.result(), std::exception);
 }
 
 namespace {

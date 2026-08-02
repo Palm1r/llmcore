@@ -36,8 +36,12 @@ public:
         return {{RoleRole, "role"}, {TextRole, "text"}};
     }
 
+    static constexpr int kMaxMessages = 500;
+
     void append(const QString &role, const QString &text)
     {
+        trimToCapacity();
+
         beginInsertRows({}, m_messages.size(), m_messages.size());
         m_messages.append({role, text});
         endInsertRows();
@@ -78,6 +82,17 @@ public:
     }
 
 private:
+    void trimToCapacity()
+    {
+        const int excess = m_messages.size() - (kMaxMessages - 1);
+        if (excess <= 0)
+            return;
+
+        beginRemoveRows({}, 0, excess - 1);
+        m_messages.remove(0, excess);
+        endRemoveRows();
+    }
+
     struct Message
     {
         QString role;

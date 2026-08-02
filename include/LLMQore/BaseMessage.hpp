@@ -8,6 +8,7 @@
 #include <QHash>
 #include <QJsonArray>
 #include <QObject>
+#include <QSet>
 
 #include <LLMQore/LLMQore_global.h>
 
@@ -30,12 +31,12 @@ public:
     ~BaseMessage() override;
 
     MessageState state() const { return m_state; }
-    const QList<TurnContent> &getCurrentBlocks() const { return m_currentBlocks; }
+    const QList<TurnContent> &currentBlocks() const { return m_currentBlocks; }
 
     virtual QString stopReason() const { return {}; }
 
-    QList<ToolUseContent> getCurrentToolUseContent() const;
-    QList<ThinkingContent> getCurrentThinkingContent() const;
+    QList<ToolUseContent> currentToolUseContent() const;
+    QList<ThinkingContent> currentThinkingContent() const;
 
     QList<PendingThinkingNotification> takePendingThinkingNotifications();
 
@@ -47,13 +48,14 @@ protected:
     [[nodiscard]] QJsonArray mapToolResults(
         const QHash<QString, ToolResult> &toolResults, const ToolResultEmitter &emitFor) const;
 
-    [[nodiscard]] static QString toolResultText(const ToolResult &result);
-
     MessageState m_state = MessageState::Building;
     QList<TurnContent> m_currentBlocks;
 
     int getOrCreateTextContentIndex();
     void appendTextDelta(const QString &delta);
+
+    void removeBlocksIf(const std::function<bool(const TurnContent &)> &predicate);
+    void clearBlocks();
 
     template<typename T>
     int addCurrentContent(T &&content)
@@ -87,6 +89,9 @@ protected:
         }
         return -1;
     }
+
+private:
+    QSet<int> m_notifiedThinking;
 };
 
 } // namespace LLMQore

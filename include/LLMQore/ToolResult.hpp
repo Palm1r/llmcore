@@ -39,6 +39,12 @@ struct LLMQORE_EXPORT ToolResult
     static ToolResult fromJson(const QJsonObject &obj);
 };
 
+LLMQORE_EXPORT QString toolResultText(const ToolResult &result);
+
+LLMQORE_EXPORT ToolResult toToolResult(const ToolResultContent &content);
+LLMQORE_EXPORT ToolResultContent makeToolResultContent(
+    const QString &toolUseId, const QString &name, const ToolResult &result);
+
 } // namespace LLMQore
 
 using LLMQoreToolResultHash = QHash<QString, LLMQore::ToolResult>;

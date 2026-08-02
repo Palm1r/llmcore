@@ -6,12 +6,16 @@
 #include <LLMQore/HttpTransport.hpp>
 #include <LLMQore/SSEParser.hpp>
 
+#include <algorithm>
+
 #include <QJsonArray>
 #include <QJsonDocument>
 
 #include "OpenAIResponsesMessage.hpp"
 #include <LLMQore/FutureUtils.hpp>
 #include <LLMQore/Log.hpp>
+
+#include "core/ThreadAffinity.hpp"
 
 namespace LLMQore {
 
@@ -54,6 +58,7 @@ OpenAIResponsesClient::OpenAIResponsesClient(
 RequestID OpenAIResponsesClient::sendMessage(
     const QJsonObject &payload, const QString &endpoint, RequestMode mode)
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     QJsonObject request = payload;
     request["stream"] = (mode == RequestMode::Streaming);
 
@@ -97,11 +102,11 @@ QJsonObject OpenAIResponsesClient::buildConversationPayload(
 
                 const ToolResult toolResult = toToolResult(*result);
 
-                QJsonObject item{
+                QJsonObject item = {
                     {"type", "function_call_output"}, {"call_id", result->toolUseId}};
 
                 if (toolResult.hasOnlyText()) {
-                    item["output"] = toolResult.asText();
+                    item["output"] = toolResultText(toolResult);
                 } else {
                     QJsonArray blocks;
                     for (const ToolContent &part : toolResult.content)
@@ -114,65 +119,10 @@ QJsonObject OpenAIResponsesClient::buildConversationPayload(
             continue;
         }
 
-        const bool isAssistant = turn.role == TurnRole::Assistant;
-        QJsonArray parts;
-        QString assistantText;
-
-        for (const TurnContent &block : turn.content) {
-            std::visit(
-                overloaded{
-                    [&](const TextContent &c) {
-                        assistantText += c.text;
-                        parts.append(
-                            QJsonObject{
-                                {"type", isAssistant ? "output_text" : "input_text"},
-                                {"text", c.text}});
-                    },
-                    [&](const ImageContent &c) {
-                        const QString url = c.isUrl()
-                            ? c.url().toString()
-                            : QStringLiteral("data:%1;base64,%2")
-                                  .arg(
-                                      c.mimeType.isEmpty() ? QStringLiteral("image/png")
-                                                           : c.mimeType,
-                                      c.base64());
-                        parts.append(
-                            QJsonObject{
-                                {"type", "input_image"}, {"image_url", url}, {"detail", "auto"}});
-                    },
-                    [&](const AudioContent &) {},
-                    [&](const ToolUseContent &c) {
-                        input.append(
-                            QJsonObject{
-                                {"type", "function_call"},
-                                {"call_id", c.id},
-                                {"name", c.name},
-                                {"arguments",
-                                 QString::fromUtf8(
-                                     QJsonDocument(c.input).toJson(QJsonDocument::Compact))}});
-                    },
-                    [&](const ToolResultContent &) {},
-                    [&](const ThinkingContent &c) {
-                        if (m_reasoningPersistence != ReasoningPersistence::Replay
-                            || c.itemId.isEmpty() || c.encryptedContent.isEmpty())
-                            return;
-                        input.append(
-                            QJsonObject{
-                                {"type", "reasoning"},
-                                {"id", c.itemId},
-                                {"encrypted_content", c.encryptedContent},
-                                {"summary", QJsonArray{}}});
-                    },
-                    [&](const RedactedThinkingContent &) {}},
-                block);
-        }
-
-        if (isAssistant) {
-            if (!assistantText.isEmpty())
-                input.append(QJsonObject{{"role", "assistant"}, {"content", assistantText}});
-        } else if (!parts.isEmpty()) {
-            input.append(QJsonObject{{"role", "user"}, {"content", parts}});
-        }
+        const QList<QJsonObject> items = OpenAIResponsesMessage::serializeTurn(
+            turn.role, turn.content, m_reasoningPersistence);
+        for (const QJsonObject &item : items)
+            input.append(item);
     }
 
     payload["input"] = input;
@@ -230,8 +180,7 @@ QJsonObject OpenAIResponsesClient::buildContinuationPayload(
     QJsonObject request = originalPayload;
     QJsonArray input = request["input"].toArray();
 
-    QList<QJsonObject> assistantItems = responsesMsg->toItemsFormat(
-        m_reasoningPersistence == ReasoningPersistence::Replay);
+    QList<QJsonObject> assistantItems = responsesMsg->toItemsFormat(m_reasoningPersistence);
     for (const QJsonObject &item : assistantItems)
         input.append(item);
 

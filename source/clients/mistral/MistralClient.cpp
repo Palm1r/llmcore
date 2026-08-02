@@ -10,6 +10,8 @@
 #include <LLMQore/HttpTransport.hpp>
 #include <LLMQore/Log.hpp>
 
+#include "core/ThreadAffinity.hpp"
+
 namespace LLMQore {
 
 MistralClient::MistralClient(QObject *parent)
@@ -35,6 +37,7 @@ MistralClient::MistralClient(
 RequestID MistralClient::sendMessage(
     const QJsonObject &payload, const QString &endpoint, RequestMode mode)
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     return OpenAIClient::sendMessage(
         payload, endpoint.isEmpty() ? QStringLiteral("/v1/chat/completions") : endpoint, mode);
 }

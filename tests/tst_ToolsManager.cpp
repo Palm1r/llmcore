@@ -442,7 +442,7 @@ namespace {
 ToolResult structuredResult()
 {
     ToolResult r;
-    r.content = {TextContent("rendered")};
+    r.content = {TextContent{"rendered"}};
     r.structuredContent = QJsonObject{{"celsius", 21}};
     return r;
 }
@@ -482,7 +482,7 @@ TEST(ToolResultText, PlainResultIsUnchanged)
 TEST(ToolResultText, HasOnlyTextIsFalseWhenABlockIsBinary)
 {
     ToolResult r;
-    r.content = {TextContent("a"), ImageContent::fromBytes("bytes", "image/png")};
+    r.content = {TextContent{"a"}, ImageContent::fromBytes("bytes", "image/png")};
     EXPECT_FALSE(r.hasOnlyText());
 
     EXPECT_TRUE(ToolResult::text("a").hasOnlyText());

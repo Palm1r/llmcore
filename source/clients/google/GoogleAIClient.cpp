@@ -12,6 +12,8 @@
 #include <LLMQore/Log.hpp>
 #include <LLMQore/SSEParser.hpp>
 
+#include "core/ThreadAffinity.hpp"
+
 namespace LLMQore {
 
 namespace {
@@ -51,6 +53,7 @@ GoogleAIClient::GoogleAIClient(
 RequestID GoogleAIClient::sendMessage(
     const QJsonObject &payload, const QString &endpoint, RequestMode mode)
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     RequestID id = createRequest();
 
     QString resolved = endpoint;
@@ -98,9 +101,9 @@ QJsonObject GoogleAIClient::buildConversationPayload(const Conversation &convers
                     continue;
 
                 const ToolResult toolResult = toToolResult(*result);
-                QJsonObject functionResponse{
+                QJsonObject functionResponse = {
                     {"name", result->name},
-                    {"response", QJsonObject{{"result", toolResult.asText()}}}};
+                    {"response", QJsonObject{{"result", toolResultText(toolResult)}}}};
 
                 if (!toolResult.hasOnlyText()) {
                     QJsonArray media;
@@ -122,64 +125,11 @@ QJsonObject GoogleAIClient::buildConversationPayload(const Conversation &convers
             continue;
         }
 
-        for (const TurnContent &block : turn.content) {
-            std::visit(
-                overloaded{
-                    [&](const TextContent &c) { parts.append(QJsonObject{{"text", c.text}}); },
-                    [&](const ImageContent &c) {
-                        if (c.isUrl()) {
-                            parts.append(
-                                QJsonObject{
-                                    {"fileData",
-                                     QJsonObject{
-                                         {"mimeType", c.mimeType},
-                                         {"fileUri", c.url().toString()}}}});
-                            return;
-                        }
-                        parts.append(
-                            QJsonObject{
-                                {"inlineData",
-                                 QJsonObject{
-                                     {"mimeType",
-                                      c.mimeType.isEmpty() ? QStringLiteral("image/png")
-                                                           : c.mimeType},
-                                     {"data", c.base64()}}}});
-                    },
-                    [&](const AudioContent &c) {
-                        parts.append(
-                            QJsonObject{
-                                {"inlineData",
-                                 QJsonObject{
-                                     {"mimeType",
-                                      c.mimeType.isEmpty() ? QStringLiteral("audio/wav")
-                                                           : c.mimeType},
-                                     {"data", QString::fromUtf8(c.data.toBase64())}}}});
-                    },
-                    [&](const ToolUseContent &c) {
-                        parts.append(
-                            QJsonObject{
-                                {"functionCall",
-                                 QJsonObject{{"name", c.name}, {"args", c.input}}}});
-                    },
-                    [&](const ToolResultContent &) {},
-                    [&](const ThinkingContent &c) {
-                        parts.append(QJsonObject{{"text", c.thinking}, {"thought", true}});
-                        if (!c.signature.isEmpty())
-                            parts.append(QJsonObject{{"thoughtSignature", c.signature}});
-                    },
-                    [&](const RedactedThinkingContent &) {}},
-                block);
-        }
-
-        if (parts.isEmpty())
+        const QJsonObject serialized = GoogleMessage::serializeTurn(turn.role, turn.content);
+        if (serialized.value("parts").toArray().isEmpty())
             continue;
 
-        contents.append(
-            QJsonObject{
-                {"role",
-                 turn.role == TurnRole::Assistant ? QStringLiteral("model")
-                                                  : QStringLiteral("user")},
-                {"parts", parts}});
+        contents.append(serialized);
     }
 
     payload["contents"] = contents;

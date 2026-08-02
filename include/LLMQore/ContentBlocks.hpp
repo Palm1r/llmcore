@@ -73,13 +73,11 @@ struct ThinkingContent
     QString signature;
     QString itemId;
     QString encryptedContent;
-    bool notified = false;
 };
 
 struct RedactedThinkingContent
 {
     QString signature;
-    bool notified = false;
 };
 
 struct ResourceContent
@@ -142,6 +140,8 @@ using TurnContent = std::variant<
     ThinkingContent,
     RedactedThinkingContent>;
 
+namespace detail {
+
 template<typename... Ts>
 struct overloaded : Ts...
 {
@@ -149,6 +149,8 @@ struct overloaded : Ts...
 };
 template<typename... Ts>
 overloaded(Ts...) -> overloaded<Ts...>;
+
+} // namespace detail
 
 } // namespace LLMQore
 

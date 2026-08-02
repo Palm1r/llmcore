@@ -46,17 +46,17 @@ TEST(ToolResultTest, EmptyFactoryHasNoContent)
 TEST(ToolResultTest, AsTextJoinsMultipleTextBlocks)
 {
     ToolResult r;
-    r.content.append(TextContent("Hello"));
-    r.content.append(TextContent("World"));
+    r.content.append(TextContent{"Hello"});
+    r.content.append(TextContent{"World"});
     EXPECT_EQ(r.asText(), "Hello\nWorld");
 }
 
 TEST(ToolResultTest, AsTextSubstitutesImageBlock)
 {
     ToolResult r;
-    r.content.append(TextContent("Before"));
+    r.content.append(TextContent{"Before"});
     r.content.append(ImageContent::fromBytes(QByteArray("\x01\x02", 2), "image/png"));
-    r.content.append(TextContent("After"));
+    r.content.append(TextContent{"After"});
     const QString text = r.asText();
     EXPECT_TRUE(text.contains("Before"));
     EXPECT_TRUE(text.contains("After"));
@@ -66,7 +66,7 @@ TEST(ToolResultTest, AsTextSubstitutesImageBlock)
 TEST(ToolResultTest, AsTextSubstitutesAudioBlock)
 {
     ToolResult r;
-    r.content.append(AudioContent(QByteArray("AUDIO", 5), "audio/wav"));
+    r.content.append(AudioContent{QByteArray("AUDIO", 5), "audio/wav"});
     EXPECT_EQ(r.asText(), "[audio: audio/wav]");
 }
 
@@ -90,7 +90,7 @@ TEST(ToolResultTest, AsTextSubstitutesResourceLink)
 {
     ToolResult r;
     r.content.append(
-        ResourceLinkContent("https://example.com/a.txt", "A", "An A"));
+        ResourceLinkContent{"https://example.com/a.txt", "A", "An A"});
     EXPECT_EQ(r.asText(), "[resource link: https://example.com/a.txt]");
 }
 
@@ -98,7 +98,7 @@ TEST(ToolResultTest, AsTextSubstitutesResourceLink)
 
 TEST(ToolResultTest, TextContentRoundTrip)
 {
-    const ToolContent original = TextContent("hi");
+    const ToolContent original = TextContent{"hi"};
     const QJsonObject json = toolContentToJson(original);
     EXPECT_EQ(json.value("type").toString(), "text");
     EXPECT_EQ(json.value("text").toString(), "hi");
@@ -127,7 +127,7 @@ TEST(ToolResultTest, ImageContentRoundTripUsesBase64)
 TEST(ToolResultTest, AudioContentRoundTrip)
 {
     const QByteArray bytes("audio-bytes", 11);
-    const ToolContent original = AudioContent(bytes, "audio/mpeg");
+    const ToolContent original = AudioContent{bytes, "audio/mpeg"};
     const QJsonObject json = toolContentToJson(original);
     EXPECT_EQ(json.value("type").toString(), "audio");
 
@@ -172,8 +172,8 @@ TEST(ToolResultTest, EmbeddedResourceBlobRoundTrip)
 
 TEST(ToolResultTest, ResourceLinkRoundTrip)
 {
-    const ToolContent original = ResourceLinkContent(
-        "file:///tmp/log.txt", "Log", "Build log", "text/plain");
+    const ToolContent original = ResourceLinkContent{
+        "file:///tmp/log.txt", "Log", "Build log", "text/plain"};
     const QJsonObject json = toolContentToJson(original);
     EXPECT_EQ(json.value("type").toString(), "resource_link");
     EXPECT_EQ(json.value("uri").toString(), "file:///tmp/log.txt");
@@ -200,7 +200,7 @@ TEST(ToolResultTest, UnknownContentTypeFallsBackToTextPlaceholder)
 TEST(ToolResultTest, FullEnvelopeRoundTripPreservesEverything)
 {
     ToolResult original;
-    original.content.append(TextContent("summary"));
+    original.content.append(TextContent{"summary"});
     original.content.append(
         ImageContent::fromBytes(QByteArray("png", 3), "image/png"));
     original.isError = false;

@@ -116,15 +116,14 @@ void OllamaMessage::handleDone(bool done, const QString &doneReason)
                     << QString("Skipping invalid/incomplete tool call JSON (length=%1)")
                            .arg(trimmed.length());
 
-                for (auto it = m_currentBlocks.begin(); it != m_currentBlocks.end();) {
-                    if (std::holds_alternative<TextContent>(*it)) {
+                removeBlocksIf([](const TurnContent &block) {
+                    const bool isText = std::get_if<TextContent>(&block) != nullptr;
+                    if (isText) {
                         qCDebug(llmOllamaLog).noquote()
                             << "Removing TextContent block (incomplete tool call)";
-                        it = m_currentBlocks.erase(it);
-                    } else {
-                        ++it;
                     }
-                }
+                    return isText;
+                });
                 m_currentThinkingIndex = -1;
 
                 m_accumulatedContent.clear();
@@ -202,7 +201,7 @@ bool OllamaMessage::tryParseToolCall()
         if (std::holds_alternative<TextContent>(block))
             qCDebug(llmOllamaLog).noquote() << "Removing TextContent block (tool call detected)";
     }
-    m_currentBlocks.clear();
+    clearBlocks();
     m_currentThinkingIndex = -1;
 
     addCurrentContent(ToolUseContent{toolId, name, arguments});
@@ -236,8 +235,15 @@ QString OllamaMessage::stripMarkdownCodeFence(const QString &content) const
 
 QJsonObject OllamaMessage::toProviderFormat() const
 {
+    return serializeTurn(TurnRole::Assistant, m_currentBlocks);
+}
+
+QJsonObject OllamaMessage::serializeTurn(TurnRole role, const QList<TurnContent> &blocks)
+{
+    const bool isAssistant = role == TurnRole::Assistant;
+
     QJsonObject message;
-    message["role"] = "assistant";
+    message["role"] = isAssistant ? QStringLiteral("assistant") : QStringLiteral("user");
 
     QString textContent;
     QJsonArray toolCalls;
@@ -245,9 +251,9 @@ QJsonObject OllamaMessage::toProviderFormat() const
 
     QJsonArray images;
 
-    for (const TurnContent &block : m_currentBlocks) {
+    for (const TurnContent &block : blocks) {
         std::visit(
-            overloaded{
+            detail::overloaded{
                 [&](const TextContent &c) { textContent += c.text; },
                 [&](const ImageContent &c) {
                     if (!c.isUrl())
@@ -273,7 +279,7 @@ QJsonObject OllamaMessage::toProviderFormat() const
         message["thinking"] = thinkingContent;
     }
 
-    if (!textContent.isEmpty()) {
+    if (!textContent.isEmpty() || !isAssistant) {
         message["content"] = textContent;
     }
 
@@ -318,11 +324,11 @@ void OllamaMessage::startNewContinuation()
 
 void OllamaMessage::updateStateFromDone()
 {
-    if (!getCurrentToolUseContent().empty()) {
+    if (!currentToolUseContent().empty()) {
         m_state = MessageState::RequiresToolExecution;
         qCDebug(llmOllamaLog).noquote()
             << QString("State set to RequiresToolExecution, tools count=%1")
-                   .arg(getCurrentToolUseContent().size());
+                   .arg(currentToolUseContent().size());
     } else {
         m_state = MessageState::Final;
         qCDebug(llmOllamaLog).noquote() << "State set to Final";

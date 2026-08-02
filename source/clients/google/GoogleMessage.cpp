@@ -162,16 +162,22 @@ void GoogleMessage::handleFinishReason(const QString &reason)
 
 QJsonObject GoogleMessage::toProviderFormat() const
 {
+    return serializeTurn(TurnRole::Assistant, m_currentBlocks);
+}
+
+QJsonObject GoogleMessage::serializeTurn(TurnRole role, const QList<TurnContent> &blocks)
+{
     QJsonObject content;
-    content["role"] = "model";
+    content["role"] = role == TurnRole::Assistant ? QStringLiteral("model")
+                                                  : QStringLiteral("user");
 
     QJsonArray parts;
 
     QString lastThoughtSignature;
 
-    for (const TurnContent &block : m_currentBlocks) {
+    for (const TurnContent &block : blocks) {
         std::visit(
-            overloaded{
+            detail::overloaded{
                 [&](const TextContent &c) { parts.append(QJsonObject{{"text", c.text}}); },
                 [&](const ImageContent &c) {
                     if (c.isUrl()) {
@@ -241,7 +247,7 @@ QJsonObject GoogleMessage::toInlineDataPart(const ToolContent &block)
     QByteArray bytes;
 
     std::visit(
-        overloaded{
+        detail::overloaded{
             [&](const TextContent &) {},
             [&](const ImageContent &c) {
                 if (c.isUrl())
@@ -282,7 +288,7 @@ QString buildGeminiResponseText(const ToolResult &r)
     QStringList chunks;
     for (const ToolContent &block : r.content) {
         std::visit(
-            overloaded{
+            detail::overloaded{
                 [&](const TextContent &c) {
                     if (!c.text.isEmpty())
                         chunks.append(c.text);
@@ -380,7 +386,7 @@ QString GoogleMessage::getErrorMessage() const
 void GoogleMessage::updateStateFromFinishReason()
 {
     if (m_finishReason == "STOP" || m_finishReason == "MAX_TOKENS") {
-        m_state = getCurrentToolUseContent().isEmpty() ? MessageState::Complete
+        m_state = currentToolUseContent().isEmpty() ? MessageState::Complete
                                                        : MessageState::RequiresToolExecution;
     } else {
         m_state = MessageState::Complete;

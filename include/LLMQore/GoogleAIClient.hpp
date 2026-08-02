@@ -38,6 +38,7 @@ public:
         RequestMode mode = RequestMode::Streaming) override;
     RequestID ask(
         const QString &prompt, RequestMode mode = RequestMode::Streaming) override;
+    using BaseClient::ask;
 
     QFuture<QList<ModelInfo>> listModels(const QString &endpoint = {}) override;
     QJsonObject buildConversationPayload(const Conversation &conversation) const override;

@@ -8,6 +8,7 @@
 #include <QFutureWatcher>
 #include <QHostAddress>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonObject>
 #include <QPromise>
 #include <QTimer>

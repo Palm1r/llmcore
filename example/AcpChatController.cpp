@@ -29,6 +29,7 @@ bool AcpChatController::launch(const QString &agentName, Acp::AcpAgentConfig con
         m_client->shutdown();
         m_client->deleteLater();
         m_client = nullptr;
+        setBusy(false);
     }
     m_sessionId.clear();
 

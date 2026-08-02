@@ -285,11 +285,11 @@ public:
             file.close();
 
             LLMQore::ToolResult r;
-            r.content.append(LLMQore::TextContent(
+            r.content.append(LLMQore::TextContent{
                 QString("Image loaded: %1 (%2 bytes, %3)")
                     .arg(info.fileName())
                     .arg(bytes.size())
-                    .arg(mimeName)));
+                    .arg(mimeName)});
             r.content.append(LLMQore::ImageContent::fromBytes(bytes, mimeName));
             return r;
         });

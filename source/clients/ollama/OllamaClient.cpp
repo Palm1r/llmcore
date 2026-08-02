@@ -12,6 +12,8 @@
 #include <LLMQore/RpcLineFramer.hpp>
 #include <LLMQore/Log.hpp>
 
+#include "core/ThreadAffinity.hpp"
+
 namespace LLMQore {
 
 namespace {
@@ -53,6 +55,7 @@ OllamaClient::OllamaClient(
 RequestID OllamaClient::sendMessage(
     const QJsonObject &payload, const QString &endpoint, RequestMode mode)
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     QJsonObject request = payload;
     request["stream"] = (mode == RequestMode::Streaming);
 
@@ -89,51 +92,14 @@ QJsonObject OllamaClient::buildConversationPayload(const Conversation &conversat
                 if (const auto *result = std::get_if<ToolResultContent>(&block)) {
                     messages.append(
                         QJsonObject{
-                            {"role", "tool"}, {"content", toToolResult(*result).asText()}});
+                            {"role", "tool"},
+                            {"content", toolResultText(toToolResult(*result))}});
                 }
             }
             continue;
         }
 
-        QString text;
-        QString thinking;
-        QJsonArray images;
-        QJsonArray toolCalls;
-
-        for (const TurnContent &block : turn.content) {
-            std::visit(
-                overloaded{
-                    [&](const TextContent &c) { text += c.text; },
-                    [&](const ImageContent &c) {
-                        if (!c.isUrl())
-                            images.append(c.base64());
-                    },
-                    [&](const AudioContent &) {},
-                    [&](const ToolUseContent &c) {
-                        toolCalls.append(
-                            QJsonObject{
-                                {"type", "function"},
-                                {"function",
-                                 QJsonObject{{"name", c.name}, {"arguments", c.input}}}});
-                    },
-                    [&](const ToolResultContent &) {},
-                    [&](const ThinkingContent &c) { thinking += c.thinking; },
-                    [&](const RedactedThinkingContent &) {}},
-                block);
-        }
-
-        QJsonObject message;
-        message["role"] = turn.role == TurnRole::Assistant ? QStringLiteral("assistant")
-                                                           : QStringLiteral("user");
-        message["content"] = text;
-        if (!images.isEmpty())
-            message["images"] = images;
-        if (!thinking.isEmpty())
-            message["thinking"] = thinking;
-        if (!toolCalls.isEmpty())
-            message["tool_calls"] = toolCalls;
-
-        messages.append(message);
+        messages.append(OllamaMessage::serializeTurn(turn.role, turn.content));
     }
 
     payload["messages"] = messages;

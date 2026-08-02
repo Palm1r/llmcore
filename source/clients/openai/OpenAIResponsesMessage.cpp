@@ -6,7 +6,10 @@
 
 #include <LLMQore/Log.hpp>
 
+#include <algorithm>
+
 #include <QJsonArray>
+#include <QJsonDocument>
 
 namespace LLMQore {
 
@@ -103,6 +106,12 @@ void OpenAIResponsesMessage::handleReasoningEncryptedContent(
 
 void OpenAIResponsesMessage::handleReasoningDelta(const QString &itemId, const QString &text)
 {
+    if (text.isEmpty())
+        return;
+
+    if (!m_thinkingBlocks.contains(itemId))
+        handleReasoningStart(itemId);
+
     if (auto *thinking = blockAt<ThinkingContent>(m_thinkingBlocks.value(itemId, -1)))
         thinking->thinking += text;
 }
@@ -118,22 +127,47 @@ void OpenAIResponsesMessage::handleStatus(const QString &status)
     updateStateFromStatus();
 }
 
-QList<QJsonObject> OpenAIResponsesMessage::toItemsFormat(bool includeReasoning) const
+QList<QJsonObject> OpenAIResponsesMessage::toItemsFormat(ReasoningPersistence reasoning) const
 {
+    return serializeTurn(TurnRole::Assistant, m_currentBlocks, reasoning);
+}
+
+QList<QJsonObject> OpenAIResponsesMessage::serializeTurn(
+    TurnRole role, const QList<TurnContent> &blocks, ReasoningPersistence reasoning)
+{
+    const bool isAssistant = role == TurnRole::Assistant;
+    const bool includeReasoning = reasoning == ReasoningPersistence::Replay;
+
     QList<QJsonObject> items;
+    QJsonArray parts;
 
     QString textContent;
     int textPosition = -1;
 
-    for (const TurnContent &block : m_currentBlocks) {
+    for (const TurnContent &block : blocks) {
         std::visit(
-            overloaded{
+            detail::overloaded{
                 [&](const TextContent &c) {
+                    if (!isAssistant) {
+                        parts.append(QJsonObject{{"type", "input_text"}, {"text", c.text}});
+                        return;
+                    }
                     if (textPosition < 0)
                         textPosition = items.size();
                     textContent += c.text;
                 },
-                [&](const ImageContent &) {},
+                [&](const ImageContent &c) {
+                    if (isAssistant)
+                        return;
+                    const QString mime = c.mimeType.isEmpty() ? QStringLiteral("image/png")
+                                                              : c.mimeType;
+                    const QString url = c.isUrl()
+                        ? c.url().toString()
+                        : QStringLiteral("data:%1;base64,%2").arg(mime, c.base64());
+                    parts.append(
+                        QJsonObject{
+                            {"type", "input_image"}, {"image_url", url}, {"detail", "auto"}});
+                },
                 [&](const AudioContent &) {},
                 [&](const ToolUseContent &c) {
                     QJsonObject functionCallItem;
@@ -161,11 +195,17 @@ QList<QJsonObject> OpenAIResponsesMessage::toItemsFormat(bool includeReasoning) 
             block);
     }
 
+    if (!isAssistant) {
+        if (!parts.isEmpty())
+            items.append(QJsonObject{{"role", "user"}, {"content", parts}});
+        return items;
+    }
+
     if (!textContent.isEmpty()) {
         QJsonObject message;
         message["role"] = "assistant";
         message["content"] = textContent;
-        items.insert(qBound(0, textPosition, items.size()), message);
+        items.insert(std::clamp(textPosition, 0, int(items.size())), message);
     }
 
     return items;
@@ -174,7 +214,7 @@ QList<QJsonObject> OpenAIResponsesMessage::toItemsFormat(bool includeReasoning) 
 QJsonObject OpenAIResponsesMessage::toResponsesInnerBlock(const ToolContent &block)
 {
     return std::visit(
-        overloaded{
+        detail::overloaded{
             [](const TextContent &c) -> QJsonObject {
                 return QJsonObject{{"type", "input_text"}, {"text", c.text}};
             },
@@ -248,7 +288,7 @@ QString OpenAIResponsesMessage::accumulatedText() const
 void OpenAIResponsesMessage::updateStateFromStatus()
 {
     if (m_status == "completed") {
-        if (!getCurrentToolUseContent().isEmpty()) {
+        if (!currentToolUseContent().isEmpty()) {
             m_state = MessageState::RequiresToolExecution;
         } else {
             m_state = MessageState::Complete;

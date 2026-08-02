@@ -14,9 +14,9 @@ TEST(GoogleMessage, InitialState)
 {
     GoogleMessage msg;
     EXPECT_EQ(msg.state(), MessageState::Building);
-    EXPECT_TRUE(msg.getCurrentBlocks().isEmpty());
-    EXPECT_TRUE(msg.getCurrentToolUseContent().isEmpty());
-    EXPECT_TRUE(msg.getCurrentThinkingContent().isEmpty());
+    EXPECT_TRUE(msg.currentBlocks().isEmpty());
+    EXPECT_TRUE(msg.currentToolUseContent().isEmpty());
+    EXPECT_TRUE(msg.currentThinkingContent().isEmpty());
     EXPECT_TRUE(msg.stopReason().isEmpty());
 }
 
@@ -26,8 +26,8 @@ TEST(GoogleMessage, HandleContentDelta)
     msg.handleContentDelta("Hello ");
     msg.handleContentDelta("world");
 
-    EXPECT_EQ(msg.getCurrentBlocks().size(), 1);
-    auto *textBlock = std::get_if<TextContent>(&msg.getCurrentBlocks()[0]);
+    EXPECT_EQ(msg.currentBlocks().size(), 1);
+    auto *textBlock = std::get_if<TextContent>(&msg.currentBlocks()[0]);
     ASSERT_NE(textBlock, nullptr);
     EXPECT_EQ(textBlock->text, "Hello world");
 }
@@ -39,10 +39,10 @@ TEST(GoogleMessage, HandleContentDelta_CreatesNewBlockAfterNonText)
     msg.handleThoughtDelta("thinking...");
     msg.handleContentDelta("text2");
 
-    EXPECT_EQ(msg.getCurrentBlocks().size(), 3);
-    auto *text1 = std::get_if<TextContent>(&msg.getCurrentBlocks()[0]);
-    auto thinking = std::get_if<ThinkingContent>(&msg.getCurrentBlocks()[1]);
-    auto *text2 = std::get_if<TextContent>(&msg.getCurrentBlocks()[2]);
+    EXPECT_EQ(msg.currentBlocks().size(), 3);
+    auto *text1 = std::get_if<TextContent>(&msg.currentBlocks()[0]);
+    auto thinking = std::get_if<ThinkingContent>(&msg.currentBlocks()[1]);
+    auto *text2 = std::get_if<TextContent>(&msg.currentBlocks()[2]);
     ASSERT_NE(text1, nullptr);
     ASSERT_NE(thinking, nullptr);
     ASSERT_NE(text2, nullptr);
@@ -56,8 +56,8 @@ TEST(GoogleMessage, HandleThoughtDelta)
     msg.handleThoughtDelta("Let me think");
     msg.handleThoughtDelta("... more");
 
-    EXPECT_EQ(msg.getCurrentThinkingContent().size(), 1);
-    EXPECT_EQ(msg.getCurrentThinkingContent()[0].thinking, "Let me think... more");
+    EXPECT_EQ(msg.currentThinkingContent().size(), 1);
+    EXPECT_EQ(msg.currentThinkingContent()[0].thinking, "Let me think... more");
 }
 
 TEST(GoogleMessage, HandleThoughtSignature_ExistingBlock)
@@ -66,7 +66,7 @@ TEST(GoogleMessage, HandleThoughtSignature_ExistingBlock)
     msg.handleThoughtDelta("thinking");
     msg.handleThoughtSignature("sig123");
 
-    auto thinking = msg.getCurrentThinkingContent()[0];
+    auto thinking = msg.currentThinkingContent()[0];
     EXPECT_EQ(thinking.signature, "sig123");
 }
 
@@ -75,8 +75,8 @@ TEST(GoogleMessage, HandleThoughtSignature_NoExistingBlock)
     GoogleMessage msg;
     msg.handleThoughtSignature("sig456");
 
-    EXPECT_EQ(msg.getCurrentThinkingContent().size(), 1);
-    EXPECT_EQ(msg.getCurrentThinkingContent()[0].signature, "sig456");
+    EXPECT_EQ(msg.currentThinkingContent().size(), 1);
+    EXPECT_EQ(msg.currentThinkingContent()[0].signature, "sig456");
 }
 
 TEST(GoogleMessage, HandleFunctionCall_Complete)
@@ -86,8 +86,8 @@ TEST(GoogleMessage, HandleFunctionCall_Complete)
     msg.handleFunctionCallArgsDelta(R"({"path": "/tmp/test.txt"})");
     msg.handleFunctionCallComplete();
 
-    EXPECT_EQ(msg.getCurrentToolUseContent().size(), 1);
-    auto tool = msg.getCurrentToolUseContent()[0];
+    EXPECT_EQ(msg.currentToolUseContent().size(), 1);
+    auto tool = msg.currentToolUseContent()[0];
     EXPECT_EQ(tool.name, "read_file");
     EXPECT_EQ(tool.input["path"].toString(), "/tmp/test.txt");
     EXPECT_FALSE(tool.id.isEmpty()); // UUID generated
@@ -101,7 +101,7 @@ TEST(GoogleMessage, HandleFunctionCall_StreamedArgs)
     msg.handleFunctionCallArgsDelta(R"( "/tmp/f"})");
     msg.handleFunctionCallComplete();
 
-    auto tool = msg.getCurrentToolUseContent()[0];
+    auto tool = msg.currentToolUseContent()[0];
     EXPECT_EQ(tool.input["path"].toString(), "/tmp/f");
 }
 
@@ -111,7 +111,7 @@ TEST(GoogleMessage, HandleFunctionCall_EmptyArgs)
     msg.handleFunctionCallStart("list_files");
     msg.handleFunctionCallComplete();
 
-    auto tool = msg.getCurrentToolUseContent()[0];
+    auto tool = msg.currentToolUseContent()[0];
     EXPECT_TRUE(tool.input.isEmpty());
 }
 
@@ -122,7 +122,7 @@ TEST(GoogleMessage, HandleFunctionCall_InvalidJson)
     msg.handleFunctionCallArgsDelta("not json{{{");
     msg.handleFunctionCallComplete();
 
-    auto tool = msg.getCurrentToolUseContent()[0];
+    auto tool = msg.currentToolUseContent()[0];
     EXPECT_TRUE(tool.input.isEmpty());
 }
 
@@ -130,7 +130,7 @@ TEST(GoogleMessage, HandleFunctionCallComplete_NoFunctionStarted)
 {
     GoogleMessage msg;
     msg.handleFunctionCallComplete();
-    EXPECT_TRUE(msg.getCurrentToolUseContent().isEmpty());
+    EXPECT_TRUE(msg.currentToolUseContent().isEmpty());
 }
 
 TEST(GoogleMessage, HandleFunctionCall_MultipleCalls)
@@ -144,7 +144,7 @@ TEST(GoogleMessage, HandleFunctionCall_MultipleCalls)
     msg.handleFunctionCallArgsDelta(R"({"path": "b"})");
     msg.handleFunctionCallComplete();
 
-    EXPECT_EQ(msg.getCurrentToolUseContent().size(), 2);
+    EXPECT_EQ(msg.currentToolUseContent().size(), 2);
 }
 
 TEST(GoogleMessage, HandleFinishReason_STOP_NoTools)
@@ -401,7 +401,7 @@ TEST(GoogleMessage, CreateToolResultParts)
     msg.handleFunctionCallStart("write");
     msg.handleFunctionCallComplete();
 
-    auto tools = msg.getCurrentToolUseContent();
+    auto tools = msg.currentToolUseContent();
 
     QHash<QString, ToolResult> results;
     results[tools[0].id] = ToolResult::text("file content");
@@ -426,11 +426,11 @@ TEST(GoogleMessage, CreateToolResultParts_ImageBecomesNestedInlineDataPart)
     msg.handleFunctionCallStart("get_sample_image");
     msg.handleFunctionCallComplete();
 
-    auto tools = msg.getCurrentToolUseContent();
+    auto tools = msg.currentToolUseContent();
     ASSERT_EQ(tools.size(), 1);
 
     ToolResult r;
-    r.content.append(TextContent("here is the screenshot"));
+    r.content.append(TextContent{"here is the screenshot"});
     r.content.append(ImageContent::fromBytes(QByteArray("PNGDATA"), "image/png"));
 
     QHash<QString, ToolResult> results;
@@ -463,11 +463,11 @@ TEST(GoogleMessage, CreateToolResultParts_OnePartPerFunctionCallWithMixedResults
     msg.handleFunctionCallStart("get_sample_image");
     msg.handleFunctionCallComplete();
 
-    auto tools = msg.getCurrentToolUseContent();
+    auto tools = msg.currentToolUseContent();
     ASSERT_EQ(tools.size(), 2);
 
     ToolResult withImage;
-    withImage.content.append(TextContent("here is the screenshot"));
+    withImage.content.append(TextContent{"here is the screenshot"});
     withImage.content.append(ImageContent::fromBytes(QByteArray("PNGDATA"), "image/png"));
 
     QHash<QString, ToolResult> results;
@@ -489,7 +489,7 @@ TEST(GoogleMessage, CreateToolResultParts_TextOnlyKeepsFlatResponse)
     msg.handleFunctionCallStart("read");
     msg.handleFunctionCallComplete();
 
-    auto tools = msg.getCurrentToolUseContent();
+    auto tools = msg.currentToolUseContent();
     QHash<QString, ToolResult> results;
     results[tools[0].id] = ToolResult::text("plain text result");
 
@@ -509,10 +509,10 @@ TEST(GoogleMessage, CreateToolResultParts_AudioAlsoBecomesInlineData)
     msg.handleFunctionCallStart("record");
     msg.handleFunctionCallComplete();
 
-    auto tools = msg.getCurrentToolUseContent();
+    auto tools = msg.currentToolUseContent();
 
     ToolResult r;
-    r.content.append(AudioContent(QByteArray("WAVDATA"), "audio/wav"));
+    r.content.append(AudioContent{QByteArray("WAVDATA"), "audio/wav"});
 
     QHash<QString, ToolResult> results;
     results[tools[0].id] = r;
@@ -540,7 +540,7 @@ TEST(GoogleMessage, StartNewContinuation)
 
     msg.startNewContinuation();
     EXPECT_EQ(msg.state(), MessageState::Building);
-    EXPECT_TRUE(msg.getCurrentBlocks().isEmpty());
+    EXPECT_TRUE(msg.currentBlocks().isEmpty());
     EXPECT_TRUE(msg.stopReason().isEmpty());
 }
 

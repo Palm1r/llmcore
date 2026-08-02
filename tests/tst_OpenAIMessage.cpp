@@ -14,9 +14,9 @@ TEST(OpenAIMessage, InitialState)
 {
     OpenAIMessage msg;
     EXPECT_EQ(msg.state(), MessageState::Building);
-    EXPECT_TRUE(msg.getCurrentBlocks().isEmpty());
-    EXPECT_TRUE(msg.getCurrentToolUseContent().isEmpty());
-    EXPECT_TRUE(msg.getCurrentThinkingContent().isEmpty());
+    EXPECT_TRUE(msg.currentBlocks().isEmpty());
+    EXPECT_TRUE(msg.currentToolUseContent().isEmpty());
+    EXPECT_TRUE(msg.currentThinkingContent().isEmpty());
 }
 
 TEST(OpenAIMessage, HandleContentDelta)
@@ -25,8 +25,8 @@ TEST(OpenAIMessage, HandleContentDelta)
     msg.handleContentDelta("Hello ");
     msg.handleContentDelta("world");
 
-    EXPECT_EQ(msg.getCurrentBlocks().size(), 1);
-    auto *textBlock = std::get_if<TextContent>(&msg.getCurrentBlocks()[0]);
+    EXPECT_EQ(msg.currentBlocks().size(), 1);
+    auto *textBlock = std::get_if<TextContent>(&msg.currentBlocks()[0]);
     ASSERT_NE(textBlock, nullptr);
     EXPECT_EQ(textBlock->text, "Hello world");
 }
@@ -38,7 +38,7 @@ TEST(OpenAIMessage, HandleContentDelta_MultipleCallsAppend)
     msg.handleContentDelta("b");
     msg.handleContentDelta("c");
 
-    auto *textBlock = std::get_if<TextContent>(&msg.getCurrentBlocks()[0]);
+    auto *textBlock = std::get_if<TextContent>(&msg.currentBlocks()[0]);
     ASSERT_NE(textBlock, nullptr);
     EXPECT_EQ(textBlock->text, "abc");
 }
@@ -48,10 +48,10 @@ TEST(OpenAIMessage, HandleToolCallStart)
     OpenAIMessage msg;
     msg.handleToolCallStart(0, "call_123", "read_file");
 
-    EXPECT_EQ(msg.getCurrentBlocks().size(), 1);
-    EXPECT_EQ(msg.getCurrentToolUseContent().size(), 1);
+    EXPECT_EQ(msg.currentBlocks().size(), 1);
+    EXPECT_EQ(msg.currentToolUseContent().size(), 1);
 
-    auto toolBlock = msg.getCurrentToolUseContent()[0];
+    auto toolBlock = msg.currentToolUseContent()[0];
     EXPECT_EQ(toolBlock.id, "call_123");
     EXPECT_EQ(toolBlock.name, "read_file");
 }
@@ -64,7 +64,7 @@ TEST(OpenAIMessage, HandleToolCallDelta_StreamedArguments)
     msg.handleToolCallDelta(0, R"("/tmp/f"})");
     msg.handleToolCallComplete(0);
 
-    auto toolBlock = msg.getCurrentToolUseContent()[0];
+    auto toolBlock = msg.currentToolUseContent()[0];
     EXPECT_EQ(toolBlock.input["path"].toString(), "/tmp/f");
 }
 
@@ -72,14 +72,14 @@ TEST(OpenAIMessage, HandleToolCallDelta_UnknownIndex)
 {
     OpenAIMessage msg;
     msg.handleToolCallDelta(99, R"({"key":"value"})");
-    EXPECT_TRUE(msg.getCurrentBlocks().isEmpty());
+    EXPECT_TRUE(msg.currentBlocks().isEmpty());
 }
 
 TEST(OpenAIMessage, HandleToolCallComplete_UnknownIndex)
 {
     OpenAIMessage msg;
     msg.handleToolCallComplete(42);
-    EXPECT_TRUE(msg.getCurrentBlocks().isEmpty());
+    EXPECT_TRUE(msg.currentBlocks().isEmpty());
 }
 
 TEST(OpenAIMessage, HandleToolCallComplete_EmptyArguments)
@@ -88,7 +88,7 @@ TEST(OpenAIMessage, HandleToolCallComplete_EmptyArguments)
     msg.handleToolCallStart(0, "call_1", "no_args_tool");
     msg.handleToolCallComplete(0);
 
-    auto toolBlock = msg.getCurrentToolUseContent()[0];
+    auto toolBlock = msg.currentToolUseContent()[0];
     EXPECT_TRUE(toolBlock.input.isEmpty());
 }
 
@@ -99,7 +99,7 @@ TEST(OpenAIMessage, HandleToolCallComplete_InvalidJson)
     msg.handleToolCallDelta(0, "not valid json{{{");
     msg.handleToolCallComplete(0);
 
-    auto toolBlock = msg.getCurrentToolUseContent()[0];
+    auto toolBlock = msg.currentToolUseContent()[0];
     EXPECT_TRUE(toolBlock.input.isEmpty());
 }
 
@@ -113,7 +113,7 @@ TEST(OpenAIMessage, CompleteAllPendingToolCalls)
 
     msg.completeAllPendingToolCalls();
 
-    auto tools = msg.getCurrentToolUseContent();
+    auto tools = msg.currentToolUseContent();
     EXPECT_EQ(tools.size(), 2);
 
     bool foundA = false, foundB = false;
@@ -241,8 +241,8 @@ TEST(OpenAIMessage, StartNewContinuation)
 
     msg.startNewContinuation();
     EXPECT_EQ(msg.state(), MessageState::Building);
-    EXPECT_TRUE(msg.getCurrentBlocks().isEmpty());
-    EXPECT_TRUE(msg.getCurrentToolUseContent().isEmpty());
+    EXPECT_TRUE(msg.currentBlocks().isEmpty());
+    EXPECT_TRUE(msg.currentToolUseContent().isEmpty());
 }
 
 TEST(OpenAIMessage, MultipleToolCalls)
@@ -255,7 +255,7 @@ TEST(OpenAIMessage, MultipleToolCalls)
     msg.handleToolCallComplete(0);
     msg.handleToolCallComplete(1);
 
-    auto tools = msg.getCurrentToolUseContent();
+    auto tools = msg.currentToolUseContent();
     EXPECT_EQ(tools.size(), 2);
 }
 
@@ -267,10 +267,10 @@ TEST(OpenAIMessage, TextAndToolCallsMixed)
     msg.handleToolCallDelta(0, R"({"q": "test"})");
     msg.handleToolCallComplete(0);
 
-    EXPECT_EQ(msg.getCurrentBlocks().size(), 2);
-    EXPECT_EQ(msg.getCurrentToolUseContent().size(), 1);
+    EXPECT_EQ(msg.currentBlocks().size(), 2);
+    EXPECT_EQ(msg.currentToolUseContent().size(), 1);
 
-    auto *textBlock = std::get_if<TextContent>(&msg.getCurrentBlocks()[0]);
+    auto *textBlock = std::get_if<TextContent>(&msg.currentBlocks()[0]);
     ASSERT_NE(textBlock, nullptr);
     EXPECT_EQ(textBlock->text, "Thinking...");
 }

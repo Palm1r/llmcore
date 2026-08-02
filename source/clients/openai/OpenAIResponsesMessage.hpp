@@ -4,6 +4,7 @@
 #pragma once
 
 #include <LLMQore/BaseMessage.hpp>
+#include <LLMQore/OpenAIResponsesClient.hpp>
 #include <LLMQore/ToolDialect.hpp>
 #include <LLMQore/ToolResult.hpp>
 
@@ -30,7 +31,13 @@ public:
 
     QString stopReason() const override { return m_status; }
 
-    QList<QJsonObject> toItemsFormat(bool includeReasoning = false) const;
+    // The single turn-to-wire mapping for this provider, shared by the in-flight
+    // continuation path (toItemsFormat) and the Conversation replay path
+    // (OpenAIResponsesClient::buildConversationPayload) so the two cannot drift.
+    [[nodiscard]] static QList<QJsonObject> serializeTurn(
+        TurnRole role, const QList<TurnContent> &blocks, ReasoningPersistence reasoning);
+
+    QList<QJsonObject> toItemsFormat(ReasoningPersistence reasoning) const;
     QJsonArray createToolResultItems(const QHash<QString, ToolResult> &toolResults) const;
     static QJsonObject toResponsesInnerBlock(const ToolContent &block);
 

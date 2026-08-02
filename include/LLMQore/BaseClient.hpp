@@ -64,13 +64,13 @@ struct LLMQORE_EXPORT ModelInfo
     QString id;
     QString displayName;
 
-    std::optional<int> maxOutputTokens;
-    std::optional<int> maxInputTokens;
+    std::optional<int> maxOutputTokens = std::nullopt;
+    std::optional<int> maxInputTokens = std::nullopt;
 
-    std::optional<bool> supportsImageInput;
-    std::optional<bool> supportsThinking;
-    std::optional<bool> supportsToolCalls;
-    std::optional<bool> supportsStructuredOutputs;
+    std::optional<bool> supportsImageInput = std::nullopt;
+    std::optional<bool> supportsThinking = std::nullopt;
+    std::optional<bool> supportsToolCalls = std::nullopt;
+    std::optional<bool> supportsStructuredOutputs = std::nullopt;
 };
 
 struct LLMQORE_EXPORT CompletionInfo
@@ -122,7 +122,8 @@ public:
     virtual QFuture<QList<ModelInfo>> listModels(const QString &endpoint = {}) = 0;
 
     [[nodiscard]] std::optional<ModelInfo> cachedModel(const QString &id) const;
-    [[nodiscard]] QList<ModelInfo> cachedModels() const;
+    [[nodiscard]] const QList<ModelInfo> &cachedModels() const noexcept;
+    void clearModelCache();
     void cancelRequest(const RequestID &requestId);
 
     QString url() const;
@@ -260,8 +261,6 @@ protected:
     virtual std::optional<QString> takePendingStreamError(const RequestID &id);
 
     virtual void onStreamDrained(const RequestID &id);
-
-    QHash<QString, ModelInfo> m_modelCache;
 
     QFuture<CompletionInfo> trackOneShot(const std::function<RequestID()> &dispatch);
     void resolveOneShot(const RequestID &id, const CompletionInfo &info);

@@ -13,6 +13,8 @@
 #include <LLMQore/Log.hpp>
 #include <LLMQore/SSEParser.hpp>
 
+#include "core/ThreadAffinity.hpp"
+
 namespace LLMQore {
 
 namespace {
@@ -53,6 +55,7 @@ ClaudeClient::ClaudeClient(
 RequestID ClaudeClient::sendMessage(
     const QJsonObject &payload, const QString &endpoint, RequestMode mode)
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     QJsonObject request = payload;
     request["stream"] = (mode == RequestMode::Streaming);
 
@@ -81,8 +84,8 @@ QJsonObject ClaudeClient::buildConversationPayload(const Conversation &conversat
     payload["model"] = m_model;
 
     const std::optional<ModelInfo> known = cachedModel(m_model);
-    payload["max_tokens"] = known && known->maxOutputTokens ? *known->maxOutputTokens
-                                                            : kDefaultMaxTokens;
+    const bool hasLimit = known && known->maxOutputTokens && *known->maxOutputTokens > 0;
+    payload["max_tokens"] = hasLimit ? *known->maxOutputTokens : kDefaultMaxTokens;
 
     if (!conversation.system().isEmpty())
         payload["system"] = conversation.system();
@@ -130,10 +133,18 @@ QFuture<QList<ModelInfo>> ClaudeClient::listModels(const QString &endpoint)
         [](const QJsonObject &entry, ModelInfo &info) {
             info.displayName = entry.value("display_name").toString();
 
-            if (entry.contains("max_tokens"))
-                info.maxOutputTokens = entry.value("max_tokens").toInt();
-            if (entry.contains("max_input_tokens"))
-                info.maxInputTokens = entry.value("max_input_tokens").toInt();
+            const auto positiveInt = [&entry](const QString &key) -> std::optional<int> {
+                const QJsonValue value = entry.value(key);
+                if (!value.isDouble())
+                    return std::nullopt;
+                const int number = value.toInt(0);
+                if (number <= 0)
+                    return std::nullopt;
+                return number;
+            };
+
+            info.maxOutputTokens = positiveInt(QStringLiteral("max_tokens"));
+            info.maxInputTokens = positiveInt(QStringLiteral("max_input_tokens"));
 
             const QJsonObject capabilities = entry.value("capabilities").toObject();
             if (capabilities.isEmpty())
@@ -145,6 +156,7 @@ QFuture<QList<ModelInfo>> ClaudeClient::listModels(const QString &endpoint)
 
             info.supportsImageInput = supported(QStringLiteral("image_input"));
             info.supportsThinking = supported(QStringLiteral("thinking"));
+            info.supportsToolCalls = supported(QStringLiteral("tool_use"));
             info.supportsStructuredOutputs = supported(QStringLiteral("structured_outputs"));
         });
 }
@@ -275,17 +287,8 @@ void ClaudeClient::processBufferedResponse(const RequestID &id, const QByteArray
                 addChunk(id, text);
             }
         } else if (blockType == "thinking") {
-            QString thinking = block["thinking"].toString();
-            if (!thinking.isEmpty()) {
-                message->handleContentBlockDelta(
-                    i, QStringLiteral("thinking_delta"), QJsonObject{{"thinking", thinking}});
-            }
-            if (block.contains("signature")) {
-                message->handleContentBlockDelta(
-                    i,
-                    QStringLiteral("signature_delta"),
-                    QJsonObject{{"signature", block["signature"].toString()}});
-            }
+            // handleContentBlockStart already took `thinking` and `signature` off the
+            // complete block. Replaying them as deltas would append the text twice.
             notifyPendingThinkingBlocks(id);
         } else if (blockType == "redacted_thinking") {
             notifyPendingThinkingBlocks(id);
