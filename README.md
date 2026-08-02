@@ -3,41 +3,85 @@
 [![Build and Test](https://github.com/Palm1r/llmqore/actions/workflows/build_and_test.yml/badge.svg?branch=main)](https://github.com/Palm1r/llmqore/actions/workflows/build_and_test.yml)
 ![GitHub Tag](https://img.shields.io/github/v/tag/Palm1r/llmqore)
 
-Qt/C++ library for working with cloud and local LLM providers, create MCP servers and clients, download and using library MCP Bridge.
+Qt/C++ library for putting an LLM inside a desktop application. Answers arrive as Qt
+signals on your own thread, async work is `QFuture`, lifetimes are `QObject` parent-child.
+Links against `Core`, `Network` and `Concurrent` — no GUI dependency.
 
-**LLM clients** — unified streaming API across all providers:
+## What you can do with it
+
+- **Stream an answer into your UI** — tokens land in a widget or a model as they are generated
+- **Let the model call your C++ code** — subclass `BaseTool`, the client runs the whole loop
+- **Borrow tools from MCP servers** — filesystem, git, databases, anything with an MCP server
+- **Expose your own tools outward** — an external agent calls into your running application
+- **Run without the cloud** — Ollama and llama.cpp through the same code as Claude and OpenAI
+- **Keep one conversation across providers** — no provider-specific JSON in your code
+- **Drive an external coding agent** — launch Claude Code, render its output, serve its callbacks
+
+Each of these is one block below, and one document deeper.
+
+## Stream an answer into your UI
+
+Ask and await the answer:
 
 ```cpp
-auto *client = new LLMQore::ClaudeClient(url, apiKey, model, this);
-client->ask("What is Qt?", cb);
+auto *client = new LLMQore::ClaudeClient(
+    "https://api.anthropic.com", apiKey, "claude-sonnet-4-5", this);
+
+client->askOnce("What is Qt?").then(this, [this](const LLMQore::CompletionInfo &result) {
+    m_view->setPlainText(result.fullText);
+});
 ```
 
-**MCP server** — expose tools, resources and prompts over stdio or HTTP:
+Or watch it arrive, which is what you want in a chat panel:
 
 ```cpp
-// stdio (stdin/stdout, e.g. for Claude Desktop)
-auto *transport = new LLMQore::McpStdioServerTransport(&app);
+connect(client, &LLMQore::BaseClient::accumulatedReceived,
+        this, [this](const LLMQore::RequestID &, const QString &answer) {
+    m_view->setPlainText(answer);
+});
 
-// or Streamable HTTP
-auto *transport = new LLMQore::McpHttpServerTransport({.port = 8080, .path = "/mcp"}, &app);
-
-auto *server = new LLMQore::McpServer(transport, cfg, &app);
-server->addTool(new MyTool(server));
-server->start();
+client->ask("What is Qt?");
 ```
 
-**MCP client** — connect to MCP servers and bind their tools into LLM clients:
+`accumulatedReceived` carries the whole answer so far, so there is nothing to glue together;
+`chunkReceived` carries just the new piece when appending is cheaper than repainting. Both
+are emitted on the client's own thread — an ordinary `connect`, no worker thread, no
+marshalling, no hand-parsed SSE.
+
+→ [Quick Start](docs/quick-start.md)
+
+## Let the model call your C++ code
+
+Give the model a function over data only your application has — the open document, the
+current selection, your database:
 
 ```cpp
-// Add servers one by one
+client->tools()->addTool(new SearchCurrentFileTool(client));
+
+conversation.addUser("Where do we handle the timeout?");
+client->ask(conversation);
+```
+
+The client runs the loop: the model asks for the tool, your code executes, the result goes
+back, the model answers. Bounded at ten rounds per request. `toolStarted` and
+`toolResultReady` let you show it happening; `setExecutionGate()` lets you require
+confirmation first.
+
+→ [Quick Start](docs/quick-start.md) · [LLM clients](docs/llm-clients.md)
+
+## Borrow tools from MCP servers
+
+Tools from an MCP server join the same set and become indistinguishable to the model:
+
+```cpp
 client->tools()->addMcpServer({.name = "filesystem", .command = "npx",
     .arguments = {"-y", "@modelcontextprotocol/server-filesystem", "/home/user"}});
 
-// Or load from a JSON config
 client->tools()->loadMcpServers(QJsonDocument::fromJson(configData).object());
 ```
 
-`loadMcpServers` accepts:
+`loadMcpServers` takes the config format Claude Desktop uses, so an existing
+`mcpServers` block works unchanged:
 
 ```json
 {
@@ -49,145 +93,165 @@ client->tools()->loadMcpServers(QJsonDocument::fromJson(configData).object());
   }
 }
 ```
-<img width="912" height="740" alt="Screenshot 2026-04-13 at 18 48 18" src="https://github.com/user-attachments/assets/2fb1ea83-1d2d-4016-9c87-56180dbf3301" />
 
-See [Quick Start](docs/quick-start.md) for complete examples.
+→ [MCP coverage](docs/mcp/mcp_protocol_coverage.md)
 
-## MCP Bridge
+## Expose your own tools outward
 
-A standalone CLI tool built on llmqore that aggregates multiple MCP servers (stdio or SSE) and re-exposes them either behind a single HTTP/SSE endpoint or as one stdio server — useful when the upstreams and the client disagree on transport.
+Hand that same registry to an MCP server and your application becomes one. Claude Code in a
+terminal, Claude Desktop, or an editor can now call into your running application — while
+your own model keeps calling the same tools:
 
-```bash
-mcp-bridge bridge.json              # HTTP endpoint
-mcp-bridge --stdio bridge.json      # stdio (for Claude Desktop and friends)
+```cpp
+auto *server = new LLMQore::Mcp::McpServer(
+    new LLMQore::Mcp::McpHttpServerTransport({.port = 8080, .path = "/mcp"}, this),
+    cfg, this);
+
+server->setToolRegistry(client->tools());
+server->start();
 ```
 
-Config uses the familiar `mcpServers` schema:
+Registered once, served both ways. Tools added later appear by themselves — the server
+forwards `toolsChanged` as `notifications/tools/list_changed`.
 
-```json
-{
-  "port": 8808,
-  "mcpServers": {
-    "filesystem": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user"]
-    }
-  }
-}
+Use HTTP for a server inside a running application; stdio takes over the process's standard
+streams and belongs to programs that are nothing but an MCP server.
+
+→ [Quick Start](docs/quick-start.md)
+
+## Run without the cloud
+
+Ollama and llama.cpp are ordinary clients — the same conversation, the same tools, the same
+signals, no API key and nothing leaving the machine:
+
+```cpp
+auto *client = new LLMQore::OllamaClient("http://localhost:11434", {}, "llama3", this);
 ```
 
-Prebuilt binaries for Linux/macOS/Windows (with Qt runtime bundled) are published to [GitHub Releases](https://github.com/Palm1r/llmqore/releases). See [MCP Bridge docs](docs/mcp-bridge.md) for full usage, config reference, and build instructions.
+Switching between a local and a hosted model is a different constructor and nothing else.
 
-## Supported Providers
+→ [Supported providers](#supported-providers)
 
-| Provider | Client class | Streaming | Tools | Thinking |
-|---|---|---|---|---|
-| Anthropic Claude | `ClaudeClient` | ✓ | ✓ | ✓ |
-| OpenAI (Chat Completions) | `OpenAIClient` | ✓ | ✓ | ✓ |
-| OpenAI (Responses API) | `OpenAIResponsesClient` | ✓ | ✓ | ✓ |
-| Ollama | `OllamaClient` | ✓ | ✓ | ✓ |
-| Google AI | `GoogleAIClient` | ✓ | ✓ | ✓ |
-| Mistral | `MistralClient` | ✓ | ✓ | ✓ |
-| llama.cpp | `LlamaCppClient` | ✓ | ✓ | ✓ |
-| DeepSeek | `OpenAIClient` | ✓ | ✓ | ✓ |
+## Keep one conversation across providers
 
-## MCP (Model Context Protocol)
+```cpp
+LLMQore::Conversation conversation;
+conversation.setSystem("Answer in one sentence.");
+conversation.addUser("What is Qt?");
 
-Client and server implementation of the MCP 2025-11-25 spec:
+client->ask(conversation);
+```
 
-- **Transports**: stdio, Streamable HTTP
-- **Server**: tools, resources, resource templates, prompts, completions, sampling, elicitation
-- **Client**: tools, resources, prompts, completions, sampling, elicitation, roots
+`messages` against `contents`, `assistant` against `model`, a top-level `system` field
+against a system message inside the array — the client translates. The full history,
+including everything the model added during tool rounds, comes back in
+`CompletionInfo::conversation`, and replays against a different provider unchanged.
 
-See [MCP Protocol Coverage](docs/mcp/mcp_protocol_coverage.md) for the full spec-conformance matrix.
+Turns are lists of content, so an image is just another block:
 
-## ACP (Agent Client Protocol)
+```cpp
+conversation.addUser({
+    LLMQore::TextContent{"What does this chart show?"},
+    LLMQore::ImageContent::fromBytes(png, "image/png")});
+```
 
-Host/client implementation of Zed's Agent Client Protocol — drive an external coding
-agent (Claude Code, Gemini CLI, Codex, …) over stdio. LLMQore launches the agent, runs the session, streams its output as Qt
-signals, and services the agent's callbacks (permission, file system, terminal).
+→ [LLM clients](docs/llm-clients.md)
+
+## Drive an external coding agent
+
+The other direction: instead of giving your application a model, give it somebody else's
+agent. LLMQore launches Claude Code or Codex over stdio, streams its output as Qt signals,
+and serves its callbacks for permission, file system and terminal. The agent owns the model
+and the tool loop; you render and approve.
 
 ```cpp
 using namespace LLMQore::Acp;
 
-// Agents are data, not code: load a catalogue from JSON (file or :/qrc).
 AcpAgentRegistry registry;
 registry.loadFromFile("agents.json");
-auto cfg = registry.config("claude", QDir::currentPath()).value();
 
-auto *client = new AcpClient(cfg.createTransport(this), {}, this);
-client->setFileSystemProvider(new DefaultFileSystemProvider(this));
-client->setTerminalProvider(new TerminalManager(this));
+auto *agent = new AcpClient(
+    registry.config("claude", QDir::currentPath())->createTransport(this), {}, this);
+agent->setFileSystemProvider(new DefaultFileSystemProvider(this));
+agent->setTerminalProvider(new TerminalManager(this));
 
-connect(client, &AcpClient::agentMessageChunk,
-    this, [](const QString &sessionId, const ContentBlock &c){ /* render c.text */ });
+connect(agent, &AcpClient::agentMessageChunk,
+        this, [](const QString &, const ContentBlock &c) { /* render c.text */ });
 
-client->connectAndInitialize();   // then newSession() -> prompt()
+agent->connectAndInitialize();   // then newSession() -> prompt()
 ```
 
-```json
-// agents.json — the host ships its own catalogue; override with LLMQORE_ACP_AGENTS
-{ "agents": [
-  { "id": "claude", "name": "Claude Code", "command": "npx",
-    "args": ["-y", "@agentclientprotocol/claude-agent-acp"] }
-]}
+Agents are data, not code — a JSON catalogue, overridable with `LLMQORE_ACP_AGENTS`.
+Credentials never travel through the protocol; the agent authenticates itself.
+
+→ [ACP host](docs/acp/architecture.md) · [authentication](docs/acp/authentication.md)
+
+## MCP Bridge
+
+A standalone CLI built on the library: aggregates several MCP servers and re-exposes them
+behind one HTTP/SSE endpoint or one stdio server, for when the upstreams and the client
+disagree on transport.
+
+```bash
+mcp-bridge bridge.json              # HTTP endpoint
+mcp-bridge --stdio bridge.json      # stdio
 ```
 
-**Giving the agent MCP tools** — list MCP servers in `newSession`; the agent connects to
-them and runs their tools itself, so you just watch the tool calls stream by (the agent owns
-the model + tool loop, you don't register tools on the host):
+Prebuilt binaries with the Qt runtime bundled are on
+[Releases](https://github.com/Palm1r/llmqore/releases).
 
-```cpp
-LLMQore::compat(client->connectAndInitialize())
-    .then(client, [client](const InitializeResult &) {
-        NewSessionParams params;
-        params.cwd = QDir::currentPath();
-        params.mcpServers = {
-            { .name = "filesystem", .command = "npx",
-              .args = {"-y", "@modelcontextprotocol/server-filesystem", QDir::currentPath()} },
-        };
-        return client->newSession(params);            // hands the MCP servers to the agent
-    })
-    .unwrap()
-    .then(client, [client](const NewSessionResult &ns) {
-        client->prompt(ns.sessionId, {ContentBlock::makeText("List the files in this repo.")});
-    });
+→ [MCP Bridge](docs/mcp-bridge.md)
 
-// Surface the agent's tool calls (filesystem/github/...) in the UI as they happen.
-connect(client, &AcpClient::toolCallStarted,
-    client, [](const QString &, const ToolCall &t) { /* t.title, t.kind, t.status */ });
-```
+## All of it together
 
-> `McpServer` is stdio-only (`command`/`args`/`env`). To expose your **own** tools, run an
-> LLMQore [`McpServer`](include/LLMQore/McpServer.hpp) over `McpStdioServerTransport` and point
-> the agent at that binary in `mcpServers` — HTTP/SSE servers can't be passed this way.
+<img width="912" alt="example-chat" src="https://github.com/user-attachments/assets/2fb1ea83-1d2d-4016-9c87-56180dbf3301" />
 
-- **Outgoing**: initialize, authenticate, session new/load/prompt/cancel/set_mode
-- **Incoming**: streaming `session/update`, `session/request_permission`, `fs/*`, `terminal/*`
-- **Providers**: `AcpPermissionProvider`, `AcpFileSystemProvider`, `AcpTerminalProvider`
-  (with `DefaultFileSystemProvider`, `TerminalManager`, `CallbackPermissionProvider` defaults)
-- **Agents**: `AcpAgentRegistry` loads named agents from external JSON ([`example/agents.json`](example/agents.json))
-- **Auth**: agents authenticate themselves — no API key in the protocol. For Claude Code,
-  set `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`) in the agent's `env`; see
-  [ACP authentication](docs/acp/authentication.md)
+[`example-chat`](example/Main.qml) is a working Qt Quick application with provider
+switching, tool badges, MCP servers and a real coding agent over ACP. Build it with
+`-DLLMQORE_BUILD_EXAMPLES=ON`.
 
-The GUI [`example-chat`](example/Main.qml) drives all of this — pick the **Claude Code (ACP)**
-provider to launch and chat with a real agent. See the
-[ACP implementation notes](docs/acp/implementation-notes.md) for the method-coverage matrix.
+## Supported providers
+
+| Provider | Client class | Streaming | Tools | Images in | Reasoning parsed | Reasoning replayed |
+|---|---|---|---|---|---|---|
+| Anthropic Claude | `ClaudeClient` | ✓ | ✓ | ✓ | ✓ | ✓ signature |
+| OpenAI (Chat Completions) | `OpenAIClient` | ✓ | ✓ | ✓ | ✓ | ✓ when received |
+| OpenAI (Responses API) | `OpenAIResponsesClient` | ✓ | ✓ | ✓ | ✓ | opt-in |
+| Google AI | `GoogleAIClient` | ✓ | ✓ | ✓ | ✓ | ✓ thought signature |
+| Ollama | `OllamaClient` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Mistral | `MistralClient` | ✓ | ✓ | ✓ | ✓ | ✓ when received |
+| llama.cpp | `LlamaCppClient` | ✓ | ✓ | ✓ | ✓ | ✓ when received |
+| DeepSeek | `OpenAIClient` | ✓ | ✓ | ✓ | ✓ | ✓ when received |
+
+**Reasoning parsed** means thinking blocks reach you as signals. **Reasoning replayed**
+means they go back into the next request in the form that provider requires — without which
+some models reject a continuation that follows a tool call. The Responses API needs
+`store: false` to make this work, so it is a switch rather than a default; see
+[LLM clients](docs/llm-clients.md).
+
+MCP is implemented for the 2025-11-25 spec over stdio and Streamable HTTP — server side:
+tools, resources, resource templates, prompts, completions, sampling, elicitation; client
+side: the same plus roots.
 
 ## Requirements
 
 - C++20
-- Qt 6.5+
+- Qt 5.15 or Qt 6.5+
 - CMake 3.21+
+
+CI builds and tests Qt 6.8.3 and 6.10.2 on Linux, macOS and Windows, and Qt 5.15.2 on
+Linux. Versions inside the stated range but outside that matrix are expected to work and
+are not verified on every commit. The Qt Quick example is Qt 6 only.
 
 ## Documentation
 
-- [Quick Start](docs/quick-start.md) — examples for LLM clients, tools, MCP server and client
-- [Integration](docs/integration.md) — FetchContent and installed setup
-- [MCP Bridge](docs/mcp-bridge.md) — aggregate stdio MCP servers behind one HTTP/SSE endpoint
-- [MCP Protocol Coverage](docs/mcp/mcp_protocol_coverage.md) — spec-conformance matrix
-- [ACP Host](docs/acp/architecture.md) — drive external ACP agents ([as-built notes](docs/acp/implementation-notes.md))
+- [Quick Start](docs/quick-start.md) — a complete program, from CMake to QML
+- [LLM clients](docs/llm-clients.md) — conversations, models, tools, headers, escape hatches
+- [Threading](docs/threading.md) — the thread contract, in full
+- [Integration](docs/integration.md) — FetchContent, installed builds, CMake options
+- [MCP Bridge](docs/mcp-bridge.md) — aggregate MCP servers behind one endpoint
+- [MCP coverage](docs/mcp/mcp_protocol_coverage.md) — spec conformance matrix
+- [ACP host](docs/acp/architecture.md) — drive external agents ([as-built notes](docs/acp/implementation-notes.md))
 - [Architecture](docs/architecture.md) — internals, for contributors
 
 ## Support

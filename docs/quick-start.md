@@ -1,167 +1,152 @@
 # Quick Start
 
-## Thread contract (read this first)
+A working console program in six steps, then the same client wired into QML. Every snippet
+is complete — nothing is elided.
 
-All LLMQore client objects (`BaseClient` and subclasses, `ToolsManager`,
-`ToolRegistry`, `ToolHandler`, `McpClient`) live on the
-thread of the `QObject` parent passed to their constructor. All public methods must be
-called from that thread; all signals are emitted on that thread.
+For the full reference of what a client can do, see [LLM clients](llm-clients.md). Read
+[the thread contract](threading.md) before touching a client from more than one thread.
 
-Cross-thread consumers should connect to signals with `Qt::AutoConnection`
-(the default) — Qt will queue delivery and copy arguments safely. Do not
-hold `BaseTool *` pointers returned from `ToolRegistry::registeredTools()`
-across event-loop iterations; use `toolsSnapshot()` instead if you need
-to pass tool metadata to another thread or widget.
+## 1. Build against LLMQore
 
-Debug builds enforce the contract with `Q_ASSERT_X` on every mutating or
-raw-pointer-returning method.
+`CMakeLists.txt`:
 
-## LLM Clients
+```cmake
+cmake_minimum_required(VERSION 3.21)
+project(hello-llm LANGUAGES CXX)
 
-### Minimal example
+find_package(Qt6 REQUIRED COMPONENTS Core Network Concurrent)
+
+include(FetchContent)
+FetchContent_Declare(
+    LLMQore
+    GIT_REPOSITORY https://github.com/palm1r/llmqore.git
+    GIT_TAG v0.8.0
+)
+FetchContent_MakeAvailable(LLMQore)
+
+add_executable(hello-llm main.cpp)
+set_target_properties(hello-llm PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
+target_link_libraries(hello-llm PRIVATE LLMQore::LLMQore Qt6::Core)
+```
+
+The library needs `Core`, `Network` and `Concurrent` — no GUI module.
+
+## 2. Stream an answer
+
+`main.cpp`:
 
 ```cpp
+#include <QCoreApplication>
+#include <QTextStream>
+
 #include <LLMQore/Clients>
 
-auto *client = new LLMQore::ClaudeClient(
-    "https://api.anthropic.com", "sk-...", "claude-sonnet-4-20250514", this);
+int main(int argc, char *argv[])
+{
+    QCoreApplication app(argc, argv);
 
-connect(client, &LLMQore::BaseClient::chunkReceived,
-        this, [](const LLMQore::RequestID &, const QString &chunk) {
-    qDebug() << chunk;
-});
-connect(client, &LLMQore::BaseClient::requestCompleted,
-        this, [](const LLMQore::RequestID &, const QString &full) {
-    qDebug() << "Done:" << full;
-});
-connect(client, &LLMQore::BaseClient::requestFailed,
-        this, [](const LLMQore::RequestID &, const QString &err) {
-    qWarning() << "Error:" << err;
-});
+    auto *client = new LLMQore::ClaudeClient(
+        "https://api.anthropic.com",
+        qEnvironmentVariable("CLAUDE_API_KEY"),
+        "claude-sonnet-4-5",
+        &app);
 
-client->ask("What is Qt?");
+    QObject::connect(client, &LLMQore::BaseClient::chunkReceived,
+                     &app, [](const LLMQore::RequestID &, const QString &chunk) {
+        QTextStream(stdout) << chunk << Qt::flush;
+    });
+
+    QObject::connect(client, &LLMQore::BaseClient::requestCompleted,
+                     &app, [](const LLMQore::RequestID &, const QString &) {
+        QCoreApplication::quit();
+    });
+
+    QObject::connect(client, &LLMQore::BaseClient::requestFailed,
+                     &app, [](const LLMQore::RequestID &, const QString &error) {
+        QTextStream(stderr) << error << Qt::endl;
+        QCoreApplication::exit(1);
+    });
+
+    client->ask("What is Qt?");
+    return app.exec();
+}
 ```
 
-### Full payload control
-
-```cpp
-QJsonObject payload;
-payload["model"] = "claude-sonnet-4-20250514";
-payload["max_tokens"] = 4096;
-payload["stream"] = true;
-payload["messages"] = QJsonArray{
-    QJsonObject{{"role", "user"}, {"content", "Explain RAII in C++"}}
-};
-
-client->sendMessage(payload);
+```bash
+export CLAUDE_API_KEY=sk-...
+cmake -B build && cmake --build build && ./build/hello-llm
 ```
 
-### Non-default endpoints
+Tokens arrive as they are generated. `chunkReceived` is emitted on the client's own thread,
+so in a GUI the same `connect` writes straight into a widget or a model — no marshalling, no
+worker thread. Its sibling `accumulatedReceived` carries the whole answer so far, which is
+usually what a text view wants.
 
-Clients that expose more than one inference endpoint accept a path
-suffix as the second argument to `sendMessage`. An empty string (the
-default) selects the provider's default endpoint. Example: Mistral's
-Codestral FIM endpoint.
+`ask()` returns a `RequestID`. Pass it to `cancelRequest()` to stop a long answer.
+
+When you want one answer rather than a stream, `askOnce()` gives you a future instead of
+three connections:
 
 ```cpp
-auto *mistral = new LLMQore::MistralClient(
-    "https://api.mistral.ai/v1", "...", "codestral-latest", this);
-
-QJsonObject payload;
-payload["model"] = "codestral-latest";
-payload["prompt"] = "def fib(n):\n    ";
-payload["suffix"] = "\n\nprint(fib(10))\n";
-
-mistral->sendMessage(payload, "/fim/completions");
+client->askOnce("What is Qt?")
+    .then(&app, [](const LLMQore::CompletionInfo &result) {
+        QTextStream(stdout) << result.fullText << Qt::endl;
+        QCoreApplication::quit();
+    })
+    .onFailed(&app, [](const std::exception &e) {
+        QTextStream(stderr) << e.what() << Qt::endl;
+        QCoreApplication::exit(1);
+    });
 ```
 
-Other paths that accept an explicit endpoint override: `OllamaClient`
-(`/api/generate` for prompt-based generation, default `/api/chat`) and
-`LlamaCppClient` (`/infill` for fill-in-the-middle, default
-`/v1/chat/completions`).
+Both paths run the same request; the future just settles once, at the end.
 
-### Custom headers and authentication
+## 3. Hold a conversation
 
-Every client starts with the headers its provider needs -- `Content-Type`,
-Claude's `anthropic-version` -- and an `AuthScheme` saying where the API
-key goes. All of it is replaceable.
-
-`setHeader` sets one entry and leaves the rest alone. Anthropic prompt
-caching, for instance, is a beta header plus `cache_control` in the
-payload; both sides are yours to set:
+`ask(QString)` has no memory. For a dialogue, keep a `Conversation` and hand it back each
+turn:
 
 ```cpp
-auto *claude = new LLMQore::ClaudeClient(
-    "https://api.anthropic.com", "sk-...", "claude-sonnet-4-20250514", this);
+LLMQore::Conversation conversation;
+conversation.setSystem("Answer in one sentence.");
+conversation.addUser("What is Qt?");
 
-claude->setHeader("anthropic-beta", "extended-cache-ttl-2025-04-11");
+client->ask(conversation);
 ```
 
-`setHeaders` replaces the whole map, so list everything you still want --
-`Content-Type` included:
+The application owns the history; the client stays stateless. When the turn ends, the full
+history — including everything the model added along the way — arrives in
+`requestFinalized`:
 
 ```cpp
-openRouter->setHeaders({
-    {"Content-Type", "application/json"},
-    {"HTTP-Referer", "https://myapp.example"},
-    {"X-Title", "My App"},
-});
-```
-
-`setAuthScheme` moves the key somewhere else entirely. Azure OpenAI wants
-it in an `api-key` header rather than `Authorization: Bearer`:
-
-```cpp
-azure->setAuthScheme({.placement = LLMQore::AuthScheme::Placement::Header,
-                      .name = "api-key"});
-```
-
-`Placement::QueryParam` puts the key in the query string (Google's
-default), `Placement::None` sends no credential. An empty `apiKey` sends
-nothing either way.
-
-### Rich completion metadata
-
-`requestFinalized` fires alongside `requestCompleted` with a
-`CompletionInfo` struct containing `fullText`, `model` and `stopReason`:
-
-```cpp
-connect(client, &LLMQore::BaseClient::requestFinalized,
-        this, [](const LLMQore::RequestID &, const LLMQore::CompletionInfo &info) {
-    qDebug() << "model:" << info.model << "stopReason:" << info.stopReason;
+QObject::connect(client, &LLMQore::BaseClient::requestFinalized,
+                 &app, [&conversation](const LLMQore::RequestID &,
+                                       const LLMQore::CompletionInfo &info) {
+    conversation = info.conversation;
 });
 ```
 
-`requestFinalized` is emitted BEFORE `requestCompleted` so consumers
-resolving a `QPromise` on finalization run before any simple-text handler.
+The next turn is then `conversation.addUser("And QML?"); client->ask(conversation);`.
 
-### Thinking / reasoning blocks
+One `Conversation` works against every provider. `messages` against `contents`, `assistant`
+against `model`, a top-level `system` field against a system message inside the array — the
+client translates. You never write provider-specific JSON, and you can replay the same
+history against a different provider.
 
-```cpp
-connect(client, &LLMQore::BaseClient::thinkingBlockReceived,
-        this, [](const LLMQore::RequestID &,
-                 const QString &thinking,
-                 const QString &signature) {
-    qDebug() << "Thinking:" << thinking.left(200) << "...";
-});
-```
-
-### Cancel a request
+Anything the library does not model goes in a second argument, merged into the payload last
+so it always wins:
 
 ```cpp
-LLMQore::RequestID id = client->ask("Write a long essay...");
-// ...later:
-client->cancelRequest(id);
+client->ask(conversation, {{"temperature", 0.2}});
 ```
 
-## Tools
+## 4. Let the model call your code
 
-### Define a tool
-
-Subclass `BaseTool` to create a tool that LLM can call:
+Subclass `BaseTool`:
 
 ```cpp
 #include <LLMQore/BaseTool.hpp>
+#include <LLMQore/Tools>
 #include <QtConcurrent>
 
 class GetWeatherTool : public LLMQore::BaseTool
@@ -181,147 +166,52 @@ public:
             {"properties", QJsonObject{
                 {"city", QJsonObject{{"type", "string"}, {"description", "City name"}}},
             }},
-            {"required", QJsonArray{"city"}}
-        };
+            {"required", QJsonArray{"city"}}};
     }
 
     QFuture<LLMQore::ToolResult> executeAsync(const QJsonObject &input) override
     {
-        return QtConcurrent::run([input]() -> LLMQore::ToolResult {
-            QString city = input["city"].toString();
-            // ... fetch real weather data ...
+        const QString city = input["city"].toString();
+        return QtConcurrent::run([city]() -> LLMQore::ToolResult {
             return LLMQore::ToolResult::text(QString("22°C, sunny in %1").arg(city));
         });
     }
 };
 ```
 
-### Register and use with an LLM client
+`<LLMQore/Tools>` is what brings in `ToolsManager`; `<LLMQore/Clients>` only forward-declares
+it. Register the tool and ask:
 
 ```cpp
 client->tools()->addTool(new GetWeatherTool(client));
-client->ask("What's the weather in Berlin?");
+
+conversation.addUser("What's the weather in Berlin?");
+client->ask(conversation);
 ```
 
-### Tool-call rounds
+The client runs the loop itself: the model asks for the tool, the tool executes, the result
+goes back, the model answers. Watch it through `toolStarted` and `toolResultReady`. The
+loop is bounded — ten rounds per request by default, `setMaxToolContinuations()` changes it.
 
-When the model calls a tool, the client executes it and automatically sends
-a continuation request with the result. The loop is the client's own, and is
-bounded per request — 10 rounds by default:
+## 5. Borrow someone else's tools
 
-```cpp
-client->setMaxToolContinuations(5);
-```
-
-When the limit is exceeded the request fails with
-"Tool continuation limit reached".
-
-### Inspect the registered tool list for UI
-
-Use `toolsSnapshot()` for anything that outlives a single function call
-(e.g. displaying the tool list in a UI). It returns a detached copy that
-cannot dangle if a tool is later removed. Do NOT hold `BaseTool *`
-pointers from `registeredTools()` beyond the immediate call.
+An MCP server is a process that offers tools. Point the client at one and its tools join
+the same set:
 
 ```cpp
-for (const auto &snap : client->tools()->toolsSnapshot()) {
-    ui->addRow(snap.displayName, snap.description);
-}
-```
-
-The tool works the same way whether registered directly or exposed through an MCP server.
-
-### Register in an MCP server
-
-```cpp
-server->addTool(new GetWeatherTool(server));
-```
-
-Now any MCP client connecting to this server will see and can call `get_weather`.
-
-## MCP Server
-
-### stdio transport
-
-For tools that integrate with Claude Desktop, Cursor, VS Code, etc.:
-
-```cpp
-#include <LLMQore/Mcp>
-
-auto *transport = new LLMQore::Mcp::McpStdioServerTransport(&app);
-
-LLMQore::Mcp::McpServerConfig cfg;
-cfg.serverInfo = {"my-server", "1.0.0"};
-cfg.instructions = "My MCP server with custom tools";
-
-auto *server = new LLMQore::Mcp::McpServer(transport, cfg, &app);
-server->addTool(new MyCustomTool(server));
-server->start();
-```
-
-### Streamable HTTP transport
-
-For remote or multi-client access:
-
-```cpp
-#include <LLMQore/Mcp>
-
-LLMQore::HttpServerConfig httpCfg;
-httpCfg.port = 8080;
-httpCfg.path = "/mcp";
-
-auto *transport = new LLMQore::Mcp::McpHttpServerTransport(httpCfg, &app);
-
-LLMQore::Mcp::McpServerConfig cfg;
-cfg.serverInfo = {"my-server", "1.0.0"};
-
-auto *server = new LLMQore::Mcp::McpServer(transport, cfg, &app);
-server->addTool(new MyCustomTool(server));
-server->start();
-```
-
-## MCP Client
-
-### Add servers programmatically
-
-```cpp
-// stdio — launch an MCP server as a subprocess
 client->tools()->addMcpServer({
     .name = "filesystem",
     .command = "npx",
-    .arguments = {"-y", "@modelcontextprotocol/server-filesystem", "/home/user"}
-});
-
-// Streamable HTTP — connect to a remote MCP server
-client->tools()->addMcpServer({
-    .name = "remote-tools",
-    .url = QUrl("http://localhost:8080/mcp")
-});
+    .arguments = {"-y", "@modelcontextprotocol/server-filesystem", "/home/user"}});
 ```
 
-### Load from a JSON config
+Or load a config in the format Claude Desktop uses:
 
 ```cpp
 QFile file("mcp_servers.json");
 file.open(QIODevice::ReadOnly);
-const int loaded
-    = client->tools()->loadMcpServers(QJsonDocument::fromJson(file.readAll()).object());
-if (loaded == 0)
-    qWarning() << "no usable MCP server in the config";
+client->tools()->loadMcpServers(QJsonDocument::fromJson(file.readAll()).object());
 ```
-
-`addMcpServer` returns `false` when the entry names neither an http(s) url nor a
-command; `loadMcpServers` returns how many servers it started. Starting a server
-only means a transport was built -- whether it came up is reported by the signals:
-
-```cpp
-connect(client->tools(), &LLMQore::ToolsManager::mcpServerInitialized, ...);
-connect(client->tools(), &LLMQore::ToolsManager::mcpServerInitFailed, ...);
-connect(client->tools(), &LLMQore::ToolsManager::mcpToolsSynced, ...);
-connect(client->tools(), &LLMQore::ToolsManager::mcpServerDisconnected, ...);
-```
-
-Config format (compatible with Claude Desktop):
 
 ```json
 {
@@ -330,55 +220,117 @@ Config format (compatible with Claude Desktop):
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user"]
     },
-    "database": {
-      "command": "uvx",
-      "args": ["mcp-server-sqlite", "--db-path", "/path/to/db.sqlite"]
-    },
     "remote": {
       "url": "http://localhost:8080/mcp",
-      "headers": {
-        "Authorization": "Bearer token"
-      }
+      "headers": { "Authorization": "Bearer token" }
     }
   }
 }
 ```
 
-### Share one MCP server across multiple LLM providers
+`GetWeatherTool` and the filesystem tools are now indistinguishable to the model.
+
+## 6. Offer your tools to someone else
+
+The same set can point outward. Hand the registry to an MCP server and an external agent —
+Claude Desktop, Claude Code, an editor — can call your application's tools while your own
+model keeps calling them too:
 
 ```cpp
-auto *mcpClient = new LLMQore::Mcp::McpClient(transport, {"my-app", "1.0.0"}, &app);
-mcpClient->connectAndInitialize();
+#include <LLMQore/Mcp>
 
-// The optional name prefixes the remote tool ids, so two servers offering
-// `read_file` do not overwrite each other; autoReconnect re-binds after a drop.
-claudeClient->tools()->addMcpClient(mcpClient, "fs", /*autoReconnect*/ true);
-openaiClient->tools()->addMcpClient(mcpClient, "fs", /*autoReconnect*/ true);
+LLMQore::Mcp::HttpServerConfig httpConfig;
+httpConfig.port = 8080;
+httpConfig.path = "/mcp";
+
+LLMQore::Mcp::McpServerConfig config;
+config.serverInfo = {"my-app", "1.0.0"};
+
+auto *server = new LLMQore::Mcp::McpServer(
+    new LLMQore::Mcp::McpHttpServerTransport(httpConfig, &app), config, &app);
+
+server->setToolRegistry(client->tools());
+server->start();
 ```
 
-### Use the MCP client directly
+Two lines beyond what you already had. Tools added later show up by themselves — the server
+forwards `toolsChanged` as `notifications/tools/list_changed`.
+
+Use **HTTP** here. `McpStdioServerTransport` takes over the process's stdin and stdout,
+which is right for a program that is nothing but an MCP server and wrong for one that has a
+UI. For the stdio-only case as a ready-made binary, see [MCP Bridge](mcp-bridge.md).
+
+## From console to QML
+
+The client does not change. Wrap it in a controller and expose that:
 
 ```cpp
-auto *transport = new LLMQore::Rpc::StdioClientTransport(
-    {.program = "my-mcp-server", .arguments = {"--verbose"}}, &app);
-auto *mcpClient = new LLMQore::Mcp::McpClient(transport, {"my-app", "1.0.0"}, &app);
+class ChatController : public QObject
+{
+    Q_OBJECT
+    QML_ELEMENT
+    Q_PROPERTY(MessageModel *messages READ messages CONSTANT)
 
-mcpClient->connectAndInitialize().then([mcpClient](const LLMQore::Mcp::InitializeResult &) {
-    // List available tools
-    mcpClient->listTools().then([](const QList<LLMQore::Mcp::ToolInfo> &tools) {
-        for (const auto &tool : tools)
-            qDebug() << tool.name << "-" << tool.description;
-    });
+public:
+    explicit ChatController(QObject *parent = nullptr)
+        : QObject(parent)
+        , m_client(new LLMQore::ClaudeClient(
+              "https://api.anthropic.com", qEnvironmentVariable("CLAUDE_API_KEY"),
+              "claude-sonnet-4-5", this))
+    {
+        connect(m_client, &LLMQore::BaseClient::chunkReceived, this,
+                [this](const LLMQore::RequestID &, const QString &chunk) {
+            m_messages.appendOrCreate("assistant", chunk);
+        });
+        connect(m_client, &LLMQore::BaseClient::requestFinalized, this,
+                [this](const LLMQore::RequestID &, const LLMQore::CompletionInfo &info) {
+            m_conversation = info.conversation;
+        });
+    }
 
-    // Call a tool directly
-    mcpClient->callTool("get_datetime", {}).then([](const LLMQore::ToolResult &r) {
-        qDebug() << "Result:" << r.asText();
-    });
+    MessageModel *messages() { return &m_messages; }
 
-    // List resources
-    mcpClient->listResources().then([](const QList<LLMQore::Mcp::ResourceInfo> &resources) {
-        for (const auto &r : resources)
-            qDebug() << r.uri << "-" << r.name;
-    });
-});
+    Q_INVOKABLE void send(const QString &text)
+    {
+        m_messages.append("user", text);
+        m_conversation.addUser(text);
+        m_client->ask(m_conversation);
+    }
+
+private:
+    MessageModel m_messages;
+    LLMQore::Conversation m_conversation;
+    LLMQore::BaseClient *m_client;
+};
 ```
+
+The part worth copying carefully is the model. A streaming chunk must **extend the last
+row**, not append a new one:
+
+```cpp
+void appendOrCreate(const QString &role, const QString &chunk)
+{
+    if (!m_messages.isEmpty() && m_messages.last().role == role) {
+        m_messages.last().text += chunk;
+        const auto idx = index(m_messages.size() - 1);
+        emit dataChanged(idx, idx, {TextRole});
+    } else {
+        append(role, chunk);
+    }
+}
+```
+
+Get that wrong and every token becomes its own bubble.
+
+```qml
+ListView {
+    model: controller.messages
+    delegate: Text { text: model.text }
+}
+```
+
+The full application — provider switching, tool badges, an ACP agent — is
+[`example-chat`](../example/Main.qml). Build it with `-DLLMQORE_BUILD_EXAMPLES=ON`; it needs
+Qt Quick and Qt 6.
+
+<img width="912" alt="example-chat" src="https://github.com/user-attachments/assets/2fb1ea83-1d2d-4016-9c87-56180dbf3301" />
