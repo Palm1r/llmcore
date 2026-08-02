@@ -3,7 +3,7 @@
 
 #include <LLMQore/BaseResourceProvider.hpp>
 
-#include <QPromise>
+#include <LLMQore/FutureUtils.hpp>
 
 namespace LLMQore::Mcp {
 
@@ -13,11 +13,7 @@ BaseResourceProvider::BaseResourceProvider(QObject *parent)
 
 QFuture<QList<ResourceTemplate>> BaseResourceProvider::listResourceTemplates()
 {
-    auto promise = std::make_shared<QPromise<QList<ResourceTemplate>>>();
-    promise->start();
-    promise->addResult(QList<ResourceTemplate>{});
-    promise->finish();
-    return promise->future();
+    return LLMQore::readyFuture(QList<ResourceTemplate>{});
 }
 
 QFuture<CompletionResult> BaseResourceProvider::completeArgument(
@@ -26,11 +22,7 @@ QFuture<CompletionResult> BaseResourceProvider::completeArgument(
     const QString & /*partialValue*/,
     const QJsonObject & /*contextArguments*/)
 {
-    auto promise = std::make_shared<QPromise<CompletionResult>>();
-    promise->start();
-    promise->addResult(CompletionResult{});
-    promise->finish();
-    return promise->future();
+    return LLMQore::readyFuture(CompletionResult{});
 }
 
 } // namespace LLMQore::Mcp

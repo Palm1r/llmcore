@@ -7,7 +7,6 @@
 
 #include <QJsonArray>
 #include <QJsonObject>
-#include <QPromise>
 
 #include <LLMQore/FutureUtils.hpp>
 #include <LLMQore/JsonRpcSession.hpp>
