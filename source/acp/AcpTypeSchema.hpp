@@ -6,9 +6,6 @@
 #include <LLMQore/AcpTypes.hpp>
 #include <LLMQore/JsonFields.hpp>
 
-// The ACP wire tables: every field of every symmetric structure, named once.
-// `toJson`/`fromJson` are derived from these, and the round-trip test walks
-// them, so a field added here is a field the tests already cover.
 
 namespace LLMQore::Acp {
 

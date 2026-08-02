@@ -42,9 +42,6 @@ struct PendingTool
     bool complete = false;
 };
 
-// One assistant turn's worth of tool calls. The round is told its own size up
-// front, so it closes exactly once no matter whether a call resolves on the
-// spot (an unregistered name) or through the event loop.
 class LLMQORE_EXPORT ToolRound
 {
 public:

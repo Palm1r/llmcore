@@ -78,7 +78,6 @@ TEST(RpcNdJsonCodecTest, MultiByteCharacterSplitAcrossChunks)
     const QByteArray line = Rpc::NdJsonCodec::encode(original);
     ASSERT_GT(line.size(), 8);
 
-    // Cut inside the trailing emoji, so neither half is valid UTF-8 on its own.
     const qsizetype cut = line.size() - 4;
 
     Rpc::NdJsonCodec codec;

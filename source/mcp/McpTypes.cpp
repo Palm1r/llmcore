@@ -184,8 +184,6 @@ ResourceTemplate ResourceTemplate::fromJson(const QJsonObject &obj)
     return Json::fromJson<ResourceTemplate>(obj);
 }
 
-// Text and binary contents are two wire shapes, and the binary one is base64 --
-// neither half is a plain copy of the member.
 QJsonObject ResourceContents::toJson() const
 {
     QJsonObject obj;
@@ -283,7 +281,6 @@ CompletionArgument CompletionArgument::fromJson(const QJsonObject &obj)
     return Json::fromJson<CompletionArgument>(obj);
 }
 
-// The completion payload is nested one level down, under "completion".
 QJsonObject CompletionResult::toJson() const
 {
     QJsonArray vals;
@@ -350,7 +347,6 @@ CreateMessageParams CreateMessageParams::fromJson(const QJsonObject &obj)
     return Json::fromJson<CreateMessageParams>(obj);
 }
 
-// A result with no role is still an assistant turn on the wire.
 QJsonObject CreateMessageResult::toJson() const
 {
     QJsonObject obj = Json::toJson(*this);
@@ -374,7 +370,6 @@ ElicitRequestParams ElicitRequestParams::fromJson(const QJsonObject &obj)
     return Json::fromJson<ElicitRequestParams>(obj);
 }
 
-// Content only travels with an accepted elicitation.
 QJsonObject ElicitResult::toJson() const
 {
     QJsonObject obj{{"action", action}};

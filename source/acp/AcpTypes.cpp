@@ -160,8 +160,6 @@ InitializeResult InitializeResult::fromJson(const QJsonObject &obj)
     return Json::fromJson<InitializeResult>(obj);
 }
 
-// A stdio server and an http/sse server are two wire shapes behind one struct;
-// the discriminator picks which half of the fields exists at all.
 QJsonObject McpServer::toJson() const
 {
     if (isStdio()) {
@@ -282,7 +280,6 @@ LoadSessionParams LoadSessionParams::fromJson(const QJsonObject &obj)
     return Json::fromJson<LoadSessionParams>(obj);
 }
 
-// Either a text resource or a base64 one, never both.
 QJsonObject EmbeddedResource::toJson() const
 {
     QJsonObject o{{"uri", uri}};
@@ -305,7 +302,6 @@ EmbeddedResource EmbeddedResource::fromJson(const QJsonObject &obj)
     return r;
 }
 
-// `type` selects which fields exist on the wire; reading stays uniform.
 QJsonObject ContentBlock::toJson() const
 {
     QJsonObject o{{"type", type}};
@@ -399,7 +395,6 @@ ToolCallLocation ToolCallLocation::fromJson(const QJsonObject &obj)
     return Json::fromJson<ToolCallLocation>(obj);
 }
 
-// Content, diff and terminal are three wire shapes behind one struct.
 QJsonObject ToolCallContent::toJson() const
 {
     QJsonObject o{{"type", type}};
@@ -452,7 +447,6 @@ Plan Plan::fromJson(const QJsonObject &obj)
     return Json::fromJson<Plan>(obj);
 }
 
-// `inputHint` lives one level down, under "input".
 QJsonObject AvailableCommand::toJson() const
 {
     QJsonObject o{{"name", name}, {"description", description}};
@@ -470,8 +464,6 @@ AvailableCommand AvailableCommand::fromJson(const QJsonObject &obj)
     return c;
 }
 
-// `sessionUpdate` selects the payload; a usage update spreads its fields into
-// the update object itself instead of nesting them.
 QJsonObject SessionUpdate::toJson() const
 {
     QJsonObject o{{"sessionUpdate", sessionUpdate}};
@@ -561,7 +553,6 @@ RequestPermissionParams RequestPermissionParams::fromJson(const QJsonObject &obj
     return Json::fromJson<RequestPermissionParams>(obj);
 }
 
-// The outcome is a tagged object one level down, not a pair of sibling keys.
 QJsonObject RequestPermissionResult::toJson() const
 {
     QJsonObject inner{{"outcome", outcome}};

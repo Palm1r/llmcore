@@ -363,11 +363,9 @@ TEST(AcpTypes, TerminalParamsAndExitStatus)
 
 } // namespace
 
-// --- the field table is the test surface: every declared field must survive ---
 
 namespace LLMQoreTest {
 
-// The blocks below are discriminated on the wire: one concrete shape each.
 template<>
 QJsonObject sampleObject<ContentBlock>(int)
 {
@@ -443,7 +441,6 @@ TEST(AcpTypes, EveryTabledStructureHandsBackWhatItWasGiven)
     expectRoundTrip<WaitForTerminalExitResult>("WaitForTerminalExitResult");
 }
 
-// The usage an agent reports used to be read and then thrown away on the way out.
 TEST(AcpTypes, PromptResultKeepsItsUsage)
 {
     const QJsonObject wire{

@@ -383,7 +383,6 @@ TEST_F(AcpLoopbackTest, PromptDrivesHostCallbacksFsAndPermission)
     delete clientTransport;
 }
 
-// --- the handshake gate, which ACP had no equivalent of before ProtocolPeer ---
 
 namespace {
 

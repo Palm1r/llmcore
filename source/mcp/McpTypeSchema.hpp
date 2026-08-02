@@ -46,8 +46,6 @@ constexpr auto jsonSchema(const PromptsCapability *)
     return std::make_tuple(omitEmpty("listChanged", &PromptsCapability::listChanged));
 }
 
-// Presence-only capabilities: the empty object *is* the whole message, so the
-// `present` flag has no wire field to be named by.
 constexpr auto jsonSchema(const LoggingCapability *)
 {
     return std::make_tuple();

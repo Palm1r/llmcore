@@ -213,7 +213,6 @@ TEST_F(JsonRpcSessionTest, AnUnparseableMessageIsAnsweredWithInvalidRequest)
                 reply = m;
         });
 
-    // A message that is neither request, notification nor response.
     pair.remoteTransport->send(QJsonObject{{"jsonrpc", "2.0"}, {"id", "x1"}});
     pumpEventLoop(std::chrono::milliseconds(50));
 

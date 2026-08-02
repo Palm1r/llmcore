@@ -61,7 +61,6 @@ QByteArray toolCallTurn(const QByteArray &toolId)
           "data: [DONE]\n\n";
 }
 
-// One assistant turn that calls two tools in the same round.
 QByteArray twoToolCallTurn(const QByteArray &firstName, const QByteArray &secondName)
 {
     return "data: {\"choices\":[{\"delta\":{\"tool_calls\":["
@@ -291,7 +290,6 @@ TEST(ToolRounds, AnUnknownToolBesideAValidOneStillClosesOneRound)
     const RequestID id = client.ask(QStringLiteral("go"));
     ASSERT_EQ(transport.streamCount(), 1);
 
-    // The model hallucinated the first name; the second tool is real.
     transport.lastStream()->sendAll(twoToolCallTurn("no_such_tool", "echo"));
     ASSERT_TRUE(LLMQoreTest::waitForStreams(transport, 2)) << "the round never continued";
     pump();

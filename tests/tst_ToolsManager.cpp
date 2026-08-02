@@ -336,7 +336,6 @@ TEST_F(ToolsManagerTest, CleanupRequest)
     mgr.cleanupRequest("req-nonexistent");
 }
 
-// --- the round is declared whole, so its size no longer comes from an empty queue ---
 
 class BlockingTool : public BaseTool
 {
