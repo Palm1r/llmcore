@@ -4,6 +4,7 @@
 #pragma once
 
 #include <optional>
+#include <tuple>
 
 #include <QJsonArray>
 #include <QJsonObject>
@@ -89,6 +90,7 @@ struct LLMQORE_EXPORT ClientCapabilities
 {
     FileSystemCapability fs;
     bool terminal = false;
+    QJsonObject extras;
 
     QJsonObject toJson() const;
     static ClientCapabilities fromJson(const QJsonObject &obj);
@@ -118,6 +120,7 @@ struct LLMQORE_EXPORT AgentCapabilities
     bool loadSession = false;
     PromptCapabilities promptCapabilities;
     McpCapabilities mcpCapabilities;
+    QJsonObject extras;
 
     QJsonObject toJson() const;
     static AgentCapabilities fromJson(const QJsonObject &obj);
@@ -138,6 +141,7 @@ struct LLMQORE_EXPORT InitializeParams
     int protocolVersion = kAcpProtocolVersion;
     ClientCapabilities clientCapabilities;
     std::optional<Implementation> clientInfo;
+    QJsonObject extras;
 
     QJsonObject toJson() const;
     static InitializeParams fromJson(const QJsonObject &obj);
@@ -149,6 +153,7 @@ struct LLMQORE_EXPORT InitializeResult
     AgentCapabilities agentCapabilities;
     QList<AuthMethod> authMethods;
     std::optional<Implementation> agentInfo;
+    QJsonObject extras;
 
     QJsonObject toJson() const;
     static InitializeResult fromJson(const QJsonObject &obj);
@@ -213,6 +218,7 @@ struct LLMQORE_EXPORT NewSessionResult
 {
     QString sessionId;
     std::optional<SessionModeState> modes;
+    QJsonObject extras;
 
     QJsonObject toJson() const;
     static NewSessionResult fromJson(const QJsonObject &obj);
@@ -276,6 +282,7 @@ struct LLMQORE_EXPORT PromptResult
 {
     QString stopReason = QString::fromLatin1(StopReason::EndTurn);
     QJsonObject usage;
+    QJsonObject extras;
 
     QJsonObject toJson() const;
     static PromptResult fromJson(const QJsonObject &obj);
@@ -510,6 +517,21 @@ struct LLMQORE_EXPORT WaitForTerminalExitResult
     QJsonObject toJson() const;
     static WaitForTerminalExitResult fromJson(const QJsonObject &obj);
 };
+
+// The types that travel through queued signals. The Q_DECLARE_METATYPE block
+// below names exactly this list, and registerMetatypes() is built from it.
+using QueuedTypes = std::tuple<
+    ContentBlock,
+    ToolCall,
+    Plan,
+    AvailableCommand,
+    QList<AvailableCommand>,
+    PromptResult,
+    InitializeResult,
+    NewSessionResult,
+    SessionUpdate>;
+
+LLMQORE_EXPORT void registerMetatypes();
 
 } // namespace LLMQore::Acp
 

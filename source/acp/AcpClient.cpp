@@ -18,21 +18,6 @@ namespace LLMQore::Acp {
 
 namespace {
 
-void registerMetatypesOnce()
-{
-    static const bool once = []() {
-        qRegisterMetaType<LLMQore::Acp::ContentBlock>();
-        qRegisterMetaType<LLMQore::Acp::ToolCall>();
-        qRegisterMetaType<LLMQore::Acp::Plan>();
-        qRegisterMetaType<LLMQore::Acp::InitializeResult>();
-        qRegisterMetaType<LLMQore::Acp::NewSessionResult>();
-        qRegisterMetaType<LLMQore::Acp::PromptResult>();
-        qRegisterMetaType<QList<LLMQore::Acp::AvailableCommand>>();
-        return true;
-    }();
-    Q_UNUSED(once);
-}
-
 ToolCall mergeToolCall(ToolCall base, const ToolCall &upd)
 {
     if (!upd.toolCallId.isEmpty())
@@ -62,7 +47,7 @@ AcpClient::AcpClient(Rpc::Transport *transport, Implementation clientInfo, QObje
     , m_session(new Rpc::JsonRpcSession(transport, this))
     , m_clientInfo(std::move(clientInfo))
 {
-    registerMetatypesOnce();
+    registerMetatypes();
 
     if (m_transport) {
         connect(m_transport, &Rpc::Transport::closed, this, &AcpClient::disconnected);

@@ -8,6 +8,10 @@
 
 #include <LLMQore/AcpTypes.hpp>
 
+#include "acp/AcpTypeSchema.hpp"
+
+#include "JsonRoundTrip.hpp"
+
 using namespace LLMQore::Acp;
 
 namespace {
@@ -358,6 +362,114 @@ TEST(AcpTypes, TerminalParamsAndExitStatus)
     ASSERT_TRUE(oBack.exitStatus.has_value());
     ASSERT_TRUE(oBack.exitStatus->exitCode.has_value());
     EXPECT_EQ(*oBack.exitStatus->exitCode, 0);
+}
+
+} // namespace
+
+// --- the field table is the test surface: every declared field must survive ---
+
+namespace LLMQoreTest {
+
+// The blocks below are discriminated on the wire: one concrete shape each.
+template<>
+QJsonObject sampleObject<ContentBlock>(int)
+{
+    return ContentBlock::makeText(QStringLiteral("hello")).toJson();
+}
+
+template<>
+QJsonObject sampleObject<ToolCallContent>(int)
+{
+    ToolCallContent c;
+    c.content = ContentBlock::makeText(QStringLiteral("hello"));
+    return c.toJson();
+}
+
+template<>
+QJsonObject sampleObject<McpServer>(int)
+{
+    return McpServer::stdio(
+               QStringLiteral("fs"), QStringLiteral("npx"), {QStringLiteral("-y")})
+        .toJson();
+}
+
+template<>
+QJsonObject sampleObject<SessionUpdate>(int)
+{
+    SessionUpdate u;
+    u.sessionUpdate = QLatin1String(SessionUpdateKind::AgentMessageChunk);
+    u.content = ContentBlock::makeText(QStringLiteral("hi"));
+    return u.toJson();
+}
+
+} // namespace LLMQoreTest
+
+namespace {
+
+TEST(AcpTypes, EveryTabledStructureHandsBackWhatItWasGiven)
+{
+    using LLMQoreTest::expectRoundTrip;
+
+    expectRoundTrip<EnvVariable>("EnvVariable");
+    expectRoundTrip<Implementation>("Implementation");
+    expectRoundTrip<FileSystemCapability>("FileSystemCapability");
+    expectRoundTrip<ClientCapabilities>("ClientCapabilities");
+    expectRoundTrip<PromptCapabilities>("PromptCapabilities");
+    expectRoundTrip<McpCapabilities>("McpCapabilities");
+    expectRoundTrip<AgentCapabilities>("AgentCapabilities");
+    expectRoundTrip<AuthMethod>("AuthMethod");
+    expectRoundTrip<InitializeParams>("InitializeParams");
+    expectRoundTrip<InitializeResult>("InitializeResult");
+    expectRoundTrip<SessionMode>("SessionMode");
+    expectRoundTrip<SessionModeState>("SessionModeState");
+    expectRoundTrip<NewSessionParams>("NewSessionParams");
+    expectRoundTrip<NewSessionResult>("NewSessionResult");
+    expectRoundTrip<LoadSessionParams>("LoadSessionParams");
+    expectRoundTrip<PromptParams>("PromptParams");
+    expectRoundTrip<PromptResult>("PromptResult");
+    expectRoundTrip<ToolCallLocation>("ToolCallLocation");
+    expectRoundTrip<ToolCall>("ToolCall");
+    expectRoundTrip<PlanEntry>("PlanEntry");
+    expectRoundTrip<Plan>("Plan");
+    expectRoundTrip<SessionNotification>("SessionNotification");
+    expectRoundTrip<PermissionOption>("PermissionOption");
+    expectRoundTrip<RequestPermissionParams>("RequestPermissionParams");
+    expectRoundTrip<ReadTextFileParams>("ReadTextFileParams");
+    expectRoundTrip<ReadTextFileResult>("ReadTextFileResult");
+    expectRoundTrip<WriteTextFileParams>("WriteTextFileParams");
+    expectRoundTrip<CreateTerminalParams>("CreateTerminalParams");
+    expectRoundTrip<CreateTerminalResult>("CreateTerminalResult");
+    expectRoundTrip<ExitStatus>("ExitStatus");
+    expectRoundTrip<TerminalOutputParams>("TerminalOutputParams");
+    expectRoundTrip<TerminalOutputResult>("TerminalOutputResult");
+    expectRoundTrip<TerminalRefParams>("TerminalRefParams");
+    expectRoundTrip<WaitForTerminalExitResult>("WaitForTerminalExitResult");
+}
+
+// The usage an agent reports used to be read and then thrown away on the way out.
+TEST(AcpTypes, PromptResultKeepsItsUsage)
+{
+    const QJsonObject wire{
+        {"stopReason", QLatin1String(StopReason::EndTurn)},
+        {"usage", QJsonObject{{"inputTokens", 12}, {"outputTokens", 34}}},
+    };
+
+    const PromptResult r = PromptResult::fromJson(wire);
+    EXPECT_EQ(r.usage.value("inputTokens").toInt(), 12);
+    EXPECT_EQ(r.toJson().value("usage").toObject(), wire.value("usage").toObject())
+        << "a loopback agent reporting usage would have lost it silently";
+}
+
+TEST(AcpTypes, HandshakeStructuresCarryUnknownFieldsThrough)
+{
+    using LLMQoreTest::expectUnknownKeySurvives;
+
+    expectUnknownKeySurvives<ClientCapabilities>("ClientCapabilities");
+    expectUnknownKeySurvives<AgentCapabilities>("AgentCapabilities");
+    expectUnknownKeySurvives<InitializeParams>("InitializeParams");
+    expectUnknownKeySurvives<InitializeResult>("InitializeResult");
+    expectUnknownKeySurvives<NewSessionResult>("NewSessionResult");
+    expectUnknownKeySurvives<PromptResult>("PromptResult");
 }
 
 } // namespace
