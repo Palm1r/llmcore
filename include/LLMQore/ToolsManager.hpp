@@ -4,6 +4,7 @@
 #pragma once
 
 #include <functional>
+#include <memory>
 
 #include <QFuture>
 #include <QHash>
@@ -29,6 +30,14 @@ struct ToolInfo;
 namespace LLMQore {
 
 class ToolHandler;
+class ToolsManager;
+
+struct ToolCall
+{
+    QString id;
+    QString name;
+    QJsonObject input;
+};
 
 struct PendingTool
 {
@@ -40,17 +49,38 @@ struct PendingTool
     bool complete = false;
 };
 
-struct ToolRound
+// One assistant turn's worth of tool calls. The round is told its own size up
+// front, so it closes exactly once no matter whether a call resolves on the
+// spot (an unregistered name) or through the event loop.
+class LLMQORE_EXPORT ToolRound
 {
-    QList<PendingTool> queue;
-    QHash<QString, PendingTool> completed;
-    bool isExecuting = false;
+public:
+    ToolRound() = default;
+    ToolRound(ToolsManager *manager, QString requestId);
 
-    void beginNextRound()
-    {
-        queue.clear();
-        completed.clear();
-    }
+    void addCalls(const QList<ToolCall> &calls);
+    void advance();
+    bool settle(const QString &toolId, const ToolResult &result, bool success);
+    void abandon();
+
+    bool isAdvancing() const { return m_advancing; }
+    bool isClosed() const { return m_closed; }
+    bool isSettled() const;
+    void close() { m_closed = true; }
+
+    const PendingTool *find(const QString &toolId) const;
+    QHash<QString, ToolResult> results() const;
+
+private:
+    bool dispatch(int index);
+
+    ToolsManager *m_manager = nullptr;
+    QString m_requestId;
+    QList<PendingTool> m_pending;
+    QHash<QString, int> m_indexById;
+    int m_next = 0;
+    bool m_advancing = false;
+    bool m_closed = false;
 };
 
 class LLMQORE_EXPORT ToolsManager : public ToolRegistry
@@ -68,6 +98,7 @@ public:
     QJsonArray getToolsDefinitions() const;
     QString displayName(const QString &toolName) const;
 
+    void beginRound(const QString &requestId, const QList<ToolCall> &calls);
     void executeToolCall(
         const QString &requestId,
         const QString &toolId,
@@ -104,16 +135,22 @@ private slots:
         const QString &requestId, const QString &toolId, const QString &errorText);
 
 private:
+    friend class ToolRound;
+
     void initConnections();
-    void executeNextTool(const QString &requestId);
+    void driveRound(const QString &requestId);
+    void startExecution(
+        const QString &requestId,
+        const QString &toolId,
+        const QString &toolName,
+        const QJsonObject &input);
     void finalizePendingTool(
         const QString &requestId, const QString &toolId, const ToolResult &rich, bool success);
-    QHash<QString, ToolResult> getToolResults(const QString &requestId) const;
     QJsonArray buildToolsDefinitions() const;
 
     ToolHandler *m_toolHandler;
     const ToolDialect &m_dialect;
-    QHash<QString, ToolRound> m_toolRounds;
+    QHash<QString, std::shared_ptr<ToolRound>> m_toolRounds;
     ExecutionGate m_executionGate;
 
     Mcp::McpToolBinder *m_binder = nullptr;

@@ -61,6 +61,32 @@ QByteArray toolCallTurn(const QByteArray &toolId)
           "data: [DONE]\n\n";
 }
 
+// One assistant turn that calls two tools in the same round.
+QByteArray twoToolCallTurn(const QByteArray &firstName, const QByteArray &secondName)
+{
+    return "data: {\"choices\":[{\"delta\":{\"tool_calls\":["
+           "{\"index\":0,\"id\":\"call_1\",\"function\":{\"name\":\""
+        + firstName
+        + "\",\"arguments\":\"{}\"}},"
+          "{\"index\":1,\"id\":\"call_2\",\"function\":{\"name\":\""
+        + secondName
+        + "\",\"arguments\":\"{}\"}}]}}]}\n\n"
+          "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n"
+          "data: [DONE]\n\n";
+}
+
+QStringList toolCallIdsOf(const QJsonObject &payload)
+{
+    QStringList ids;
+    const QJsonArray messages = payload.value("messages").toArray();
+    for (const QJsonValue &m : messages) {
+        const QJsonObject o = m.toObject();
+        if (o.value("role").toString() == QLatin1String("tool"))
+            ids << o.value("tool_call_id").toString();
+    }
+    return ids;
+}
+
 QByteArray finalTurn(const QByteArray &text)
 {
     return "data: {\"choices\":[{\"delta\":{\"content\":\"" + text + "\"}}]}\n\n"
@@ -254,6 +280,48 @@ TEST(ToolRounds, ASecondRequestStartsItsOwnRoundCount)
     ASSERT_TRUE(LLMQoreTest::waitForStreams(transport, 5));
     EXPECT_EQ(client.toolRounds(second), 1)
         << "the round count is the request's own, not a counter carried over by ToolsManager";
+}
+
+TEST(ToolRounds, AnUnknownToolBesideAValidOneStillClosesOneRound)
+{
+    FakeHttpTransport transport;
+    OpenAIClient client("http://fake.local/v1", "sk-test", "gpt-test", &transport);
+    client.tools()->addTool(new CountingTool(&client));
+
+    const RequestID id = client.ask(QStringLiteral("go"));
+    ASSERT_EQ(transport.streamCount(), 1);
+
+    // The model hallucinated the first name; the second tool is real.
+    transport.lastStream()->sendAll(twoToolCallTurn("no_such_tool", "echo"));
+    ASSERT_TRUE(LLMQoreTest::waitForStreams(transport, 2)) << "the round never continued";
+    pump();
+
+    EXPECT_EQ(transport.streamCount(), 2)
+        << "one model turn must produce exactly one continuation";
+    EXPECT_EQ(client.toolRounds(id), 1);
+
+    const QStringList ids = toolCallIdsOf(transport.streamRequest(1).payload());
+    EXPECT_EQ(ids, (QStringList{"call_1", "call_2"}))
+        << "both calls of the round must be answered in the same continuation";
+}
+
+TEST(ToolRounds, TwoValidToolsCloseOneRound)
+{
+    FakeHttpTransport transport;
+    OpenAIClient client("http://fake.local/v1", "sk-test", "gpt-test", &transport);
+    auto *tool = new CountingTool(&client);
+    client.tools()->addTool(tool);
+
+    const RequestID id = client.ask(QStringLiteral("go"));
+    transport.lastStream()->sendAll(twoToolCallTurn("echo", "echo"));
+    ASSERT_TRUE(LLMQoreTest::waitForStreams(transport, 2));
+    pump();
+
+    EXPECT_EQ(transport.streamCount(), 2);
+    EXPECT_EQ(client.toolRounds(id), 1);
+    EXPECT_EQ(tool->calls, 2);
+    EXPECT_EQ(toolCallIdsOf(transport.streamRequest(1).payload()),
+              (QStringList{"call_1", "call_2"}));
 }
 
 TEST(ToolRounds, CancelClearsTheLedger)
