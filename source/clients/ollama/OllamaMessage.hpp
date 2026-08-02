@@ -38,14 +38,14 @@ private:
     QString m_doneReason;
     QString m_accumulatedContent;
     bool m_contentAddedToTextBlock = false;
-    ThinkingContent *m_currentThinkingContent = nullptr;
+    int m_currentThinkingIndex = -1;
     quint64 m_toolCallSequence = 0;
 
     QString makeToolCallId(const QString &name);
     void updateStateFromDone();
     bool tryParseToolCall();
     QString stripMarkdownCodeFence(const QString &content) const;
-    ThinkingContent *getOrCreateThinkingContent();
+    int getOrCreateThinkingContentIndex();
 };
 
 } // namespace LLMQore

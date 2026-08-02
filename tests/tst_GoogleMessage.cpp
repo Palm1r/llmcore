@@ -27,9 +27,9 @@ TEST(GoogleMessage, HandleContentDelta)
     msg.handleContentDelta("world");
 
     EXPECT_EQ(msg.getCurrentBlocks().size(), 1);
-    auto *textBlock = dynamic_cast<TextContent *>(msg.getCurrentBlocks()[0]);
+    auto *textBlock = std::get_if<TextContent>(&msg.getCurrentBlocks()[0]);
     ASSERT_NE(textBlock, nullptr);
-    EXPECT_EQ(textBlock->text(), "Hello world");
+    EXPECT_EQ(textBlock->text, "Hello world");
 }
 
 TEST(GoogleMessage, HandleContentDelta_CreatesNewBlockAfterNonText)
@@ -40,14 +40,14 @@ TEST(GoogleMessage, HandleContentDelta_CreatesNewBlockAfterNonText)
     msg.handleContentDelta("text2");
 
     EXPECT_EQ(msg.getCurrentBlocks().size(), 3);
-    auto *text1 = dynamic_cast<TextContent *>(msg.getCurrentBlocks()[0]);
-    auto *thinking = dynamic_cast<ThinkingContent *>(msg.getCurrentBlocks()[1]);
-    auto *text2 = dynamic_cast<TextContent *>(msg.getCurrentBlocks()[2]);
+    auto *text1 = std::get_if<TextContent>(&msg.getCurrentBlocks()[0]);
+    auto thinking = std::get_if<ThinkingContent>(&msg.getCurrentBlocks()[1]);
+    auto *text2 = std::get_if<TextContent>(&msg.getCurrentBlocks()[2]);
     ASSERT_NE(text1, nullptr);
     ASSERT_NE(thinking, nullptr);
     ASSERT_NE(text2, nullptr);
-    EXPECT_EQ(text1->text(), "text1");
-    EXPECT_EQ(text2->text(), "text2");
+    EXPECT_EQ(text1->text, "text1");
+    EXPECT_EQ(text2->text, "text2");
 }
 
 TEST(GoogleMessage, HandleThoughtDelta)
@@ -57,7 +57,7 @@ TEST(GoogleMessage, HandleThoughtDelta)
     msg.handleThoughtDelta("... more");
 
     EXPECT_EQ(msg.getCurrentThinkingContent().size(), 1);
-    EXPECT_EQ(msg.getCurrentThinkingContent()[0]->thinking(), "Let me think... more");
+    EXPECT_EQ(msg.getCurrentThinkingContent()[0].thinking, "Let me think... more");
 }
 
 TEST(GoogleMessage, HandleThoughtSignature_ExistingBlock)
@@ -66,8 +66,8 @@ TEST(GoogleMessage, HandleThoughtSignature_ExistingBlock)
     msg.handleThoughtDelta("thinking");
     msg.handleThoughtSignature("sig123");
 
-    auto *thinking = msg.getCurrentThinkingContent()[0];
-    EXPECT_EQ(thinking->signature(), "sig123");
+    auto thinking = msg.getCurrentThinkingContent()[0];
+    EXPECT_EQ(thinking.signature, "sig123");
 }
 
 TEST(GoogleMessage, HandleThoughtSignature_NoExistingBlock)
@@ -76,7 +76,7 @@ TEST(GoogleMessage, HandleThoughtSignature_NoExistingBlock)
     msg.handleThoughtSignature("sig456");
 
     EXPECT_EQ(msg.getCurrentThinkingContent().size(), 1);
-    EXPECT_EQ(msg.getCurrentThinkingContent()[0]->signature(), "sig456");
+    EXPECT_EQ(msg.getCurrentThinkingContent()[0].signature, "sig456");
 }
 
 TEST(GoogleMessage, HandleFunctionCall_Complete)
@@ -87,10 +87,10 @@ TEST(GoogleMessage, HandleFunctionCall_Complete)
     msg.handleFunctionCallComplete();
 
     EXPECT_EQ(msg.getCurrentToolUseContent().size(), 1);
-    auto *tool = msg.getCurrentToolUseContent()[0];
-    EXPECT_EQ(tool->name(), "read_file");
-    EXPECT_EQ(tool->input()["path"].toString(), "/tmp/test.txt");
-    EXPECT_FALSE(tool->id().isEmpty()); // UUID generated
+    auto tool = msg.getCurrentToolUseContent()[0];
+    EXPECT_EQ(tool.name, "read_file");
+    EXPECT_EQ(tool.input["path"].toString(), "/tmp/test.txt");
+    EXPECT_FALSE(tool.id.isEmpty()); // UUID generated
 }
 
 TEST(GoogleMessage, HandleFunctionCall_StreamedArgs)
@@ -101,8 +101,8 @@ TEST(GoogleMessage, HandleFunctionCall_StreamedArgs)
     msg.handleFunctionCallArgsDelta(R"( "/tmp/f"})");
     msg.handleFunctionCallComplete();
 
-    auto *tool = msg.getCurrentToolUseContent()[0];
-    EXPECT_EQ(tool->input()["path"].toString(), "/tmp/f");
+    auto tool = msg.getCurrentToolUseContent()[0];
+    EXPECT_EQ(tool.input["path"].toString(), "/tmp/f");
 }
 
 TEST(GoogleMessage, HandleFunctionCall_EmptyArgs)
@@ -111,8 +111,8 @@ TEST(GoogleMessage, HandleFunctionCall_EmptyArgs)
     msg.handleFunctionCallStart("list_files");
     msg.handleFunctionCallComplete();
 
-    auto *tool = msg.getCurrentToolUseContent()[0];
-    EXPECT_TRUE(tool->input().isEmpty());
+    auto tool = msg.getCurrentToolUseContent()[0];
+    EXPECT_TRUE(tool.input.isEmpty());
 }
 
 TEST(GoogleMessage, HandleFunctionCall_InvalidJson)
@@ -122,8 +122,8 @@ TEST(GoogleMessage, HandleFunctionCall_InvalidJson)
     msg.handleFunctionCallArgsDelta("not json{{{");
     msg.handleFunctionCallComplete();
 
-    auto *tool = msg.getCurrentToolUseContent()[0];
-    EXPECT_TRUE(tool->input().isEmpty());
+    auto tool = msg.getCurrentToolUseContent()[0];
+    EXPECT_TRUE(tool.input.isEmpty());
 }
 
 TEST(GoogleMessage, HandleFunctionCallComplete_NoFunctionStarted)
@@ -404,8 +404,8 @@ TEST(GoogleMessage, CreateToolResultParts)
     auto tools = msg.getCurrentToolUseContent();
 
     QHash<QString, ToolResult> results;
-    results[tools[0]->id()] = ToolResult::text("file content");
-    results[tools[1]->id()] = ToolResult::text("write ok");
+    results[tools[0].id] = ToolResult::text("file content");
+    results[tools[1].id] = ToolResult::text("write ok");
 
     QJsonArray parts = msg.createToolResultParts(results);
     EXPECT_EQ(parts.size(), 2);
@@ -420,7 +420,7 @@ TEST(GoogleMessage, CreateToolResultParts)
     }
 }
 
-TEST(GoogleMessage, CreateToolResultParts_ImageBecomesInlineDataPart)
+TEST(GoogleMessage, CreateToolResultParts_ImageBecomesNestedInlineDataPart)
 {
     GoogleMessage msg;
     msg.handleFunctionCallStart("get_sample_image");
@@ -430,30 +430,57 @@ TEST(GoogleMessage, CreateToolResultParts_ImageBecomesInlineDataPart)
     ASSERT_EQ(tools.size(), 1);
 
     ToolResult r;
-    r.content.append(ToolContent::makeText("here is the screenshot"));
-    r.content.append(ToolContent::makeImage(QByteArray("PNGDATA"), "image/png"));
+    r.content.append(TextContent("here is the screenshot"));
+    r.content.append(ImageContent::fromBytes(QByteArray("PNGDATA"), "image/png"));
 
     QHash<QString, ToolResult> results;
-    results[tools[0]->id()] = r;
+    results[tools[0].id] = r;
 
     const QJsonArray parts = msg.createToolResultParts(results);
-    ASSERT_EQ(parts.size(), 2);
+    ASSERT_EQ(parts.size(), 1);
 
     const QJsonObject funcResp = parts[0].toObject()["functionResponse"].toObject();
     EXPECT_EQ(funcResp["name"].toString(), "get_sample_image");
 
-    // Text preamble is still in response.result.
     EXPECT_EQ(
         funcResp["response"].toObject()["result"].toString(), "here is the screenshot");
 
-    // The rich image is a sibling inlineData part next to the
-    // functionResponse (the nested FunctionResponse.parts shape is rejected
-    // by the live Gemini API).
-    EXPECT_FALSE(funcResp.contains("parts"));
-    const QJsonObject inlineData = parts[1].toObject()["inlineData"].toObject();
+    const QJsonArray nested = funcResp["parts"].toArray();
+    ASSERT_EQ(nested.size(), 1);
+    const QJsonObject inlineData = nested[0].toObject()["inlineData"].toObject();
     EXPECT_EQ(inlineData["mimeType"].toString(), "image/png");
     EXPECT_EQ(
         QByteArray::fromBase64(inlineData["data"].toString().toUtf8()), QByteArray("PNGDATA"));
+
+    EXPECT_EQ(GoogleMessage::toolResultTurnRole(parts), "user");
+}
+
+TEST(GoogleMessage, CreateToolResultParts_OnePartPerFunctionCallWithMixedResults)
+{
+    GoogleMessage msg;
+    msg.handleFunctionCallStart("read");
+    msg.handleFunctionCallComplete();
+    msg.handleFunctionCallStart("get_sample_image");
+    msg.handleFunctionCallComplete();
+
+    auto tools = msg.getCurrentToolUseContent();
+    ASSERT_EQ(tools.size(), 2);
+
+    ToolResult withImage;
+    withImage.content.append(TextContent("here is the screenshot"));
+    withImage.content.append(ImageContent::fromBytes(QByteArray("PNGDATA"), "image/png"));
+
+    QHash<QString, ToolResult> results;
+    results[tools[0].id] = ToolResult::text("file content");
+    results[tools[1].id] = withImage;
+
+    const QJsonArray parts = msg.createToolResultParts(results);
+    ASSERT_EQ(parts.size(), 2);
+
+    for (const QJsonValue &val : parts)
+        EXPECT_TRUE(val.toObject().contains("functionResponse"));
+
+    EXPECT_EQ(GoogleMessage::toolResultTurnRole(parts), "user");
 }
 
 TEST(GoogleMessage, CreateToolResultParts_TextOnlyKeepsFlatResponse)
@@ -464,15 +491,16 @@ TEST(GoogleMessage, CreateToolResultParts_TextOnlyKeepsFlatResponse)
 
     auto tools = msg.getCurrentToolUseContent();
     QHash<QString, ToolResult> results;
-    results[tools[0]->id()] = ToolResult::text("plain text result");
+    results[tools[0].id] = ToolResult::text("plain text result");
 
     const QJsonArray parts = msg.createToolResultParts(results);
     ASSERT_EQ(parts.size(), 1);
 
     const QJsonObject funcResp = parts[0].toObject()["functionResponse"].toObject();
     EXPECT_EQ(funcResp["response"].toObject()["result"].toString(), "plain text result");
-    // Fast path: no inner parts array for plain text.
     EXPECT_FALSE(funcResp.contains("parts"));
+
+    EXPECT_EQ(GoogleMessage::toolResultTurnRole(parts), "function");
 }
 
 TEST(GoogleMessage, CreateToolResultParts_AudioAlsoBecomesInlineData)
@@ -484,18 +512,19 @@ TEST(GoogleMessage, CreateToolResultParts_AudioAlsoBecomesInlineData)
     auto tools = msg.getCurrentToolUseContent();
 
     ToolResult r;
-    r.content.append(ToolContent::makeAudio(QByteArray("WAVDATA"), "audio/wav"));
+    r.content.append(AudioContent(QByteArray("WAVDATA"), "audio/wav"));
 
     QHash<QString, ToolResult> results;
-    results[tools[0]->id()] = r;
+    results[tools[0].id] = r;
 
     const QJsonArray parts = msg.createToolResultParts(results);
-    ASSERT_EQ(parts.size(), 2);
+    ASSERT_EQ(parts.size(), 1);
 
     const QJsonObject funcResp = parts[0].toObject()["functionResponse"].toObject();
-    EXPECT_FALSE(funcResp.contains("parts"));
+    const QJsonArray nested = funcResp["parts"].toArray();
+    ASSERT_EQ(nested.size(), 1);
 
-    const QJsonObject inlineData = parts[1].toObject()["inlineData"].toObject();
+    const QJsonObject inlineData = nested[0].toObject()["inlineData"].toObject();
     EXPECT_EQ(inlineData["mimeType"].toString(), "audio/wav");
     EXPECT_EQ(
         QByteArray::fromBase64(inlineData["data"].toString().toUtf8()), QByteArray("WAVDATA"));

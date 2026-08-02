@@ -128,11 +128,10 @@ TEST_F(GoogleAIIntegrationTest, ToolUse_EchoTool)
 TEST_F(GoogleAIIntegrationTest, ToolUse_ImageReturningTool)
 {
     // Exercises the multimodal function-response path: a tool returns a
-    // ToolResult containing an image content block;
-    // GoogleMessage::createToolResultParts emits the image as a sibling
-    // inlineData part next to the functionResponse in the same function
-    // turn (the nested FunctionResponse.parts shape is rejected with
-    // INVALID_ARGUMENT by the live Gemini API as of 2026-06).
+    // ToolResult containing an image content block, which travels as a
+    // nested FunctionResponse.parts inlineData entry in a "user" turn. The
+    // live API rejects media in a "function" turn, and sibling inlineData
+    // parts break the one-response-part-per-function-call rule.
     auto client = createClient();
     auto *imageTool = new ImageReturningTool(client.get());
     client->tools()->addTool(imageTool);
@@ -307,13 +306,25 @@ TEST_F(GoogleAIIntegrationTest, ListModels)
     auto future = client->listModels();
 
     QEventLoop loop;
-    QFutureWatcher<QList<QString>> watcher;
-    QObject::connect(&watcher, &QFutureWatcher<QList<QString>>::finished, &loop, &QEventLoop::quit);
+    QFutureWatcher<QList<ModelInfo>> watcher;
+    QObject::connect(&watcher, &QFutureWatcher<QList<ModelInfo>>::finished, &loop, &QEventLoop::quit);
     watcher.setFuture(future);
     QTimer::singleShot(kRequestTimeoutMs, &loop, &QEventLoop::quit);
     loop.exec();
 
     ASSERT_TRUE(future.isFinished()) << "ListModels timed out";
-    QList<QString> models = future.result();
+    QList<ModelInfo> models = future.result();
     EXPECT_GT(models.size(), 0) << "No models returned from Google AI";
+}
+
+TEST_F(GoogleAIIntegrationTest, ConversationMultiTurn)
+{
+    auto client = createClient();
+    expectMultiTurnAccepted(client.get());
+}
+
+TEST_F(GoogleAIIntegrationTest, AskOnceResolves)
+{
+    auto client = createClient();
+    expectAskOnceResolves(client.get());
 }

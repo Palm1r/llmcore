@@ -47,9 +47,9 @@ TEST(OpenAIResponsesMessage, HandleToolCallStart)
     EXPECT_TRUE(msg.hasToolCalls());
     EXPECT_EQ(msg.getCurrentToolUseContent().size(), 1);
 
-    auto *toolBlock = msg.getCurrentToolUseContent()[0];
-    EXPECT_EQ(toolBlock->id(), "call_abc");
-    EXPECT_EQ(toolBlock->name(), "read_file");
+    auto toolBlock = msg.getCurrentToolUseContent()[0];
+    EXPECT_EQ(toolBlock.id, "call_abc");
+    EXPECT_EQ(toolBlock.name, "read_file");
 }
 
 TEST(OpenAIResponsesMessage, HandleToolCallDelta_StreamedArguments)
@@ -60,8 +60,8 @@ TEST(OpenAIResponsesMessage, HandleToolCallDelta_StreamedArguments)
     msg.handleToolCallDelta("call_1", R"("/tmp/f"})");
     msg.handleToolCallComplete("call_1");
 
-    auto *toolBlock = msg.getCurrentToolUseContent()[0];
-    EXPECT_EQ(toolBlock->input()["path"].toString(), "/tmp/f");
+    auto toolBlock = msg.getCurrentToolUseContent()[0];
+    EXPECT_EQ(toolBlock.input["path"].toString(), "/tmp/f");
 }
 
 TEST(OpenAIResponsesMessage, HandleToolCallDelta_UnknownCallId)
@@ -77,8 +77,8 @@ TEST(OpenAIResponsesMessage, HandleToolCallComplete_EmptyArguments)
     msg.handleToolCallStart("call_1", "no_args");
     msg.handleToolCallComplete("call_1");
 
-    auto *toolBlock = msg.getCurrentToolUseContent()[0];
-    EXPECT_TRUE(toolBlock->input().isEmpty());
+    auto toolBlock = msg.getCurrentToolUseContent()[0];
+    EXPECT_TRUE(toolBlock.input.isEmpty());
 }
 
 TEST(OpenAIResponsesMessage, HandleToolCallComplete_InvalidJson)
@@ -88,8 +88,8 @@ TEST(OpenAIResponsesMessage, HandleToolCallComplete_InvalidJson)
     msg.handleToolCallDelta("call_1", "not valid json");
     msg.handleToolCallComplete("call_1");
 
-    auto *toolBlock = msg.getCurrentToolUseContent()[0];
-    EXPECT_TRUE(toolBlock->input().isEmpty());
+    auto toolBlock = msg.getCurrentToolUseContent()[0];
+    EXPECT_TRUE(toolBlock.input.isEmpty());
 }
 
 TEST(OpenAIResponsesMessage, HandleReasoningStart)
@@ -107,8 +107,8 @@ TEST(OpenAIResponsesMessage, HandleReasoningDelta)
     msg.handleReasoningDelta("item_1", "Let me think...");
     msg.handleReasoningDelta("item_1", " More thinking.");
 
-    auto *thinking = msg.getCurrentThinkingContent()[0];
-    EXPECT_EQ(thinking->thinking(), "Let me think... More thinking.");
+    auto thinking = msg.getCurrentThinkingContent()[0];
+    EXPECT_EQ(thinking.thinking, "Let me think... More thinking.");
 }
 
 TEST(OpenAIResponsesMessage, HandleReasoningDelta_UnknownItemId)
@@ -256,8 +256,8 @@ TEST(OpenAIResponsesMessage, CreateToolResultItems_ImageResultBecomesInputImageB
     msg.handleToolCallStart("call_img", "screenshot");
 
     ToolResult r;
-    r.content.append(ToolContent::makeText("here is the screenshot"));
-    r.content.append(ToolContent::makeImage(QByteArray("PNGDATA"), "image/png"));
+    r.content.append(TextContent("here is the screenshot"));
+    r.content.append(ImageContent::fromBytes(QByteArray("PNGDATA"), "image/png"));
 
     QHash<QString, ToolResult> results;
     results["call_img"] = r;
@@ -309,7 +309,7 @@ TEST(OpenAIResponsesMessage, CreateToolResultItems_AudioFallsBackToInputText)
     msg.handleToolCallStart("call_aud", "record");
 
     ToolResult r;
-    r.content.append(ToolContent::makeAudio(QByteArray("WAVDATA"), "audio/wav"));
+    r.content.append(AudioContent(QByteArray("WAVDATA"), "audio/wav"));
 
     QHash<QString, ToolResult> results;
     results["call_aud"] = r;

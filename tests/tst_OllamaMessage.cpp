@@ -26,9 +26,9 @@ TEST(OllamaMessage, HandleContentDelta_PlainText)
     msg.handleContentDelta("world");
 
     EXPECT_EQ(msg.getCurrentBlocks().size(), 1);
-    auto *textBlock = dynamic_cast<TextContent *>(msg.getCurrentBlocks()[0]);
+    auto *textBlock = std::get_if<TextContent>(&msg.getCurrentBlocks()[0]);
     ASSERT_NE(textBlock, nullptr);
-    EXPECT_EQ(textBlock->text(), "Hello world");
+    EXPECT_EQ(textBlock->text, "Hello world");
 }
 
 TEST(OllamaMessage, HandleContentDelta_JsonLikeBuffered)
@@ -37,8 +37,8 @@ TEST(OllamaMessage, HandleContentDelta_JsonLikeBuffered)
     msg.handleContentDelta(R"({"name": "read")");
 
     bool hasTextBlock = false;
-    for (auto *block : msg.getCurrentBlocks()) {
-        if (dynamic_cast<TextContent *>(block))
+    for (const auto &block : msg.getCurrentBlocks()) {
+        if (std::get_if<TextContent>(&block))
             hasTextBlock = true;
     }
     EXPECT_FALSE(hasTextBlock);
@@ -49,9 +49,9 @@ TEST(OllamaMessage, HandleContentDelta_NonJsonFlushesAccumulated)
     OllamaMessage msg;
     msg.handleContentDelta("Hello");
 
-    auto *textBlock = dynamic_cast<TextContent *>(msg.getCurrentBlocks()[0]);
+    auto *textBlock = std::get_if<TextContent>(&msg.getCurrentBlocks()[0]);
     ASSERT_NE(textBlock, nullptr);
-    EXPECT_EQ(textBlock->text(), "Hello");
+    EXPECT_EQ(textBlock->text, "Hello");
 }
 
 TEST(OllamaMessage, HandleToolCall_Structured)
@@ -64,10 +64,10 @@ TEST(OllamaMessage, HandleToolCall_Structured)
     msg.handleToolCall(toolCall);
 
     EXPECT_EQ(msg.getCurrentToolUseContent().size(), 1);
-    auto *tool = msg.getCurrentToolUseContent()[0];
-    EXPECT_EQ(tool->name(), "read_file");
-    EXPECT_EQ(tool->input()["path"].toString(), "/tmp");
-    EXPECT_TRUE(tool->id().startsWith("call_read_file_"));
+    auto tool = msg.getCurrentToolUseContent()[0];
+    EXPECT_EQ(tool.name, "read_file");
+    EXPECT_EQ(tool.input["path"].toString(), "/tmp");
+    EXPECT_TRUE(tool.id.startsWith("call_read_file_"));
 }
 
 TEST(OllamaMessage, HandleToolCall_MultipleStructured)
@@ -101,11 +101,11 @@ TEST(OllamaMessage, HandleToolCall_SameToolTwiceGetsDistinctIds)
 
     auto tools = msg.getCurrentToolUseContent();
     ASSERT_EQ(tools.size(), 2);
-    EXPECT_TRUE(tools[0]->id().startsWith("call_read_file_"));
-    EXPECT_TRUE(tools[1]->id().startsWith("call_read_file_"));
-    EXPECT_NE(tools[0]->id(), tools[1]->id());
-    EXPECT_EQ(tools[0]->input()["path"].toString(), "/a");
-    EXPECT_EQ(tools[1]->input()["path"].toString(), "/b");
+    EXPECT_TRUE(tools[0].id.startsWith("call_read_file_"));
+    EXPECT_TRUE(tools[1].id.startsWith("call_read_file_"));
+    EXPECT_NE(tools[0].id, tools[1].id);
+    EXPECT_EQ(tools[0].input["path"].toString(), "/a");
+    EXPECT_EQ(tools[1].input["path"].toString(), "/b");
 }
 
 TEST(OllamaMessage, ToolCallIds_DistinctAcrossContinuations)
@@ -116,13 +116,13 @@ TEST(OllamaMessage, ToolCallIds_DistinctAcrossContinuations)
 
     msg.handleToolCall(toolCall);
     msg.handleDone(true);
-    QString firstId = msg.getCurrentToolUseContent()[0]->id();
+    QString firstId = msg.getCurrentToolUseContent()[0].id;
 
     msg.startNewContinuation();
     msg.handleToolCall(toolCall);
 
     ASSERT_EQ(msg.getCurrentToolUseContent().size(), 1);
-    EXPECT_NE(msg.getCurrentToolUseContent()[0]->id(), firstId);
+    EXPECT_NE(msg.getCurrentToolUseContent()[0].id, firstId);
 }
 
 TEST(OllamaMessage, HandleDone_ParsesToolCallFromContent)
@@ -132,9 +132,9 @@ TEST(OllamaMessage, HandleDone_ParsesToolCallFromContent)
     msg.handleDone(true);
 
     EXPECT_EQ(msg.getCurrentToolUseContent().size(), 1);
-    auto *tool = msg.getCurrentToolUseContent()[0];
-    EXPECT_EQ(tool->name(), "read_file");
-    EXPECT_EQ(tool->input()["path"].toString(), "/tmp/test.txt");
+    auto tool = msg.getCurrentToolUseContent()[0];
+    EXPECT_EQ(tool.name, "read_file");
+    EXPECT_EQ(tool.input["path"].toString(), "/tmp/test.txt");
     EXPECT_EQ(msg.state(), MessageState::RequiresToolExecution);
 }
 
@@ -145,8 +145,8 @@ TEST(OllamaMessage, HandleDone_ParsesToolCallWithStringArguments)
     msg.handleDone(true);
 
     EXPECT_EQ(msg.getCurrentToolUseContent().size(), 1);
-    auto *tool = msg.getCurrentToolUseContent()[0];
-    EXPECT_EQ(tool->input()["key"].toString(), "value");
+    auto tool = msg.getCurrentToolUseContent()[0];
+    EXPECT_EQ(tool.input["key"].toString(), "value");
 }
 
 TEST(OllamaMessage, HandleDone_PlainTextFinal)
@@ -158,9 +158,9 @@ TEST(OllamaMessage, HandleDone_PlainTextFinal)
     EXPECT_EQ(msg.state(), MessageState::Final);
     EXPECT_EQ(msg.getCurrentToolUseContent().size(), 0);
 
-    auto *textBlock = dynamic_cast<TextContent *>(msg.getCurrentBlocks()[0]);
+    auto *textBlock = std::get_if<TextContent>(&msg.getCurrentBlocks()[0]);
     ASSERT_NE(textBlock, nullptr);
-    EXPECT_EQ(textBlock->text(), "Just a normal answer");
+    EXPECT_EQ(textBlock->text, "Just a normal answer");
 }
 
 TEST(OllamaMessage, HandleDone_FalseDoesNothing)
@@ -209,7 +209,7 @@ TEST(OllamaMessage, HandleThinkingDelta)
 
     auto thinkingBlocks = msg.getCurrentThinkingContent();
     EXPECT_EQ(thinkingBlocks.size(), 1);
-    EXPECT_EQ(thinkingBlocks[0]->thinking(), "Step 1... Step 2...");
+    EXPECT_EQ(thinkingBlocks[0].thinking, "Step 1... Step 2...");
 }
 
 TEST(OllamaMessage, HandleThinkingComplete_WithSignature)
@@ -218,8 +218,8 @@ TEST(OllamaMessage, HandleThinkingComplete_WithSignature)
     msg.handleThinkingDelta("thinking...");
     msg.handleThinkingComplete("sig-abc");
 
-    auto *thinking = msg.getCurrentThinkingContent()[0];
-    EXPECT_EQ(thinking->signature(), "sig-abc");
+    auto thinking = msg.getCurrentThinkingContent()[0];
+    EXPECT_EQ(thinking.signature, "sig-abc");
 }
 
 TEST(OllamaMessage, HandleThinkingComplete_NoThinkingBlock)
@@ -236,7 +236,7 @@ TEST(OllamaMessage, HandleThinkingDelta_ReusesExistingBlock)
     msg.handleThinkingDelta(" second");
 
     EXPECT_EQ(msg.getCurrentThinkingContent().size(), 1);
-    EXPECT_EQ(msg.getCurrentThinkingContent()[0]->thinking(), "first second");
+    EXPECT_EQ(msg.getCurrentThinkingContent()[0].thinking, "first second");
 }
 
 TEST(OllamaMessage, ToProviderFormat_TextOnly)
@@ -287,8 +287,8 @@ TEST(OllamaMessage, CreateToolResultMessages)
 
     auto tools = msg.getCurrentToolUseContent();
     QHash<QString, ToolResult> results;
-    results[tools[0]->id()] = ToolResult::text("content1");
-    results[tools[1]->id()] = ToolResult::text("content2");
+    results[tools[0].id] = ToolResult::text("content1");
+    results[tools[1].id] = ToolResult::text("content2");
 
     QJsonArray messages = msg.createToolResultMessages(results);
     EXPECT_EQ(messages.size(), 2);

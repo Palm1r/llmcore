@@ -26,9 +26,9 @@ TEST(OpenAIMessage, HandleContentDelta)
     msg.handleContentDelta("world");
 
     EXPECT_EQ(msg.getCurrentBlocks().size(), 1);
-    auto *textBlock = dynamic_cast<TextContent *>(msg.getCurrentBlocks()[0]);
+    auto *textBlock = std::get_if<TextContent>(&msg.getCurrentBlocks()[0]);
     ASSERT_NE(textBlock, nullptr);
-    EXPECT_EQ(textBlock->text(), "Hello world");
+    EXPECT_EQ(textBlock->text, "Hello world");
 }
 
 TEST(OpenAIMessage, HandleContentDelta_MultipleCallsAppend)
@@ -38,9 +38,9 @@ TEST(OpenAIMessage, HandleContentDelta_MultipleCallsAppend)
     msg.handleContentDelta("b");
     msg.handleContentDelta("c");
 
-    auto *textBlock = dynamic_cast<TextContent *>(msg.getCurrentBlocks()[0]);
+    auto *textBlock = std::get_if<TextContent>(&msg.getCurrentBlocks()[0]);
     ASSERT_NE(textBlock, nullptr);
-    EXPECT_EQ(textBlock->text(), "abc");
+    EXPECT_EQ(textBlock->text, "abc");
 }
 
 TEST(OpenAIMessage, HandleToolCallStart)
@@ -51,9 +51,9 @@ TEST(OpenAIMessage, HandleToolCallStart)
     EXPECT_EQ(msg.getCurrentBlocks().size(), 1);
     EXPECT_EQ(msg.getCurrentToolUseContent().size(), 1);
 
-    auto *toolBlock = msg.getCurrentToolUseContent()[0];
-    EXPECT_EQ(toolBlock->id(), "call_123");
-    EXPECT_EQ(toolBlock->name(), "read_file");
+    auto toolBlock = msg.getCurrentToolUseContent()[0];
+    EXPECT_EQ(toolBlock.id, "call_123");
+    EXPECT_EQ(toolBlock.name, "read_file");
 }
 
 TEST(OpenAIMessage, HandleToolCallDelta_StreamedArguments)
@@ -64,8 +64,8 @@ TEST(OpenAIMessage, HandleToolCallDelta_StreamedArguments)
     msg.handleToolCallDelta(0, R"("/tmp/f"})");
     msg.handleToolCallComplete(0);
 
-    auto *toolBlock = msg.getCurrentToolUseContent()[0];
-    EXPECT_EQ(toolBlock->input()["path"].toString(), "/tmp/f");
+    auto toolBlock = msg.getCurrentToolUseContent()[0];
+    EXPECT_EQ(toolBlock.input["path"].toString(), "/tmp/f");
 }
 
 TEST(OpenAIMessage, HandleToolCallDelta_UnknownIndex)
@@ -88,8 +88,8 @@ TEST(OpenAIMessage, HandleToolCallComplete_EmptyArguments)
     msg.handleToolCallStart(0, "call_1", "no_args_tool");
     msg.handleToolCallComplete(0);
 
-    auto *toolBlock = msg.getCurrentToolUseContent()[0];
-    EXPECT_TRUE(toolBlock->input().isEmpty());
+    auto toolBlock = msg.getCurrentToolUseContent()[0];
+    EXPECT_TRUE(toolBlock.input.isEmpty());
 }
 
 TEST(OpenAIMessage, HandleToolCallComplete_InvalidJson)
@@ -99,8 +99,8 @@ TEST(OpenAIMessage, HandleToolCallComplete_InvalidJson)
     msg.handleToolCallDelta(0, "not valid json{{{");
     msg.handleToolCallComplete(0);
 
-    auto *toolBlock = msg.getCurrentToolUseContent()[0];
-    EXPECT_TRUE(toolBlock->input().isEmpty());
+    auto toolBlock = msg.getCurrentToolUseContent()[0];
+    EXPECT_TRUE(toolBlock.input.isEmpty());
 }
 
 TEST(OpenAIMessage, CompleteAllPendingToolCalls)
@@ -117,13 +117,13 @@ TEST(OpenAIMessage, CompleteAllPendingToolCalls)
     EXPECT_EQ(tools.size(), 2);
 
     bool foundA = false, foundB = false;
-    for (auto *tool : tools) {
-        if (tool->id() == "call_1") {
-            EXPECT_EQ(tool->input()["a"].toInt(), 1);
+    for (auto tool : tools) {
+        if (tool.id == "call_1") {
+            EXPECT_EQ(tool.input["a"].toInt(), 1);
             foundA = true;
         }
-        if (tool->id() == "call_2") {
-            EXPECT_EQ(tool->input()["b"].toInt(), 2);
+        if (tool.id == "call_2") {
+            EXPECT_EQ(tool.input["b"].toInt(), 2);
             foundB = true;
         }
     }
@@ -270,22 +270,22 @@ TEST(OpenAIMessage, TextAndToolCallsMixed)
     EXPECT_EQ(msg.getCurrentBlocks().size(), 2);
     EXPECT_EQ(msg.getCurrentToolUseContent().size(), 1);
 
-    auto *textBlock = dynamic_cast<TextContent *>(msg.getCurrentBlocks()[0]);
+    auto *textBlock = std::get_if<TextContent>(&msg.getCurrentBlocks()[0]);
     ASSERT_NE(textBlock, nullptr);
-    EXPECT_EQ(textBlock->text(), "Thinking...");
+    EXPECT_EQ(textBlock->text, "Thinking...");
 }
 
 TEST(OpenAIMessage, ImageContent_Base64_Accessors)
 {
-    ImageContent ic("base64data", "image/png", ImageContent::ImageSourceType::Base64);
-    EXPECT_EQ(ic.data(), "base64data");
-    EXPECT_EQ(ic.mediaType(), "image/png");
-    EXPECT_EQ(ic.sourceType(), ImageContent::ImageSourceType::Base64);
+    ImageContent ic = ImageContent::fromBase64("YmFzZTY0ZGF0YQ==", "image/png");
+    EXPECT_EQ(ic.bytes(), QByteArray("base64data"));
+    EXPECT_EQ(ic.mimeType, "image/png");
+    EXPECT_FALSE(ic.isUrl());
 }
 
 TEST(OpenAIMessage, ImageContent_Url_Accessors)
 {
-    ImageContent ic("https://example.com/img.jpg", "", ImageContent::ImageSourceType::Url);
-    EXPECT_EQ(ic.data(), "https://example.com/img.jpg");
-    EXPECT_EQ(ic.sourceType(), ImageContent::ImageSourceType::Url);
+    ImageContent ic = ImageContent::fromUrl(QUrl("https://example.com/img.jpg"));
+    EXPECT_EQ(ic.url().toString(), "https://example.com/img.jpg");
+    EXPECT_TRUE(ic.isUrl());
 }

@@ -51,6 +51,99 @@ OpenAIClient::OpenAIClient(
     setHeaders({{QStringLiteral("Content-Type"), QStringLiteral("application/json")}});
 }
 
+QJsonObject OpenAIClient::buildConversationPayload(const Conversation &conversation) const
+{
+    QJsonObject payload;
+    payload["model"] = m_model;
+
+    QJsonArray messages;
+    if (!conversation.system().isEmpty())
+        messages.append(QJsonObject{{"role", "system"}, {"content", conversation.system()}});
+
+    for (const Turn &turn : conversation.turns()) {
+        if (turn.role == TurnRole::Tool) {
+            for (const TurnContent &block : turn.content) {
+                if (const auto *result = std::get_if<ToolResultContent>(&block)) {
+                    messages.append(
+                        QJsonObject{
+                            {"role", "tool"},
+                            {"tool_call_id", result->toolUseId},
+                            {"content", toToolResult(*result).asText()}});
+                }
+            }
+            continue;
+        }
+
+        QString text;
+        QString reasoning;
+        QJsonArray parts;
+        QJsonArray toolCalls;
+
+        for (const TurnContent &block : turn.content) {
+            std::visit(
+                overloaded{
+                    [&](const TextContent &c) {
+                        text += c.text;
+                        parts.append(QJsonObject{{"type", "text"}, {"text", c.text}});
+                    },
+                    [&](const ImageContent &c) {
+                        const QString url = c.isUrl()
+                            ? c.url().toString()
+                            : QStringLiteral("data:%1;base64,%2")
+                                  .arg(
+                                      c.mimeType.isEmpty() ? QStringLiteral("image/png")
+                                                           : c.mimeType,
+                                      c.base64());
+                        parts.append(
+                            QJsonObject{
+                                {"type", "image_url"},
+                                {"image_url", QJsonObject{{"url", url}}}});
+                    },
+                    [&](const AudioContent &) {},
+                    [&](const ToolUseContent &c) {
+                        toolCalls.append(
+                            QJsonObject{
+                                {"id", c.id},
+                                {"type", "function"},
+                                {"function",
+                                 QJsonObject{
+                                     {"name", c.name},
+                                     {"arguments",
+                                      QString::fromUtf8(
+                                          QJsonDocument(c.input).toJson(QJsonDocument::Compact))}}}});
+                    },
+                    [&](const ToolResultContent &) {},
+                    [&](const ThinkingContent &c) { reasoning += c.thinking; },
+                    [&](const RedactedThinkingContent &) {}},
+                block);
+        }
+
+        QJsonObject message;
+        message["role"] = turn.role == TurnRole::Assistant ? QStringLiteral("assistant")
+                                                           : QStringLiteral("user");
+
+        const bool hasNonText = parts.size() > 1
+            || (parts.size() == 1 && parts.first().toObject().value("type").toString() != "text");
+
+        if (turn.role == TurnRole::User && hasNonText)
+            message["content"] = parts;
+        else if (!text.isEmpty())
+            message["content"] = text;
+        else if (turn.role == TurnRole::Assistant)
+            message["content"] = QJsonValue();
+
+        if (!reasoning.isEmpty())
+            message["reasoning_content"] = reasoning;
+        if (!toolCalls.isEmpty())
+            message["tool_calls"] = toolCalls;
+
+        messages.append(message);
+    }
+
+    payload["messages"] = messages;
+    return payload;
+}
+
 const ToolDialect &OpenAIClient::toolDialect() const
 {
     return OpenAIMessage::toolDialect();
@@ -91,7 +184,7 @@ RequestID OpenAIClient::ask(const QString &prompt, RequestMode mode)
     return sendMessage(payload, {}, mode);
 }
 
-QFuture<QList<QString>> OpenAIClient::listModels(const QString &endpoint)
+QFuture<QList<ModelInfo>> OpenAIClient::listModels(const QString &endpoint)
 {
     return fetchModelList(endpointUrl(endpoint, QStringLiteral("/models")));
 }

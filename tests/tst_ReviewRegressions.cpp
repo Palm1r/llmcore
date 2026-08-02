@@ -185,7 +185,7 @@ TEST(ReviewRegression, OllamaThinkingAfterToolCallDoesNotReuseFreedBlock)
     msg.handleThinkingDelta(QStringLiteral("second thought"));
 
     ASSERT_EQ(msg.getCurrentThinkingContent().size(), 1);
-    EXPECT_EQ(msg.getCurrentThinkingContent().front()->thinking(),
+    EXPECT_EQ(msg.getCurrentThinkingContent().front().thinking,
               QStringLiteral("second thought"))
         << "a stale m_currentThinkingContent would append into freed memory";
 }
@@ -292,13 +292,19 @@ TEST(ReviewRegression, GoogleSseStreamIsUnaffectedByTheErrorSniffer)
 
 namespace {
 
-QList<QString> resolveModels(FakeHttpTransport &transport, QFuture<QList<QString>> future,
+QList<QString> resolveModels(FakeHttpTransport &transport, QFuture<QList<ModelInfo>> future,
                              int statusCode, const QByteArray &body)
 {
     transport.respondToLast(statusCode, body);
     for (int i = 0; i < 16 && !future.isFinished(); ++i)
         QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
-    return future.isFinished() ? future.result() : QList<QString>{};
+
+    QList<QString> ids;
+    if (!future.isFinished())
+        return ids;
+    for (const ModelInfo &info : future.result())
+        ids.append(info.id);
+    return ids;
 }
 
 } // namespace

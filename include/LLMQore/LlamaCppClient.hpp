@@ -32,7 +32,7 @@ public:
     RequestID ask(
         const QString &prompt, RequestMode mode = RequestMode::Streaming) override;
 
-    QFuture<QList<QString>> listModels(const QString &endpoint = {}) override;
+    QFuture<QList<ModelInfo>> listModels(const QString &endpoint = {}) override;
 
     QFuture<bool> isServerReady();
     QFuture<QJsonObject> serverProps();

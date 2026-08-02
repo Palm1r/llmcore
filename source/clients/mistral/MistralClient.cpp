@@ -39,7 +39,7 @@ RequestID MistralClient::sendMessage(
         payload, endpoint.isEmpty() ? QStringLiteral("/v1/chat/completions") : endpoint, mode);
 }
 
-QFuture<QList<QString>> MistralClient::listModels(const QString &endpoint)
+QFuture<QList<ModelInfo>> MistralClient::listModels(const QString &endpoint)
 {
     return OpenAIClient::listModels(
         endpoint.isEmpty() ? QStringLiteral("/v1/models") : endpoint);

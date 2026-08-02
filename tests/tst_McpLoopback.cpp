@@ -329,11 +329,16 @@ public:
         return sendMessage(QJsonObject{{"prompt", prompt}}, {}, mode);
     }
 
-    QFuture<QList<QString>> listModels(const QString & = {}) override
+    QJsonObject buildConversationPayload(const Conversation &conversation) const override
     {
-        QPromise<QList<QString>> p;
+        return conversation.toJson();
+    }
+
+    QFuture<QList<ModelInfo>> listModels(const QString & = {}) override
+    {
+        QPromise<QList<ModelInfo>> p;
         p.start();
-        p.addResult(QList<QString>{QStringLiteral("fake-model-1.0")});
+        p.addResult(QList<ModelInfo>{ModelInfo{QStringLiteral("fake-model-1.0")}});
         p.finish();
         return p.future();
     }

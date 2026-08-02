@@ -36,7 +36,10 @@ public:
     RequestID ask(
         const QString &prompt, RequestMode mode = RequestMode::Streaming) override;
 
-    QFuture<QList<QString>> listModels(const QString &endpoint = {}) override;
+    QFuture<QList<ModelInfo>> listModels(const QString &endpoint = {}) override;
+    QJsonObject buildConversationPayload(const Conversation &conversation) const override;
+
+    static constexpr int kDefaultMaxTokens = 8192;
 
 protected:
     [[nodiscard]] const ToolDialect &toolDialect() const override;

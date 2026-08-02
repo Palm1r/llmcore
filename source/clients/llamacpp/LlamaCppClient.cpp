@@ -60,7 +60,7 @@ RequestID LlamaCppClient::ask(const QString &prompt, RequestMode mode)
     return sendMessage(payload, {}, mode);
 }
 
-QFuture<QList<QString>> LlamaCppClient::listModels(const QString &endpoint)
+QFuture<QList<ModelInfo>> LlamaCppClient::listModels(const QString &endpoint)
 {
     return OpenAIClient::listModels(
         endpoint.isEmpty() ? QStringLiteral("/v1/models") : endpoint);

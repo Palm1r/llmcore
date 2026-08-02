@@ -28,6 +28,8 @@ public:
 
     QJsonObject toProviderFormat() const;
     QJsonArray createToolResultParts(const QHash<QString, ToolResult> &toolResults) const;
+    static QJsonObject toInlineDataPart(const ToolContent &block);
+    static QString toolResultTurnRole(const QJsonArray &parts);
 
     QString stopReason() const override { return m_finishReason; }
     bool isErrorFinishReason() const;

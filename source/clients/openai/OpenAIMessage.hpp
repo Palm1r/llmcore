@@ -48,11 +48,11 @@ public:
 private:
     QString m_finishReason;
     QHash<int, QString> m_pendingToolArguments;
-    QHash<int, ToolUseContent *> m_toolCallByIndex;
-    ThinkingContent *m_currentThinkingContent = nullptr;
+    QHash<int, int> m_toolCallByIndex;
+    int m_currentThinkingIndex = -1;
 
     void updateStateFromFinishReason();
-    ThinkingContent *getOrCreateThinkingContent();
+    int getOrCreateThinkingContentIndex();
 };
 
 } // namespace LLMQore

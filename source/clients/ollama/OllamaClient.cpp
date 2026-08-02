@@ -74,6 +74,72 @@ RequestID OllamaClient::ask(const QString &prompt, RequestMode mode)
     return sendMessage(payload, {}, mode);
 }
 
+QJsonObject OllamaClient::buildConversationPayload(const Conversation &conversation) const
+{
+    QJsonObject payload;
+    payload["model"] = m_model;
+
+    QJsonArray messages;
+    if (!conversation.system().isEmpty())
+        messages.append(QJsonObject{{"role", "system"}, {"content", conversation.system()}});
+
+    for (const Turn &turn : conversation.turns()) {
+        if (turn.role == TurnRole::Tool) {
+            for (const TurnContent &block : turn.content) {
+                if (const auto *result = std::get_if<ToolResultContent>(&block)) {
+                    messages.append(
+                        QJsonObject{
+                            {"role", "tool"}, {"content", toToolResult(*result).asText()}});
+                }
+            }
+            continue;
+        }
+
+        QString text;
+        QString thinking;
+        QJsonArray images;
+        QJsonArray toolCalls;
+
+        for (const TurnContent &block : turn.content) {
+            std::visit(
+                overloaded{
+                    [&](const TextContent &c) { text += c.text; },
+                    [&](const ImageContent &c) {
+                        if (!c.isUrl())
+                            images.append(c.base64());
+                    },
+                    [&](const AudioContent &) {},
+                    [&](const ToolUseContent &c) {
+                        toolCalls.append(
+                            QJsonObject{
+                                {"type", "function"},
+                                {"function",
+                                 QJsonObject{{"name", c.name}, {"arguments", c.input}}}});
+                    },
+                    [&](const ToolResultContent &) {},
+                    [&](const ThinkingContent &c) { thinking += c.thinking; },
+                    [&](const RedactedThinkingContent &) {}},
+                block);
+        }
+
+        QJsonObject message;
+        message["role"] = turn.role == TurnRole::Assistant ? QStringLiteral("assistant")
+                                                           : QStringLiteral("user");
+        message["content"] = text;
+        if (!images.isEmpty())
+            message["images"] = images;
+        if (!thinking.isEmpty())
+            message["thinking"] = thinking;
+        if (!toolCalls.isEmpty())
+            message["tool_calls"] = toolCalls;
+
+        messages.append(message);
+    }
+
+    payload["messages"] = messages;
+    return payload;
+}
+
 const ToolDialect &OllamaClient::toolDialect() const
 {
     return OllamaMessage::toolDialect();
@@ -84,7 +150,7 @@ const UsageSchema &OllamaClient::usageSchema() const
     return kOllamaUsage;
 }
 
-QFuture<QList<QString>> OllamaClient::listModels(const QString &endpoint)
+QFuture<QList<ModelInfo>> OllamaClient::listModels(const QString &endpoint)
 {
     return fetchModelList(
         endpointUrl(endpoint, QStringLiteral("/api/tags")),

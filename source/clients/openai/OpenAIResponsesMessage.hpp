@@ -25,12 +25,14 @@ public:
     void handleReasoningStart(const QString &itemId);
     void handleReasoningDelta(const QString &itemId, const QString &text);
     void handleReasoningComplete(const QString &itemId);
+    void handleReasoningEncryptedContent(const QString &itemId, const QString &encryptedContent);
     void handleStatus(const QString &status);
 
     QString stopReason() const override { return m_status; }
 
-    QList<QJsonObject> toItemsFormat() const;
+    QList<QJsonObject> toItemsFormat(bool includeReasoning = false) const;
     QJsonArray createToolResultItems(const QHash<QString, ToolResult> &toolResults) const;
+    static QJsonObject toResponsesInnerBlock(const ToolContent &block);
 
     QString accumulatedText() const;
 
@@ -42,11 +44,11 @@ public:
 private:
     QString m_status;
     QHash<QString, QString> m_pendingToolArguments;
-    QHash<QString, ToolUseContent *> m_toolCalls;
-    QHash<QString, ThinkingContent *> m_thinkingBlocks;
+    QHash<QString, int> m_toolCalls;
+    QHash<QString, int> m_thinkingBlocks;
 
     void updateStateFromStatus();
-    TextContent *getOrCreateTextItem();
+    int getOrCreateTextItemIndex();
 };
 
 } // namespace LLMQore

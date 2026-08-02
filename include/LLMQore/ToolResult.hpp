@@ -11,49 +11,14 @@
 #include <QMetaType>
 #include <QString>
 
+#include <LLMQore/ContentBlocks.hpp>
 #include <LLMQore/LLMQore_global.h>
 
 namespace LLMQore {
 
-struct LLMQORE_EXPORT ToolContent
-{
-    enum Type {
-        Text,
-        Image,
-        Audio,
-        Resource,
-        ResourceLink,
-    };
-
-    Type type = Text;
-
-    QString text;
-    QByteArray data;
-    QString mimeType;
-    QString uri;
-
-    QString resourceText;
-    QByteArray resourceBlob;
-
-    QString name;
-    QString description;
-
-    static ToolContent makeText(const QString &text);
-    static ToolContent makeImage(const QByteArray &data, const QString &mimeType);
-    static ToolContent makeAudio(const QByteArray &data, const QString &mimeType);
-    static ToolContent makeResourceText(
-        const QString &uri, const QString &text, const QString &mimeType = {});
-    static ToolContent makeResourceBlob(
-        const QString &uri, const QByteArray &blob, const QString &mimeType = {});
-    static ToolContent makeResourceLink(
-        const QString &uri,
-        const QString &name = {},
-        const QString &description = {},
-        const QString &mimeType = {});
-
-    QJsonObject toJson() const;
-    static ToolContent fromJson(const QJsonObject &obj);
-};
+LLMQORE_EXPORT QJsonObject toolContentToJson(const ToolContent &content);
+LLMQORE_EXPORT ToolContent toolContentFromJson(const QJsonObject &obj);
+LLMQORE_EXPORT QString toolContentAsText(const ToolContent &content);
 
 struct LLMQORE_EXPORT ToolResult
 {
@@ -78,6 +43,5 @@ struct LLMQORE_EXPORT ToolResult
 
 using LLMQoreToolResultHash = QHash<QString, LLMQore::ToolResult>;
 
-Q_DECLARE_METATYPE(LLMQore::ToolContent)
 Q_DECLARE_METATYPE(LLMQore::ToolResult)
 Q_DECLARE_METATYPE(LLMQoreToolResultHash)

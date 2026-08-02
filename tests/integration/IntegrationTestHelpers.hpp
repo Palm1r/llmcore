@@ -17,6 +17,8 @@
 
 #include <LLMQore/BaseClient.hpp>
 #include <LLMQore/BaseTool.hpp>
+#include <LLMQore/Conversation.hpp>
+#include <LLMQore/FutureUtils.hpp>
 #include <LLMQore/ToolResult.hpp>
 #include <LLMQore/ToolsManager.hpp>
 
@@ -141,8 +143,8 @@ public:
         return QtConcurrent::run([]() -> ToolResult {
             const QByteArray png = QByteArray::fromBase64(QByteArray(kTinyPngBase64));
             ToolResult r;
-            r.content.append(ToolContent::makeText("Here is the sample image:"));
-            r.content.append(ToolContent::makeImage(png, "image/png"));
+            r.content.append(TextContent("Here is the sample image:"));
+            r.content.append(ImageContent::fromBytes(png, "image/png"));
             return r;
         });
     }
@@ -222,6 +224,7 @@ struct TestResult
     QStringList chunks;
     QList<QPair<QString, QString>> thinkingBlocks; // {thinking, signature}
     QList<QPair<QString, QString>> toolCalls;      // {toolName, result}
+    Conversation conversation;
 
     // Returns a diagnostic summary string for use in EXPECT/ASSERT messages
     std::string diagnostics() const
@@ -257,6 +260,11 @@ struct TestResult
 // a fresh client per case don't need to disconnect manually.
 inline void wireLoggingSignals(BaseClient *client, TestResult &result, QEventLoop &loop)
 {
+    QObject::connect(client, &BaseClient::requestFinalized, &loop,
+                     [&result](const RequestID &, const CompletionInfo &info) {
+        result.conversation = info.conversation;
+    });
+
     QObject::connect(client, &BaseClient::chunkReceived, &loop,
                      [&result](const RequestID &, const QString &chunk) {
                          result.chunks.append(chunk);
@@ -336,5 +344,82 @@ protected:
 
     QCoreApplication *m_app = nullptr;
 };
+
+
+// --- Conversation conformance helpers ---
+//
+// These prove the per-provider payload builders agree with the real API. A wrong
+// key name passes every unit test and 400s here.
+
+inline TestResult runConversation(
+    BaseClient *client, const Conversation &conversation, QEventLoop &loop)
+{
+    TestResult result;
+    wireLoggingSignals(client, result, loop);
+    client->ask(conversation);
+    waitWithTimeout(loop, result, kRequestTimeoutMs);
+    return result;
+}
+
+inline void expectMultiTurnAccepted(BaseClient *client)
+{
+    Conversation conversation;
+    conversation.setSystem("Answer with a single word.");
+    conversation.addUser("What is the capital of France?");
+
+    QEventLoop firstLoop;
+    TestResult first = runConversation(client, conversation, firstLoop);
+
+    ASSERT_FALSE(first.timedOut) << "First turn timed out\n" << first.diagnostics();
+    ASSERT_TRUE(first.completed) << first.diagnostics();
+    ASSERT_FALSE(first.failed) << first.diagnostics();
+    ASSERT_FALSE(first.fullText.isEmpty()) << first.diagnostics();
+
+    Conversation carried = first.conversation;
+    ASSERT_EQ(carried.turns().size(), 2)
+        << "assistant turn missing from CompletionInfo::conversation";
+    EXPECT_EQ(carried.turns()[1].role, TurnRole::Assistant);
+
+    carried.addUser("And of Italy?");
+
+    QEventLoop secondLoop;
+    TestResult second = runConversation(client, carried, secondLoop);
+
+    ASSERT_FALSE(second.timedOut) << "Second turn timed out\n" << second.diagnostics();
+    ASSERT_TRUE(second.completed) << "Provider rejected the replayed history\n"
+                                  << second.diagnostics();
+    ASSERT_FALSE(second.failed) << second.diagnostics();
+    EXPECT_FALSE(second.fullText.isEmpty()) << second.diagnostics();
+}
+
+inline void expectAskOnceResolves(BaseClient *client)
+{
+    QEventLoop loop;
+    bool settled = false;
+    CompletionInfo received;
+    QString error;
+
+    LLMQore::compat(client->askOnce("Reply with exactly: ok"))
+        .then(client, [&](const CompletionInfo &info) -> int {
+            received = info;
+            settled = true;
+            loop.quit();
+            return 0;
+        })
+        .onFailed(client, [&](const std::exception &e) -> int {
+            error = QString::fromUtf8(e.what());
+            settled = true;
+            loop.quit();
+            return 0;
+        });
+
+    QTimer::singleShot(kRequestTimeoutMs, &loop, &QEventLoop::quit);
+    if (!settled)
+        loop.exec();
+
+    ASSERT_TRUE(settled) << "askOnce future never settled";
+    ASSERT_TRUE(error.isEmpty()) << "askOnce rejected: " << error.toStdString();
+    EXPECT_FALSE(received.fullText.isEmpty());
+}
 
 } // namespace LLMQore::IntegrationTest

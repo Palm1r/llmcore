@@ -247,13 +247,25 @@ TEST_F(OpenAIIntegrationTest, ListModels)
     auto future = client->listModels();
 
     QEventLoop loop;
-    QFutureWatcher<QList<QString>> watcher;
-    QObject::connect(&watcher, &QFutureWatcher<QList<QString>>::finished, &loop, &QEventLoop::quit);
+    QFutureWatcher<QList<ModelInfo>> watcher;
+    QObject::connect(&watcher, &QFutureWatcher<QList<ModelInfo>>::finished, &loop, &QEventLoop::quit);
     watcher.setFuture(future);
     QTimer::singleShot(kRequestTimeoutMs, &loop, &QEventLoop::quit);
     loop.exec();
 
     ASSERT_TRUE(future.isFinished()) << "ListModels timed out";
-    QList<QString> models = future.result();
+    QList<ModelInfo> models = future.result();
     EXPECT_GT(models.size(), 0) << "No models returned";
+}
+
+TEST_F(OpenAIIntegrationTest, ConversationMultiTurn)
+{
+    auto client = createClient();
+    expectMultiTurnAccepted(client.get());
+}
+
+TEST_F(OpenAIIntegrationTest, AskOnceResolves)
+{
+    auto client = createClient();
+    expectAskOnceResolves(client.get());
 }

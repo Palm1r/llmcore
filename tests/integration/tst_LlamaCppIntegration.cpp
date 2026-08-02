@@ -148,7 +148,7 @@ TEST_F(LlamaCppIntegrationTest, ThinkingModel_ReasoningContent)
     QJsonObject payload;
     if (!m_model.isEmpty())
         payload["model"] = m_model;
-    payload["max_tokens"] = 2048;
+    payload["max_tokens"] = 1024;
     payload["stream"] = true;
     payload["messages"] = QJsonArray{
         QJsonObject{{"role", "user"}, {"content", "Explain why sky is blue in one sentence."}}};
@@ -186,6 +186,12 @@ TEST_F(LlamaCppIntegrationTest, InfillRequest)
     waitWithTimeout(loop, result, kRequestTimeoutMs);
 
     ASSERT_FALSE(result.timedOut) << "Request timed out\n" << result.diagnostics();
+
+    if (result.failed && result.errorMessage.contains(QLatin1String("501"))) {
+        GTEST_SKIP() << "loaded model has no FIM tokens, /infill is unavailable: "
+                     << result.errorMessage.toStdString();
+    }
+
     ASSERT_TRUE(result.completed) << result.diagnostics();
     EXPECT_FALSE(result.failed) << result.diagnostics();
     EXPECT_FALSE(result.fullText.isEmpty()) << result.diagnostics();
@@ -224,14 +230,14 @@ TEST_F(LlamaCppIntegrationTest, ListModels)
     auto future = client->listModels();
 
     QEventLoop loop;
-    QFutureWatcher<QList<QString>> watcher;
-    QObject::connect(&watcher, &QFutureWatcher<QList<QString>>::finished, &loop, &QEventLoop::quit);
+    QFutureWatcher<QList<ModelInfo>> watcher;
+    QObject::connect(&watcher, &QFutureWatcher<QList<ModelInfo>>::finished, &loop, &QEventLoop::quit);
     QTimer::singleShot(kRequestTimeoutMs, &loop, &QEventLoop::quit);
     watcher.setFuture(future);
     loop.exec();
 
     ASSERT_TRUE(future.isFinished()) << "ListModels timed out";
-    QList<QString> models = future.result();
+    QList<ModelInfo> models = future.result();
     EXPECT_GT(models.size(), 0) << "No models returned";
 }
 
@@ -253,4 +259,16 @@ TEST_F(LlamaCppIntegrationTest, ServerProps)
     EXPECT_FALSE(props.isEmpty()) << "Empty props response";
     EXPECT_TRUE(props.contains("total_slots"));
     EXPECT_TRUE(props.contains("default_generation_settings"));
+}
+
+TEST_F(LlamaCppIntegrationTest, ConversationMultiTurn)
+{
+    auto client = createClient();
+    expectMultiTurnAccepted(client.get());
+}
+
+TEST_F(LlamaCppIntegrationTest, AskOnceResolves)
+{
+    auto client = createClient();
+    expectAskOnceResolves(client.get());
 }

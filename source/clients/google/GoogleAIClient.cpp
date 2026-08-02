@@ -78,6 +78,114 @@ RequestID GoogleAIClient::ask(const QString &prompt, RequestMode mode)
     return sendMessage(payload, {}, mode);
 }
 
+QJsonObject GoogleAIClient::buildConversationPayload(const Conversation &conversation) const
+{
+    QJsonObject payload;
+
+    if (!conversation.system().isEmpty()) {
+        payload["systemInstruction"] = QJsonObject{
+            {"parts", QJsonArray{QJsonObject{{"text", conversation.system()}}}}};
+    }
+
+    QJsonArray contents;
+    for (const Turn &turn : conversation.turns()) {
+        QJsonArray parts;
+
+        if (turn.role == TurnRole::Tool) {
+            for (const TurnContent &block : turn.content) {
+                const auto *result = std::get_if<ToolResultContent>(&block);
+                if (!result)
+                    continue;
+
+                const ToolResult toolResult = toToolResult(*result);
+                QJsonObject functionResponse{
+                    {"name", result->name},
+                    {"response", QJsonObject{{"result", toolResult.asText()}}}};
+
+                if (!toolResult.hasOnlyText()) {
+                    QJsonArray media;
+                    for (const ToolContent &part : toolResult.content) {
+                        const QJsonObject inlinePart = GoogleMessage::toInlineDataPart(part);
+                        if (!inlinePart.isEmpty())
+                            media.append(inlinePart);
+                    }
+                    if (!media.isEmpty())
+                        functionResponse["parts"] = media;
+                }
+
+                parts.append(QJsonObject{{"functionResponse", functionResponse}});
+            }
+            if (!parts.isEmpty())
+                contents.append(
+                    QJsonObject{
+                        {"role", GoogleMessage::toolResultTurnRole(parts)}, {"parts", parts}});
+            continue;
+        }
+
+        for (const TurnContent &block : turn.content) {
+            std::visit(
+                overloaded{
+                    [&](const TextContent &c) { parts.append(QJsonObject{{"text", c.text}}); },
+                    [&](const ImageContent &c) {
+                        if (c.isUrl()) {
+                            parts.append(
+                                QJsonObject{
+                                    {"fileData",
+                                     QJsonObject{
+                                         {"mimeType", c.mimeType},
+                                         {"fileUri", c.url().toString()}}}});
+                            return;
+                        }
+                        parts.append(
+                            QJsonObject{
+                                {"inlineData",
+                                 QJsonObject{
+                                     {"mimeType",
+                                      c.mimeType.isEmpty() ? QStringLiteral("image/png")
+                                                           : c.mimeType},
+                                     {"data", c.base64()}}}});
+                    },
+                    [&](const AudioContent &c) {
+                        parts.append(
+                            QJsonObject{
+                                {"inlineData",
+                                 QJsonObject{
+                                     {"mimeType",
+                                      c.mimeType.isEmpty() ? QStringLiteral("audio/wav")
+                                                           : c.mimeType},
+                                     {"data", QString::fromUtf8(c.data.toBase64())}}}});
+                    },
+                    [&](const ToolUseContent &c) {
+                        parts.append(
+                            QJsonObject{
+                                {"functionCall",
+                                 QJsonObject{{"name", c.name}, {"args", c.input}}}});
+                    },
+                    [&](const ToolResultContent &) {},
+                    [&](const ThinkingContent &c) {
+                        parts.append(QJsonObject{{"text", c.thinking}, {"thought", true}});
+                        if (!c.signature.isEmpty())
+                            parts.append(QJsonObject{{"thoughtSignature", c.signature}});
+                    },
+                    [&](const RedactedThinkingContent &) {}},
+                block);
+        }
+
+        if (parts.isEmpty())
+            continue;
+
+        contents.append(
+            QJsonObject{
+                {"role",
+                 turn.role == TurnRole::Assistant ? QStringLiteral("model")
+                                                  : QStringLiteral("user")},
+                {"parts", parts}});
+    }
+
+    payload["contents"] = contents;
+    return payload;
+}
+
 const ToolDialect &GoogleAIClient::toolDialect() const
 {
     return GoogleMessage::toolDialect();
@@ -88,7 +196,7 @@ const UsageSchema &GoogleAIClient::usageSchema() const
     return kGoogleUsage;
 }
 
-QFuture<QList<QString>> GoogleAIClient::listModels(const QString &endpoint)
+QFuture<QList<ModelInfo>> GoogleAIClient::listModels(const QString &endpoint)
 {
     return fetchModelList(
         endpointUrl(endpoint, QStringLiteral("/models")),
@@ -270,9 +378,11 @@ QJsonObject GoogleAIClient::buildContinuationPayload(
 
     contents.append(googleMsg->toProviderFormat());
 
+    const QJsonArray toolResultParts = googleMsg->createToolResultParts(toolResults);
+
     QJsonObject functionMessage;
-    functionMessage["role"] = "function";
-    functionMessage["parts"] = googleMsg->createToolResultParts(toolResults);
+    functionMessage["role"] = GoogleMessage::toolResultTurnRole(toolResultParts);
+    functionMessage["parts"] = toolResultParts;
     contents.append(functionMessage);
 
     request["contents"] = contents;

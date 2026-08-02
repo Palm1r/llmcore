@@ -19,7 +19,22 @@ ApplicationWindow {
         },
         {
             name: "OpenAI",
-            url: "https://api.openai.com",
+            url: "https://api.openai.com/v1",
+            needsKey: true
+        },
+        {
+            name: "OpenAI Responses",
+            url: "https://api.openai.com/v1",
+            needsKey: true
+        },
+        {
+            name: "DeepSeek",
+            url: "https://api.deepseek.com/v1",
+            needsKey: true
+        },
+        {
+            name: "Mistral",
+            url: "https://api.mistral.ai/v1",
             needsKey: true
         },
         {
@@ -74,7 +89,7 @@ ApplicationWindow {
 
     ToolsDrawer {
         id: toolsDrawer
-        toolNames: controller.toolNames
+        toolNames: controller.session.toolNames
     }
 
     ColumnLayout {
@@ -93,7 +108,7 @@ ApplicationWindow {
             Layout.fillHeight: true
             clip: true
 
-            model: controller.messages
+            model: controller.session.messages
 
             delegate: Item {
                 id: msgDelegate
@@ -105,7 +120,7 @@ ApplicationWindow {
                 readonly property bool isToolInGroup: {
                     if (role !== "tool" || index === 0)
                         return false;
-                    const prev = controller.messages.roleAt(index - 1);
+                    const prev = controller.session.messages.roleAt(index - 1);
                     return prev === "assistant" || prev === "tool";
                 }
 
@@ -125,7 +140,7 @@ ApplicationWindow {
 
             onCountChanged: scrollToBottom()
             onContentHeightChanged: {
-                if (atYEnd || controller.busy)
+                if (atYEnd || controller.session.busy)
                     scrollToBottom();
             }
 
@@ -155,16 +170,16 @@ ApplicationWindow {
         ChatInput {
             Layout.fillWidth: true
             Layout.topMargin: 6
-            busy: controller.busy
-            toolCount: controller.toolNames.length
+            busy: controller.session.busy
+            toolCount: controller.session.toolNames.length
 
             onSendRequested: text => {
-                if (!controller.modelList.length && providerBar.currentModel.length === 0)
+                if (!controller.session.modelList.length && providerBar.currentModel.length === 0)
                     return;
-                controller.send(text, providerBar.currentModel);
+                controller.session.send(text, providerBar.currentModel);
             }
-            onStopRequested: controller.stopGeneration()
-            onClearRequested: controller.clearChat()
+            onStopRequested: controller.session.stop()
+            onClearRequested: controller.session.clear()
             onToolsToggled: toolsDrawer.open()
         }
 
@@ -173,8 +188,8 @@ ApplicationWindow {
             Layout.leftMargin: 4
             Layout.bottomMargin: 4
             Layout.preferredHeight: 12
-            visible: !controller.busy
-            text: controller.status
+            visible: !controller.session.busy
+            text: controller.session.status
             font.pixelSize: 11
             color: palette.placeholderText
         }
@@ -185,7 +200,7 @@ ApplicationWindow {
             Layout.leftMargin: 4
             Layout.bottomMargin: 4
             Layout.preferredHeight: 12
-            visible: controller.busy
+            visible: controller.session.busy
             spacing: 4
 
             Repeater {
@@ -199,7 +214,7 @@ ApplicationWindow {
 
                     SequentialAnimation on opacity {
                         loops: Animation.Infinite
-                        running: controller.busy
+                        running: controller.session.busy
                         PauseAnimation {
                             duration: index * 200
                         }
@@ -218,7 +233,7 @@ ApplicationWindow {
             }
 
             Label {
-                text: controller.status
+                text: controller.session.status
                 font.pixelSize: 11
                 color: palette.placeholderText
             }

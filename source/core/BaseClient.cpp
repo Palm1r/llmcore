@@ -8,7 +8,10 @@
 #include <QPointer>
 #include <QThread>
 #include <QUrlQuery>
+#include <QPromise>
 #include <QUuid>
+
+#include <stdexcept>
 
 #include "Usage.hpp"
 #include <LLMQore/FutureUtils.hpp>
@@ -53,6 +56,7 @@ struct ActiveRequest
     std::optional<TokenUsage> usage = {};
     std::optional<TokenUsage> turnUsage = {};
     int toolRounds = 0;
+    Conversation conversation = {};
 
     QPointer<BaseMessage> message;
 };
@@ -62,6 +66,8 @@ struct ActiveRequest
 struct BaseClient::Impl
 {
     HttpTransport *transport = nullptr;
+    QHash<RequestID, std::shared_ptr<QPromise<CompletionInfo>>> oneShots;
+    std::shared_ptr<QPromise<CompletionInfo>> pendingOneShot;
     AuthScheme authScheme;
     QHash<QString, QString> headers;
     ToolsManager *toolsManager = nullptr;
@@ -301,6 +307,12 @@ void BaseClient::handleToolsCompleted(
 RequestID BaseClient::createRequest()
 {
     RequestID id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+
+    if (m_impl->pendingOneShot) {
+        m_impl->oneShots.insert(id, m_impl->pendingOneShot);
+        m_impl->pendingOneShot.reset();
+    }
+
     const auto registerRequest = [this, id]() { m_impl->requests[id] = ActiveRequest{}; };
     if (thread() == QThread::currentThread())
         registerRequest();
@@ -369,20 +381,21 @@ QUrl BaseClient::endpointUrl(const QString &endpoint, const QString &defaultPath
     return QUrl(m_url + (endpoint.isEmpty() ? defaultPath : endpoint));
 }
 
-QFuture<QList<QString>> BaseClient::fetchModelList(
+QFuture<QList<ModelInfo>> BaseClient::fetchModelList(
     const QUrl &url,
     const QString &arrayKey,
     const QString &idKey,
-    const std::function<QString(QString)> &idMapper)
+    const std::function<QString(QString)> &idMapper,
+    const ModelInfoEnricher &enrich)
 {
     const QNetworkRequest request = prepareNetworkRequest(url);
     const QLoggingCategory *cat = &logCategory();
 
     return LLMQore::compat(transport()->send(request, QByteArrayView("GET")))
-        .then(this, [cat, arrayKey, idKey, idMapper](const HttpResponse &response) {
+        .then(this, [this, cat, arrayKey, idKey, idMapper, enrich](const HttpResponse &response) {
             const QLoggingCategory &log = *cat;
 
-            QList<QString> models;
+            QList<ModelInfo> models;
             if (!response.isSuccess()) {
                 qCDebug(log).noquote()
                     << QString("Error fetching models: HTTP %1").arg(response.statusCode);
@@ -392,21 +405,47 @@ QFuture<QList<QString>> BaseClient::fetchModelList(
             const QJsonObject json = QJsonDocument::fromJson(response.body).object();
             const QJsonArray entries = json.value(arrayKey).toArray();
             for (const QJsonValue &value : entries) {
-                QString id = value.toObject().value(idKey).toString();
+                const QJsonObject entry = value.toObject();
+
+                QString id = entry.value(idKey).toString();
                 if (id.isEmpty())
                     continue;
                 if (idMapper)
                     id = idMapper(std::move(id));
-                if (!id.isEmpty())
-                    models.append(id);
+                if (id.isEmpty())
+                    continue;
+
+                ModelInfo info;
+                info.id = id;
+                if (enrich)
+                    enrich(entry, info);
+                models.append(info);
             }
+
+            m_modelCache.clear();
+            for (const ModelInfo &info : models)
+                m_modelCache.insert(info.id, info);
+
             return models;
         })
         .onFailed(this, [cat](const std::exception &e) {
             const QLoggingCategory &log = *cat;
             qCDebug(log).noquote() << QString("Error fetching models: %1").arg(e.what());
-            return QList<QString>{};
+            return QList<ModelInfo>{};
         });
+}
+
+std::optional<ModelInfo> BaseClient::cachedModel(const QString &id) const
+{
+    const auto it = m_modelCache.constFind(id);
+    if (it == m_modelCache.constEnd())
+        return std::nullopt;
+    return *it;
+}
+
+QList<ModelInfo> BaseClient::cachedModels() const
+{
+    return m_modelCache.values();
 }
 
 QString BaseClient::parseErrorObject(
@@ -637,6 +676,72 @@ void BaseClient::addChunk(const RequestID &id, const QString &chunk)
     emit accumulatedReceived(id, accumulated);
 }
 
+RequestID BaseClient::ask(
+    const Conversation &conversation, const QJsonObject &extra, RequestMode mode)
+{
+    Q_ASSERT_X(thread() == QThread::currentThread(), Q_FUNC_INFO,
+               "BaseClient::ask called from non-owning thread");
+
+    QJsonObject payload = buildConversationPayload(conversation);
+    for (auto it = extra.constBegin(); it != extra.constEnd(); ++it)
+        payload.insert(it.key(), it.value());
+
+    const RequestID id = sendMessage(payload, {}, mode);
+
+    auto request = m_impl->requests.find(id);
+    if (request != m_impl->requests.end())
+        request->conversation = conversation;
+
+    return id;
+}
+
+QFuture<CompletionInfo> BaseClient::trackOneShot(const std::function<RequestID()> &dispatch)
+{
+    auto promise = std::make_shared<QPromise<CompletionInfo>>();
+    promise->start();
+
+    m_impl->pendingOneShot = promise;
+    const RequestID id = dispatch();
+    m_impl->pendingOneShot.reset();
+
+    if (!m_impl->oneShots.contains(id) && !m_impl->requests.contains(id)) {
+        promise->setException(std::make_exception_ptr(
+            std::runtime_error("request finished before it could be tracked")));
+        promise->finish();
+    }
+
+    return promise->future();
+}
+
+void BaseClient::resolveOneShot(const RequestID &id, const CompletionInfo &info)
+{
+    if (auto promise = m_impl->oneShots.take(id)) {
+        promise->addResult(info);
+        promise->finish();
+    }
+}
+
+void BaseClient::rejectOneShot(const RequestID &id, const QString &error)
+{
+    if (auto promise = m_impl->oneShots.take(id)) {
+        promise->setException(
+            std::make_exception_ptr(std::runtime_error(error.toStdString())));
+        promise->finish();
+    }
+}
+
+QFuture<CompletionInfo> BaseClient::askOnce(const QString &prompt, RequestMode mode)
+{
+    return trackOneShot([this, &prompt, mode]() { return ask(prompt, mode); });
+}
+
+QFuture<CompletionInfo> BaseClient::askOnce(
+    const Conversation &conversation, const QJsonObject &extra, RequestMode mode)
+{
+    return trackOneShot(
+        [this, &conversation, &extra, mode]() { return ask(conversation, extra, mode); });
+}
+
 void BaseClient::completeRequest(const RequestID &id)
 {
     Q_ASSERT_X(thread() == QThread::currentThread(), Q_FUNC_INFO,
@@ -652,6 +757,19 @@ void BaseClient::completeRequest(const RequestID &id)
     std::optional<TokenUsage> usage = it->usage;
     QJsonObject requestPayload = it->finalPayload.isEmpty() ? it->originalPayload
                                                            : it->finalPayload;
+
+    Conversation conversation = it->conversation;
+    if (!conversation.isEmpty()) {
+        QList<TurnContent> blocks;
+        if (auto *message = it->message.data())
+            blocks = message->getCurrentBlocks();
+
+        if (!blocks.isEmpty())
+            conversation.addAssistant(blocks);
+        else if (!fullText.isEmpty())
+            conversation.addAssistant(fullText);
+    }
+
     cleanupRequest(id);
 
     CompletionInfo info;
@@ -660,6 +778,8 @@ void BaseClient::completeRequest(const RequestID &id)
     info.stopReason = stopReason;
     info.usage = usage;
     info.requestPayload = requestPayload;
+    info.conversation = conversation;
+    resolveOneShot(id, info);
     emit requestFinalized(id, info);
     emit requestCompleted(id, fullText);
 }
@@ -724,6 +844,7 @@ void BaseClient::failRequest(const RequestID &id, const QString &error)
         return;
 
     cleanupRequest(id);
+    rejectOneShot(id, error);
     emit requestFailed(id, error);
 }
 
@@ -770,9 +891,8 @@ void BaseClient::executeToolsFromMessage(const RequestID &id)
 
     QList<ToolRound::Call> calls;
     calls.reserve(toolUseContent.size());
-    for (const auto *toolContent : toolUseContent)
-        calls.append(
-            ToolRound::Call{toolContent->id(), toolContent->name(), toolContent->input()});
+    for (const auto &toolContent : toolUseContent)
+        calls.append(ToolRound::Call{toolContent.id, toolContent.name, toolContent.input});
 
     tools()->beginRound(id, calls);
 }
@@ -784,6 +904,19 @@ QJsonObject BaseClient::buildReplayContinuation(
     auto it = m_impl->requests.find(id);
     if (!message || it == m_impl->requests.end())
         return {};
+
+    const QList<TurnContent> &blocks = message->getCurrentBlocks();
+    if (!blocks.isEmpty())
+        it->conversation.addAssistant(blocks);
+
+    QList<ToolResultContent> results;
+    for (const ToolUseContent &use : message->getCurrentToolUseContent()) {
+        const auto result = toolResults.constFind(use.id);
+        if (result == toolResults.constEnd())
+            continue;
+        results.append(makeToolResultContent(use.id, use.name, *result));
+    }
+    it->conversation.addToolResults(results);
 
     return buildContinuationPayload(it->originalPayload, message, toolResults);
 }
@@ -846,23 +979,11 @@ void BaseClient::notifyPendingThinkingBlocks(const RequestID &id)
     if (!message || !hasRequest(id))
         return;
 
-    // Walks the blocks in wire order and announces each one once. Both thinking
-    // shapes go out the same way, and the "already announced" mark lives on the
-    // block, so a request that is torn down mid-loop cannot re-announce.
-    for (ContentBlock *block : message->getCurrentBlocks()) {
-        if (auto *thinking = dynamic_cast<ThinkingContent *>(block)) {
-            if (thinking->isNotified() || thinking->thinking().trimmed().isEmpty())
-                continue;
-            thinking->markNotified();
-            emit thinkingBlockReceived(id, thinking->thinking(), thinking->signature());
-        } else if (auto *redacted = dynamic_cast<RedactedThinkingContent *>(block)) {
-            if (redacted->isNotified())
-                continue;
-            redacted->markNotified();
-            emit thinkingBlockReceived(id, QString(), redacted->signature());
-        } else {
-            continue;
-        }
+    const QList<PendingThinkingNotification> pending
+        = message->takePendingThinkingNotifications();
+
+    for (const PendingThinkingNotification &notification : pending) {
+        emit thinkingBlockReceived(id, notification.thinking, notification.signature);
 
         if (!hasRequest(id))
             return;

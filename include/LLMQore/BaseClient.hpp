@@ -23,6 +23,7 @@
 #include <LLMQore/LLMQore_global.h>
 
 #include <LLMQore/BaseMessage.hpp>
+#include <LLMQore/Conversation.hpp>
 #include <LLMQore/RequestMode.hpp>
 #include <LLMQore/RpcLineFramer.hpp>
 #include <LLMQore/SSEParser.hpp>
@@ -58,6 +59,20 @@ struct LLMQORE_EXPORT TokenUsage
     int totalTokens() const noexcept { return promptTokens + completionTokens; }
 };
 
+struct LLMQORE_EXPORT ModelInfo
+{
+    QString id;
+    QString displayName;
+
+    std::optional<int> maxOutputTokens;
+    std::optional<int> maxInputTokens;
+
+    std::optional<bool> supportsImageInput;
+    std::optional<bool> supportsThinking;
+    std::optional<bool> supportsToolCalls;
+    std::optional<bool> supportsStructuredOutputs;
+};
+
 struct LLMQORE_EXPORT CompletionInfo
 {
     QString fullText;
@@ -66,6 +81,7 @@ struct LLMQORE_EXPORT CompletionInfo
     std::optional<TokenUsage> usage;
 
     QJsonObject requestPayload;
+    Conversation conversation;
 };
 
 class LLMQORE_EXPORT BaseClient : public QObject
@@ -91,7 +107,22 @@ public:
     virtual RequestID ask(
         const QString &prompt, RequestMode mode = RequestMode::Streaming)
         = 0;
-    virtual QFuture<QList<QString>> listModels(const QString &endpoint = {}) = 0;
+    RequestID ask(
+        const Conversation &conversation,
+        const QJsonObject &extra = {},
+        RequestMode mode = RequestMode::Streaming);
+    virtual QJsonObject buildConversationPayload(const Conversation &conversation) const = 0;
+
+    QFuture<CompletionInfo> askOnce(
+        const QString &prompt, RequestMode mode = RequestMode::Streaming);
+    QFuture<CompletionInfo> askOnce(
+        const Conversation &conversation,
+        const QJsonObject &extra = {},
+        RequestMode mode = RequestMode::Streaming);
+    virtual QFuture<QList<ModelInfo>> listModels(const QString &endpoint = {}) = 0;
+
+    [[nodiscard]] std::optional<ModelInfo> cachedModel(const QString &id) const;
+    [[nodiscard]] QList<ModelInfo> cachedModels() const;
     void cancelRequest(const RequestID &requestId);
 
     QString url() const;
@@ -170,11 +201,14 @@ protected:
     [[nodiscard]] QString parseErrorObject(
         const HttpResponse &response, const QList<ErrorAnnotation> &annotations) const;
 
-    [[nodiscard]] QFuture<QList<QString>> fetchModelList(
+    using ModelInfoEnricher = std::function<void(const QJsonObject &, ModelInfo &)>;
+
+    [[nodiscard]] QFuture<QList<ModelInfo>> fetchModelList(
         const QUrl &url,
         const QString &arrayKey = QStringLiteral("data"),
         const QString &idKey = QStringLiteral("id"),
-        const std::function<QString(QString)> &idMapper = {});
+        const std::function<QString(QString)> &idMapper = {},
+        const ModelInfoEnricher &enrich = {});
 
     [[nodiscard]] QUrl endpointUrl(const QString &endpoint, const QString &defaultPath) const;
 
@@ -226,6 +260,12 @@ protected:
     virtual std::optional<QString> takePendingStreamError(const RequestID &id);
 
     virtual void onStreamDrained(const RequestID &id);
+
+    QHash<QString, ModelInfo> m_modelCache;
+
+    QFuture<CompletionInfo> trackOneShot(const std::function<RequestID()> &dispatch);
+    void resolveOneShot(const RequestID &id, const CompletionInfo &info);
+    void rejectOneShot(const RequestID &id, const QString &error);
 
     virtual void flushStreamBuffers(const RequestID &id);
 
