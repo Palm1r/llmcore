@@ -40,6 +40,32 @@ QString idToString(const QJsonValue &id)
 
 namespace {
 
+// Both places that turn a failed handler into an error response ask the same
+// question of the exception, so they ask it here.
+struct ErrorAnswer
+{
+    int code = Rpc::ErrorCode::InternalError;
+    QString message;
+    QJsonValue data;
+};
+
+ErrorAnswer errorAnswerFor(std::exception_ptr exception)
+{
+    try {
+        std::rethrow_exception(exception);
+    } catch (const RemoteError &e) {
+        return {e.code(), e.remoteMessage(), e.data()};
+    } catch (const CancelledError &e) {
+        return {Rpc::ErrorCode::RequestCancelled, e.message(), {}};
+    } catch (const JsonRpcException &e) {
+        return {Rpc::ErrorCode::InternalError, e.message(), {}};
+    } catch (const std::exception &e) {
+        return {Rpc::ErrorCode::InternalError, QString::fromUtf8(e.what()), {}};
+    } catch (...) {
+        return {Rpc::ErrorCode::InternalError, QStringLiteral("Unknown exception"), {}};
+    }
+}
+
 void logWire(const char *direction, const QJsonObject &message)
 {
     if (!llmRpcWireLog().isDebugEnabled())
@@ -383,25 +409,11 @@ void JsonRpcSession::dispatchRequest(const QJsonObject &message)
     QFuture<QJsonValue> future;
     try {
         future = (*it)(params);
-    } catch (const RemoteError &e) {
-        m_currentProgressToken.clear();
-        m_inFlightIncomingIds.remove(idStr);
-        sendError(idValue, e.code(), e.remoteMessage(), e.data());
-        return;
-    } catch (const JsonRpcException &e) {
-        m_currentProgressToken.clear();
-        m_inFlightIncomingIds.remove(idStr);
-        sendError(idValue, Rpc::ErrorCode::InternalError, e.message());
-        return;
-    } catch (const std::exception &e) {
-        m_currentProgressToken.clear();
-        m_inFlightIncomingIds.remove(idStr);
-        sendError(idValue, Rpc::ErrorCode::InternalError, QString::fromUtf8(e.what()));
-        return;
     } catch (...) {
         m_currentProgressToken.clear();
         m_inFlightIncomingIds.remove(idStr);
-        sendError(idValue, Rpc::ErrorCode::InternalError, QStringLiteral("Unknown exception"));
+        const ErrorAnswer answer = errorAnswerFor(std::current_exception());
+        sendError(idValue, answer.code, answer.message, answer.data);
         return;
     }
 
@@ -422,36 +434,12 @@ void JsonRpcSession::dispatchRequest(const QJsonObject &message)
             }
             guard->m_inFlightIncomingIds.remove(idStr);
 
-            QJsonValue result;
-            bool ok = true;
-            int errCode = Rpc::ErrorCode::InternalError;
-            QString errMsg;
-            QJsonValue errData;
             try {
-                result = watcher->result();
-            } catch (const RemoteError &e) {
-                ok = false;
-                errCode = e.code();
-                errMsg = e.remoteMessage();
-                errData = e.data();
-            } catch (const CancelledError &e) {
-                ok = false;
-                errCode = Rpc::ErrorCode::RequestCancelled;
-                errMsg = e.message();
-            } catch (const JsonRpcException &e) {
-                ok = false;
-                errMsg = e.message();
-            } catch (const std::exception &e) {
-                ok = false;
-                errMsg = QString::fromUtf8(e.what());
+                guard->sendResponse(idValue, watcher->result());
             } catch (...) {
-                ok = false;
-                errMsg = QStringLiteral("Unknown exception");
+                const ErrorAnswer answer = errorAnswerFor(std::current_exception());
+                guard->sendError(idValue, answer.code, answer.message, answer.data);
             }
-            if (ok)
-                guard->sendResponse(idValue, result);
-            else
-                guard->sendError(idValue, errCode, errMsg, errData);
         });
     watcher->setFuture(future);
 }

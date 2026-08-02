@@ -11,6 +11,7 @@
 #include <LLMQore/FutureUtils.hpp>
 #include <LLMQore/JsonRpcSession.hpp>
 #include <LLMQore/Log.hpp>
+#include <LLMQore/ProtocolPeer.hpp>
 #include <LLMQore/RpcExceptions.hpp>
 #include <LLMQore/RpcStdioTransport.hpp>
 
@@ -43,19 +44,15 @@ ToolCall mergeToolCall(ToolCall base, const ToolCall &upd)
 
 AcpClient::AcpClient(Rpc::Transport *transport, Implementation clientInfo, QObject *parent)
     : QObject(parent)
-    , m_transport(transport)
-    , m_session(new Rpc::JsonRpcSession(transport, this))
+    , m_peer(new Rpc::ProtocolPeer(transport, this))
     , m_clientInfo(std::move(clientInfo))
 {
     registerMetatypes();
 
-    if (m_transport) {
-        connect(m_transport, &Rpc::Transport::closed, this, &AcpClient::disconnected);
-        connect(m_transport, &Rpc::Transport::errorOccurred, this, &AcpClient::errorOccurred);
-        if (auto *stdio = qobject_cast<Rpc::StdioClientTransport *>(m_transport.data())) {
-            connect(stdio, &Rpc::StdioClientTransport::stderrLine, this, &AcpClient::agentStderr);
-        }
-    }
+    connect(m_peer, &Rpc::ProtocolPeer::closed, this, &AcpClient::disconnected);
+    connect(m_peer, &Rpc::ProtocolPeer::errorOccurred, this, &AcpClient::errorOccurred);
+    if (auto *stdio = qobject_cast<Rpc::StdioClientTransport *>(m_peer->transport()))
+        connect(stdio, &Rpc::StdioClientTransport::stderrLine, this, &AcpClient::agentStderr);
 
     installHandlers();
 }
@@ -88,43 +85,43 @@ void AcpClient::setTerminalProvider(AcpTerminalProvider *provider)
 
 QFuture<InitializeResult> AcpClient::connectAndInitialize(std::chrono::milliseconds timeout)
 {
-    if (m_transport && !m_transport->isOpen())
-        m_transport->start();
-
     InitializeParams params;
     params.protocolVersion = kAcpProtocolVersion;
     params.clientCapabilities = clientCapabilities();
     params.clientInfo = m_clientInfo;
 
-    QFuture<QJsonValue> raw
-        = m_session->sendRequest(QLatin1String(Method::Initialize), params.toJson(), timeout);
-    return LLMQore::futureThen(this, raw, [this](const QJsonValue &v) -> InitializeResult {
-        InitializeResult r = InitializeResult::fromJson(v.toObject());
-        m_initResult = r;
-        m_initialized = true;
-        emit initialized(r);
-        return r;
-    });
+    return LLMQore::compat(
+               m_peer->handshake(QLatin1String(Method::Initialize), params.toJson(), timeout))
+        .then(this, [this](const QJsonValue &v) -> InitializeResult {
+            InitializeResult r = InitializeResult::fromJson(v.toObject());
+            m_peer->warnOnUnknownVersion(
+                QString::number(r.protocolVersion), knownProtocolVersions(), llmAcpLog());
+            m_initResult = r;
+            emit initialized(r);
+            return r;
+        });
 }
 
 QFuture<void> AcpClient::authenticate(const QString &methodId, std::chrono::milliseconds timeout)
 {
-    QFuture<QJsonValue> raw = m_session->sendRequest(
-        QLatin1String(Method::Authenticate), QJsonObject{{"methodId", methodId}}, timeout);
-    return LLMQore::futureThen(this, raw, [](const QJsonValue &) {});
+    return LLMQore::compat(m_peer->requestUngated(
+                               QLatin1String(Method::Authenticate),
+                               QJsonObject{{"methodId", methodId}},
+                               timeout))
+        .then(this, [](const QJsonValue &) {});
 }
 
 QFuture<NewSessionResult> AcpClient::newSession(
     const NewSessionParams &params, std::chrono::milliseconds timeout)
 {
-    QFuture<QJsonValue> raw
-        = m_session->sendRequest(QLatin1String(Method::NewSession), params.toJson(), timeout);
-    return LLMQore::futureThen(this, raw, [this](const QJsonValue &v) -> NewSessionResult {
-        NewSessionResult r = NewSessionResult::fromJson(v.toObject());
-        if (!r.sessionId.isEmpty() && !m_sessions.contains(r.sessionId))
-            m_sessions.insert(r.sessionId, SessionState{});
-        return r;
-    });
+    return LLMQore::compat(
+               m_peer->request(QLatin1String(Method::NewSession), params.toJson(), timeout))
+        .then(this, [this](const QJsonValue &v) -> NewSessionResult {
+            NewSessionResult r = NewSessionResult::fromJson(v.toObject());
+            if (!r.sessionId.isEmpty() && !m_sessions.contains(r.sessionId))
+                m_sessions.insert(r.sessionId, SessionState{});
+            return r;
+        });
 }
 
 QFuture<NewSessionResult> AcpClient::loadSession(
@@ -132,11 +129,11 @@ QFuture<NewSessionResult> AcpClient::loadSession(
 {
     if (!params.sessionId.isEmpty() && !m_sessions.contains(params.sessionId))
         m_sessions.insert(params.sessionId, SessionState{});
-    QFuture<QJsonValue> raw
-        = m_session->sendRequest(QLatin1String(Method::LoadSession), params.toJson(), timeout);
-    return LLMQore::futureThen(this, raw, [](const QJsonValue &v) -> NewSessionResult {
-        return NewSessionResult::fromJson(v.toObject());
-    });
+    return LLMQore::compat(
+               m_peer->request(QLatin1String(Method::LoadSession), params.toJson(), timeout))
+        .then(this, [](const QJsonValue &v) -> NewSessionResult {
+            return NewSessionResult::fromJson(v.toObject());
+        });
 }
 
 QFuture<PromptResult> AcpClient::prompt(
@@ -148,10 +145,9 @@ QFuture<PromptResult> AcpClient::prompt(
     params.sessionId = sessionId;
     params.prompt = blocks;
 
-    QFuture<QJsonValue> raw
-        = m_session->sendRequest(QLatin1String(Method::Prompt), params.toJson(), timeout);
-    return LLMQore::futureThen(
-        this, raw, [this, sessionId](const QJsonValue &v) -> PromptResult {
+    return LLMQore::compat(
+               m_peer->request(QLatin1String(Method::Prompt), params.toJson(), timeout))
+        .then(this, [this, sessionId](const QJsonValue &v) -> PromptResult {
             PromptResult r = PromptResult::fromJson(v.toObject());
             auto it = m_sessions.find(sessionId);
             if (it != m_sessions.end())
@@ -163,26 +159,23 @@ QFuture<PromptResult> AcpClient::prompt(
 
 void AcpClient::cancel(const QString &sessionId)
 {
-    m_session->sendNotification(
-        QLatin1String(Method::Cancel), QJsonObject{{"sessionId", sessionId}});
+    m_peer->notify(QLatin1String(Method::Cancel), QJsonObject{{"sessionId", sessionId}});
 }
 
 QFuture<void> AcpClient::setMode(
     const QString &sessionId, const QString &modeId, std::chrono::milliseconds timeout)
 {
-    QFuture<QJsonValue> raw = m_session->sendRequest(
-        QLatin1String(Method::SetMode),
-        QJsonObject{{"sessionId", sessionId}, {"modeId", modeId}},
-        timeout);
-    return LLMQore::futureThen(this, raw, [](const QJsonValue &) {});
+    return LLMQore::compat(m_peer->request(
+                               QLatin1String(Method::SetMode),
+                               QJsonObject{{"sessionId", sessionId}, {"modeId", modeId}},
+                               timeout))
+        .then(this, [](const QJsonValue &) {});
 }
 
 void AcpClient::shutdown()
 {
-    if (m_session)
-        m_session->abortPending(QStringLiteral("AcpClient shutdown"));
-    if (m_transport)
-        m_transport->stop();
+    m_peer->session()->abortPending(QStringLiteral("AcpClient shutdown"));
+    m_peer->close();
 }
 
 void AcpClient::handleSessionUpdate(const QJsonObject &params)
@@ -232,110 +225,86 @@ void AcpClient::handleSessionUpdate(const QJsonObject &params)
 
 void AcpClient::installHandlers()
 {
-    m_session->setNotificationHandler(
+    m_peer->bindNotification(
         QLatin1String(Method::SessionUpdate),
         [this](const QJsonObject &params) { handleSessionUpdate(params); });
 
-    m_session->setRequestHandler(
+    // No provider means the user is simply never asked; a cancelled outcome is
+    // a valid answer, not a refusal.
+    m_peer->bindRequest(
         QLatin1String(Method::RequestPermission),
+        QStringLiteral("session/request_permission"),
+        []() { return true; },
         [this](const QJsonObject &params) -> QFuture<QJsonValue> {
             const RequestPermissionParams p = RequestPermissionParams::fromJson(params);
-            if (m_permissionProvider.isNull())
-                return LLMQore::readyFuture<QJsonValue>(RequestPermissionResult::cancelled().toJson());
-            QFuture<RequestPermissionResult> f
-                = m_permissionProvider->requestPermission(p.sessionId, p.toolCall, p.options);
-            return LLMQore::futureThen(
-                this, f, [](const RequestPermissionResult &r) -> QJsonValue { return r.toJson(); });
+            if (m_permissionProvider.isNull()) {
+                return LLMQore::readyFuture<QJsonValue>(
+                    RequestPermissionResult::cancelled().toJson());
+            }
+            return LLMQore::compat(
+                       m_permissionProvider->requestPermission(p.sessionId, p.toolCall, p.options))
+                .then(this, [](const RequestPermissionResult &r) { return QJsonValue(r.toJson()); });
         });
 
-    m_session->setRequestHandler(
+    m_peer->bindRequest(
         QLatin1String(Method::FsReadTextFile),
+        QStringLiteral("fs/read_text_file"),
+        [this]() { return !m_fsProvider.isNull(); },
         [this](const QJsonObject &params) -> QFuture<QJsonValue> {
-            if (m_fsProvider.isNull())
-                return LLMQore::failedFuture<QJsonValue>(Rpc::RemoteError(Rpc::ErrorCode::MethodNotFound,
-                                  QStringLiteral("fs/read_text_file not supported")));
             const ReadTextFileParams p = ReadTextFileParams::fromJson(params);
-            QFuture<QString> f
-                = m_fsProvider->readTextFile(p.sessionId, p.path, p.line, p.limit);
-            return LLMQore::futureThen(this, f, [](const QString &content) -> QJsonValue {
-                ReadTextFileResult r;
-                r.content = content;
-                return r.toJson();
-            });
-        });
-
-    m_session->setRequestHandler(
-        QLatin1String(Method::FsWriteTextFile),
-        [this](const QJsonObject &params) -> QFuture<QJsonValue> {
-            if (m_fsProvider.isNull() || !m_fsProvider->supportsWrite())
-                return LLMQore::failedFuture<QJsonValue>(Rpc::RemoteError(Rpc::ErrorCode::MethodNotFound,
-                                  QStringLiteral("fs/write_text_file not supported")));
-            const WriteTextFileParams p = WriteTextFileParams::fromJson(params);
-            QFuture<void> f = m_fsProvider->writeTextFile(p.sessionId, p.path, p.content);
-            return LLMQore::futureThen(
-                this, f, []() -> QJsonValue { return QJsonObject{}; });
-        });
-
-    m_session->setRequestHandler(
-        QLatin1String(Method::TerminalCreate),
-        [this](const QJsonObject &params) -> QFuture<QJsonValue> {
-            if (m_terminalProvider.isNull())
-                return LLMQore::failedFuture<QJsonValue>(Rpc::RemoteError(Rpc::ErrorCode::MethodNotFound,
-                                  QStringLiteral("terminal not supported")));
-            const CreateTerminalParams p = CreateTerminalParams::fromJson(params);
-            QFuture<CreateTerminalResult> f = m_terminalProvider->createTerminal(p);
-            return LLMQore::futureThen(
-                this, f, [](const CreateTerminalResult &r) -> QJsonValue { return r.toJson(); });
-        });
-
-    m_session->setRequestHandler(
-        QLatin1String(Method::TerminalOutput),
-        [this](const QJsonObject &params) -> QFuture<QJsonValue> {
-            if (m_terminalProvider.isNull())
-                return LLMQore::failedFuture<QJsonValue>(Rpc::RemoteError(Rpc::ErrorCode::MethodNotFound,
-                                  QStringLiteral("terminal not supported")));
-            const TerminalOutputParams p = TerminalOutputParams::fromJson(params);
-            QFuture<TerminalOutputResult> f
-                = m_terminalProvider->terminalOutput(p.sessionId, p.terminalId);
-            return LLMQore::futureThen(
-                this, f, [](const TerminalOutputResult &r) -> QJsonValue { return r.toJson(); });
-        });
-
-    m_session->setRequestHandler(
-        QLatin1String(Method::TerminalWaitForExit),
-        [this](const QJsonObject &params) -> QFuture<QJsonValue> {
-            if (m_terminalProvider.isNull())
-                return LLMQore::failedFuture<QJsonValue>(Rpc::RemoteError(Rpc::ErrorCode::MethodNotFound,
-                                  QStringLiteral("terminal not supported")));
-            const TerminalRefParams p = TerminalRefParams::fromJson(params);
-            QFuture<WaitForTerminalExitResult> f
-                = m_terminalProvider->waitForExit(p.sessionId, p.terminalId);
-            return LLMQore::futureThen(
-                this, f, [](const WaitForTerminalExitResult &r) -> QJsonValue {
-                    return r.toJson();
+            return LLMQore::compat(
+                       m_fsProvider->readTextFile(p.sessionId, p.path, p.line, p.limit))
+                .then(this, [](const QString &content) {
+                    ReadTextFileResult r;
+                    r.content = content;
+                    return QJsonValue(r.toJson());
                 });
         });
 
-    m_session->setRequestHandler(
-        QLatin1String(Method::TerminalKill),
-        [this](const QJsonObject &params) -> QFuture<QJsonValue> {
-            if (m_terminalProvider.isNull())
-                return LLMQore::failedFuture<QJsonValue>(Rpc::RemoteError(Rpc::ErrorCode::MethodNotFound,
-                                  QStringLiteral("terminal not supported")));
-            const TerminalRefParams p = TerminalRefParams::fromJson(params);
-            QFuture<void> f = m_terminalProvider->killTerminal(p.sessionId, p.terminalId);
-            return LLMQore::futureThen(this, f, []() -> QJsonValue { return QJsonObject{}; });
+    m_peer->bindRequest(
+        QLatin1String(Method::FsWriteTextFile),
+        QStringLiteral("fs/write_text_file"),
+        [this]() { return !m_fsProvider.isNull() && m_fsProvider->supportsWrite(); },
+        [this](const QJsonObject &params) {
+            const WriteTextFileParams p = WriteTextFileParams::fromJson(params);
+            return m_fsProvider->writeTextFile(p.sessionId, p.path, p.content);
         });
 
-    m_session->setRequestHandler(
-        QLatin1String(Method::TerminalRelease),
-        [this](const QJsonObject &params) -> QFuture<QJsonValue> {
-            if (m_terminalProvider.isNull())
-                return LLMQore::failedFuture<QJsonValue>(Rpc::RemoteError(Rpc::ErrorCode::MethodNotFound,
-                                  QStringLiteral("terminal not supported")));
+    const auto hasTerminal = [this]() { return !m_terminalProvider.isNull(); };
+    const QString terminal = QStringLiteral("terminal");
+
+    m_peer->bindRequest(
+        QLatin1String(Method::TerminalCreate), terminal, hasTerminal,
+        [this](const QJsonObject &params) {
+            return m_terminalProvider->createTerminal(CreateTerminalParams::fromJson(params));
+        });
+
+    m_peer->bindRequest(
+        QLatin1String(Method::TerminalOutput), terminal, hasTerminal,
+        [this](const QJsonObject &params) {
+            const TerminalOutputParams p = TerminalOutputParams::fromJson(params);
+            return m_terminalProvider->terminalOutput(p.sessionId, p.terminalId);
+        });
+
+    m_peer->bindRequest(
+        QLatin1String(Method::TerminalWaitForExit), terminal, hasTerminal,
+        [this](const QJsonObject &params) {
             const TerminalRefParams p = TerminalRefParams::fromJson(params);
-            QFuture<void> f = m_terminalProvider->releaseTerminal(p.sessionId, p.terminalId);
-            return LLMQore::futureThen(this, f, []() -> QJsonValue { return QJsonObject{}; });
+            return m_terminalProvider->waitForExit(p.sessionId, p.terminalId);
+        });
+
+    m_peer->bindRequest(
+        QLatin1String(Method::TerminalKill), terminal, hasTerminal,
+        [this](const QJsonObject &params) {
+            const TerminalRefParams p = TerminalRefParams::fromJson(params);
+            return m_terminalProvider->killTerminal(p.sessionId, p.terminalId);
+        });
+
+    m_peer->bindRequest(
+        QLatin1String(Method::TerminalRelease), terminal, hasTerminal,
+        [this](const QJsonObject &params) {
+            const TerminalRefParams p = TerminalRefParams::fromJson(params);
+            return m_terminalProvider->releaseTerminal(p.sessionId, p.terminalId);
         });
 }
 

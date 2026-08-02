@@ -394,3 +394,72 @@ TEST_F(AcpLoopbackTest, PromptDrivesHostCallbacksFsAndPermission)
     delete serverTransport;
     delete clientTransport;
 }
+
+// --- the handshake gate, which ACP had no equivalent of before ProtocolPeer ---
+
+namespace {
+
+QString failureOf(QFuture<PromptResult> future)
+{
+    if (!future.isFinished()) {
+        QEventLoop loop;
+        QFutureWatcher<PromptResult> watcher;
+        QObject::connect(
+            &watcher, &QFutureWatcher<PromptResult>::finished, &loop, &QEventLoop::quit);
+        watcher.setFuture(future);
+        QTimer::singleShot(5000, &loop, &QEventLoop::quit);
+        loop.exec();
+    }
+
+    try {
+        future.result();
+    } catch (const Rpc::JsonRpcException &e) {
+        return e.message();
+    } catch (const std::exception &e) {
+        return QString::fromUtf8(e.what());
+    }
+    return {};
+}
+
+} // namespace
+
+TEST_F(AcpLoopbackTest, PromptBeforeInitializeFailsWithoutReachingTheAgent)
+{
+    auto [serverTransport, clientTransport] = Rpc::PipeTransport::createPair();
+    auto *agentSession = new Rpc::JsonRpcSession(serverTransport);
+    int requestsSeen = 0;
+    QObject::connect(agentSession, &Rpc::JsonRpcSession::incomingRequest, [&requestsSeen]() {
+        ++requestsSeen;
+    });
+    serverTransport->start();
+
+    AcpClient client(clientTransport);
+    ASSERT_FALSE(client.isInitialized());
+
+    const QString error = failureOf(client.prompt("s1", {ContentBlock::makeText("hi")}));
+    EXPECT_EQ(error, QStringLiteral("Client not initialized"))
+        << "a prompt before the handshake must fail the way MCP already fails";
+    EXPECT_EQ(requestsSeen, 0) << "nothing may reach the agent before the handshake";
+
+    delete agentSession;
+    delete serverTransport;
+    delete clientTransport;
+}
+
+TEST_F(AcpLoopbackTest, PeerAnswersPingWithoutAnyProtocolHandler)
+{
+    auto [serverTransport, clientTransport] = Rpc::PipeTransport::createPair();
+    auto *agentSession = new Rpc::JsonRpcSession(serverTransport);
+    serverTransport->start();
+
+    AcpClient client(clientTransport);
+    clientTransport->start();
+
+    const QJsonValue reply
+        = waitForFuture(agentSession->sendRequest(QStringLiteral("ping"), QJsonObject{}));
+    EXPECT_TRUE(reply.isObject()) << "ping is a JSON-RPC concern, so every peer answers it";
+
+    delete agentSession;
+    delete serverTransport;
+    delete clientTransport;
+}

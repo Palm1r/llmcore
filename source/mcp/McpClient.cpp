@@ -10,6 +10,7 @@
 #include <LLMQore/Log.hpp>
 #include <LLMQore/RpcExceptions.hpp>
 #include <LLMQore/JsonRpcSession.hpp>
+#include <LLMQore/ProtocolPeer.hpp>
 #include <LLMQore/RpcTransport.hpp>
 
 #include <QJsonArray>
@@ -19,25 +20,11 @@ namespace LLMQore::Mcp {
 
 McpClient::McpClient(Rpc::Transport *transport, Implementation clientInfo, QObject *parent)
     : QObject(parent)
-    , m_transport(transport)
-    , m_session(new Rpc::JsonRpcSession(transport, this))
+    , m_peer(new Rpc::ProtocolPeer(transport, this))
     , m_clientInfo(std::move(clientInfo))
 {
-    if (m_transport) {
-        connect(
-            m_transport,
-            &Rpc::Transport::closed,
-            this,
-            [this]() {
-                m_initialized = false;
-                emit disconnected();
-            });
-        connect(
-            m_transport,
-            &Rpc::Transport::errorOccurred,
-            this,
-            &McpClient::errorOccurred);
-    }
+    connect(m_peer, &Rpc::ProtocolPeer::closed, this, &McpClient::disconnected);
+    connect(m_peer, &Rpc::ProtocolPeer::errorOccurred, this, &McpClient::errorOccurred);
 
     installHandlers();
 }
@@ -46,24 +33,24 @@ McpClient::~McpClient() = default;
 
 void McpClient::installHandlers()
 {
-    m_session->setNotificationHandler(
+    m_peer->session()->setNotificationHandler(
         QLatin1String(Method::ToolsListChanged),
         [this](const QJsonObject &) {
             m_cachedTools.clear();
             emit toolsChanged();
         });
-    m_session->setNotificationHandler(
+    m_peer->session()->setNotificationHandler(
         QLatin1String(Method::ResourcesListChanged),
         [this](const QJsonObject &) { emit resourcesChanged(); });
-    m_session->setNotificationHandler(
+    m_peer->session()->setNotificationHandler(
         QLatin1String(Method::ResourcesUpdated),
         [this](const QJsonObject &params) {
             emit resourceUpdated(params.value("uri").toString());
         });
-    m_session->setNotificationHandler(
+    m_peer->session()->setNotificationHandler(
         QLatin1String(Method::PromptsListChanged),
         [this](const QJsonObject &) { emit promptsChanged(); });
-    m_session->setNotificationHandler(
+    m_peer->session()->setNotificationHandler(
         QLatin1String(Method::LoggingMessage), [this](const QJsonObject &params) {
             emit logMessage(
                 params.value("level").toString(),
@@ -72,7 +59,7 @@ void McpClient::installHandlers()
                 params.value("message").toString());
         });
 
-    m_session->setRequestHandler(
+    m_peer->session()->setRequestHandler(
         QLatin1String(Method::RootsList),
         [this](const QJsonObject &) -> QFuture<QJsonValue> {
             if (!m_rootsProvider)
@@ -90,12 +77,7 @@ void McpClient::installHandlers()
                 });
         });
 
-    m_session->setRequestHandler(
-        QLatin1String(Method::Ping), [](const QJsonObject &) -> QFuture<QJsonValue> {
-            return LLMQore::readyFuture<QJsonValue>(QJsonObject{});
-        });
-
-    m_session->setRequestHandler(
+    m_peer->session()->setRequestHandler(
         QLatin1String(Method::SamplingCreateMessage),
         [this](const QJsonObject &params) -> QFuture<QJsonValue> {
             if (!m_samplingClient || !m_samplingBuilder) {
@@ -174,7 +156,7 @@ void McpClient::installHandlers()
             return promise->future();
         });
 
-    m_session->setRequestHandler(
+    m_peer->session()->setRequestHandler(
         QLatin1String(Method::ElicitationCreate),
         [this](const QJsonObject &params) -> QFuture<QJsonValue> {
             if (!m_elicitationProvider) {
@@ -190,14 +172,6 @@ void McpClient::installHandlers()
 
 QFuture<InitializeResult> McpClient::connectAndInitialize(std::chrono::milliseconds timeout)
 {
-    if (!m_transport) {
-        return LLMQore::compat(LLMQore::failedFuture<QJsonValue>(Rpc::TransportError(QStringLiteral("No transport"))))
-            .then(this, [](const QJsonValue &) { return InitializeResult{}; });
-    }
-
-    if (!m_transport->isOpen())
-        m_transport->start();
-
     ClientCapabilities clientCaps;
     if (m_rootsProvider)
         clientCaps.roots = RootsCapability{/*listChanged*/ true};
@@ -212,54 +186,29 @@ QFuture<InitializeResult> McpClient::connectAndInitialize(std::chrono::milliseco
         {"clientInfo", m_clientInfo.toJson()},
     };
 
-    return LLMQore::compat(m_session->sendRequest(QLatin1String(Method::Initialize), params, timeout))
+    return LLMQore::compat(m_peer->handshake(QLatin1String(Method::Initialize), params, timeout))
         .then(this, [this](const QJsonValue &result) {
             m_initResult = InitializeResult::fromJson(result.toObject());
-            m_initialized = true;
+            m_peer->warnOnUnknownVersion(
+                m_initResult.protocolVersion, knownProtocolVersions(), llmMcpLog());
 
-            const QString v = m_initResult.protocolVersion;
-            bool known = false;
-            for (const char *knownV : kKnownProtocolVersions) {
-                if (v == QLatin1String(knownV)) {
-                    known = true;
-                    break;
-                }
-            }
-            if (!known) {
-                qCWarning(llmMcpLog).noquote()
-                    << QString("Unexpected protocol version from server: %1").arg(v);
-            }
-
-            m_session->sendNotification(QLatin1String(Method::Initialized));
+            m_peer->notify(QLatin1String(Method::Initialized));
             emit initialized(m_initResult);
             return m_initResult;
-        })
-        .onFailed(this, [this](const auto &e) -> InitializeResult {
-            if constexpr (std::is_same_v<std::decay_t<decltype(e)>, Rpc::JsonRpcException>) {
-                emit errorOccurred(e.message());
-                throw Rpc::JsonRpcException(e.message());
-            } else {
-                const QString msg = QString::fromUtf8(e.what());
-                emit errorOccurred(msg);
-                throw Rpc::JsonRpcException(msg);
-            }
         });
 }
 
 QFuture<QJsonValue> McpClient::sendInitialized(
     const QString &method, const QJsonObject &params)
 {
-    if (!m_initialized)
-        return LLMQore::failedFuture<QJsonValue>(Rpc::ProtocolError(QStringLiteral("Client not initialized")));
-    return m_session->sendRequest(method, params);
+    return m_peer->request(method, params);
 }
 
 QFuture<void> McpClient::ping(std::chrono::milliseconds timeout)
 {
-    QFuture<QJsonValue> raw = (!m_transport || !m_transport->isOpen())
-        ? LLMQore::failedFuture<QJsonValue>(Rpc::TransportError(QStringLiteral("Transport is not open")))
-        : m_session->sendRequest(QLatin1String(Method::Ping), QJsonObject{}, timeout);
-    return LLMQore::compat(raw).then(this, [](const QJsonValue &) {});
+    return LLMQore::compat(
+               m_peer->requestUngated(QLatin1String(Method::Ping), QJsonObject{}, timeout))
+        .then(this, [](const QJsonValue &) {});
 }
 
 QFuture<void> McpClient::setLogLevel(const QString &level)
@@ -297,7 +246,7 @@ McpClient::CancellableToolCall McpClient::callToolWithProgress(
 {
     CancellableToolCall out;
 
-    if (!m_initialized) {
+    if (!m_peer->isInitialized()) {
         out.future = LLMQore::failedFuture<LLMQore::ToolResult>(
             Rpc::ProtocolError(QStringLiteral("Client not initialized")));
         return out;
@@ -305,12 +254,12 @@ McpClient::CancellableToolCall McpClient::callToolWithProgress(
 
     QJsonObject params{{"name", name}, {"arguments", arguments}};
     auto cancellable
-        = m_session->sendCancellableRequest(QLatin1String(Method::ToolsCall), params);
+        = m_peer->session()->sendCancellableRequest(QLatin1String(Method::ToolsCall), params);
     out.requestId = cancellable.requestId;
     out.progressToken = cancellable.requestId;
 
     if (onProgress) {
-        m_session->setProgressHandler(
+        m_peer->session()->setProgressHandler(
             cancellable.requestId,
             [onProgress](double progress, double total, const QString &message) {
                 onProgress(progress, total, message);
@@ -326,8 +275,7 @@ McpClient::CancellableToolCall McpClient::callToolWithProgress(
 
 void McpClient::cancel(const QString &requestId, const QString &reason)
 {
-    if (m_session)
-        m_session->cancelRequest(requestId, reason);
+    m_peer->session()->cancelRequest(requestId, reason);
 }
 
 QFuture<QList<ResourceInfo>> McpClient::listResources()
@@ -438,18 +386,15 @@ void McpClient::setRootsProvider(BaseRootsProvider *provider)
     m_rootsProvider = provider;
     if (provider) {
         connect(provider, &BaseRootsProvider::listChanged, this, [this]() {
-            if (m_initialized)
-                m_session->sendNotification(
-                    QLatin1String(Method::RootsListChanged));
+            if (m_peer->isInitialized())
+                m_peer->notify(QLatin1String(Method::RootsListChanged));
         });
     }
 }
 
 void McpClient::shutdown()
 {
-    if (m_transport && m_transport->isOpen())
-        m_transport->stop();
-    m_initialized = false;
+    m_peer->close();
 }
 
 } // namespace LLMQore::Mcp

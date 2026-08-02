@@ -141,8 +141,7 @@ QFuture<QJsonValue> tryEachProvider(
 
 McpServer::McpServer(Rpc::Transport *transport, McpServerConfig config, QObject *parent)
     : QObject(parent)
-    , m_transport(transport)
-    , m_session(new Rpc::JsonRpcSession(transport, this))
+    , m_peer(new Rpc::ProtocolPeer(transport, this))
     , m_config(std::move(config))
 {
     installHandlers();
@@ -152,7 +151,7 @@ McpServer::~McpServer() = default;
 
 void McpServer::installHandlers()
 {
-    m_session->setRequestHandler(
+    m_peer->session()->setRequestHandler(
         QLatin1String(Method::Initialize),
         [this](const QJsonObject &params) -> QFuture<QJsonValue> {
             const QString clientVersion = params.value("protocolVersion").toString();
@@ -184,13 +183,9 @@ void McpServer::installHandlers()
                 caps.completions = CompletionsCapability{true};
             }
 
-            QString chosenVersion = QString::fromLatin1(kSupportedProtocolVersion);
-            for (const char *known_v : kKnownProtocolVersions) {
-                if (clientVersion == QLatin1String(known_v)) {
-                    chosenVersion = clientVersion;
-                    break;
-                }
-            }
+            const QString chosenVersion = knownProtocolVersions().contains(clientVersion)
+                ? clientVersion
+                : QString::fromLatin1(kSupportedProtocolVersion);
 
             InitializeResult result;
             result.protocolVersion = chosenVersion;
@@ -204,10 +199,10 @@ void McpServer::installHandlers()
             return LLMQore::readyFuture<QJsonValue>(result.toJson());
         });
 
-    m_session->setNotificationHandler(
+    m_peer->session()->setNotificationHandler(
         QLatin1String(Method::Initialized), [](const QJsonObject &) {});
 
-    m_session->setRequestHandler(
+    m_peer->session()->setRequestHandler(
         QLatin1String(Method::ToolsList),
         [this](const QJsonObject &) -> QFuture<QJsonValue> {
             QJsonArray arr;
@@ -226,7 +221,7 @@ void McpServer::installHandlers()
             return LLMQore::readyFuture<QJsonValue>(result);
         });
 
-    m_session->setRequestHandler(
+    m_peer->session()->setRequestHandler(
         QLatin1String(Method::ToolsCall),
         [this](const QJsonObject &params) -> QFuture<QJsonValue> {
             const QString name = params.value("name").toString();
@@ -249,7 +244,7 @@ void McpServer::installHandlers()
                 });
         });
 
-    m_session->setRequestHandler(
+    m_peer->session()->setRequestHandler(
         QLatin1String(Method::ResourcesList),
         [this](const QJsonObject &) -> QFuture<QJsonValue> {
             return collectListFromProviders<BaseResourceProvider, ResourceInfo>(
@@ -259,7 +254,7 @@ void McpServer::installHandlers()
                 QLatin1String("resources"));
         });
 
-    m_session->setRequestHandler(
+    m_peer->session()->setRequestHandler(
         QLatin1String(Method::ResourcesTemplatesList),
         [this](const QJsonObject &) -> QFuture<QJsonValue> {
             return collectListFromProviders<BaseResourceProvider, ResourceTemplate>(
@@ -269,7 +264,7 @@ void McpServer::installHandlers()
                 QLatin1String("resourceTemplates"));
         });
 
-    m_session->setRequestHandler(
+    m_peer->session()->setRequestHandler(
         QLatin1String(Method::ResourcesRead),
         [this](const QJsonObject &params) -> QFuture<QJsonValue> {
             const QString uri = params.value("uri").toString();
@@ -292,7 +287,7 @@ void McpServer::installHandlers()
                 QString("Resource not found: %1").arg(uri));
         });
 
-    m_session->setRequestHandler(
+    m_peer->session()->setRequestHandler(
         QLatin1String(Method::ResourcesSubscribe),
         [this](const QJsonObject &params) -> QFuture<QJsonValue> {
             const QString uri = params.value("uri").toString();
@@ -304,7 +299,7 @@ void McpServer::installHandlers()
             return LLMQore::readyFuture<QJsonValue>(QJsonObject{});
         });
 
-    m_session->setRequestHandler(
+    m_peer->session()->setRequestHandler(
         QLatin1String(Method::ResourcesUnsubscribe),
         [this](const QJsonObject &params) -> QFuture<QJsonValue> {
             const QString uri = params.value("uri").toString();
@@ -316,7 +311,7 @@ void McpServer::installHandlers()
             return LLMQore::readyFuture<QJsonValue>(QJsonObject{});
         });
 
-    m_session->setRequestHandler(
+    m_peer->session()->setRequestHandler(
         QLatin1String(Method::PromptsList),
         [this](const QJsonObject &) -> QFuture<QJsonValue> {
             return collectListFromProviders<BasePromptProvider, PromptInfo>(
@@ -326,7 +321,7 @@ void McpServer::installHandlers()
                 QLatin1String("prompts"));
         });
 
-    m_session->setRequestHandler(
+    m_peer->session()->setRequestHandler(
         QLatin1String(Method::PromptsGet),
         [this](const QJsonObject &params) -> QFuture<QJsonValue> {
             const QString name = params.value("name").toString();
@@ -348,7 +343,7 @@ void McpServer::installHandlers()
                 QString("Prompt not found: %1").arg(name));
         });
 
-    m_session->setRequestHandler(
+    m_peer->session()->setRequestHandler(
         QLatin1String(Method::CompletionComplete),
         [this](const QJsonObject &params) -> QFuture<QJsonValue> {
             const CompletionReference ref
@@ -426,7 +421,7 @@ void McpServer::installHandlers()
             return LLMQore::readyFuture<QJsonValue>(CompletionResult{}.toJson());
         });
 
-    m_session->setRequestHandler(
+    m_peer->session()->setRequestHandler(
         QLatin1String(Method::LoggingSetLevel),
         [this](const QJsonObject &params) -> QFuture<QJsonValue> {
             const QString level = params.value("level").toString();
@@ -439,9 +434,6 @@ void McpServer::installHandlers()
             return LLMQore::readyFuture<QJsonValue>(QJsonObject{});
         });
 
-    m_session->setRequestHandler(
-        QLatin1String(Method::Ping),
-        [](const QJsonObject &) -> QFuture<QJsonValue> { return LLMQore::readyFuture<QJsonValue>(QJsonObject{}); });
 }
 
 void McpServer::setToolRegistry(LLMQore::ToolRegistry *registry)
@@ -467,7 +459,7 @@ void McpServer::notifyToolsChanged()
     QTimer::singleShot(0, this, [this]() {
         m_toolsNotifyPending = false;
         if (m_initialized)
-            m_session->sendNotification(QLatin1String(Method::ToolsListChanged));
+            m_peer->session()->sendNotification(QLatin1String(Method::ToolsListChanged));
     });
 }
 
@@ -492,11 +484,11 @@ void McpServer::addResourceProvider(BaseResourceProvider *provider)
     m_resourceProviders.append(provider);
     connect(provider, &BaseResourceProvider::listChanged, this, [this]() {
         if (m_initialized)
-            m_session->sendNotification(QLatin1String(Method::ResourcesListChanged));
+            m_peer->session()->sendNotification(QLatin1String(Method::ResourcesListChanged));
     });
     connect(provider, &BaseResourceProvider::resourceUpdated, this, [this](const QString &uri) {
         if (m_initialized) {
-            m_session->sendNotification(
+            m_peer->session()->sendNotification(
                 QLatin1String(Method::ResourcesUpdated),
                 QJsonObject{{"uri", uri}});
         }
@@ -517,7 +509,7 @@ void McpServer::addPromptProvider(BasePromptProvider *provider)
     m_promptProviders.append(provider);
     connect(provider, &BasePromptProvider::listChanged, this, [this]() {
         if (m_initialized)
-            m_session->sendNotification(QLatin1String(Method::PromptsListChanged));
+            m_peer->session()->sendNotification(QLatin1String(Method::PromptsListChanged));
     });
 }
 
@@ -541,7 +533,7 @@ QFuture<CreateMessageResult> McpServer::createSamplingMessage(
     }
 
     return LLMQore::compat(
-               m_session->sendRequest(QLatin1String(Method::SamplingCreateMessage), params.toJson(), timeout))
+               m_peer->session()->sendRequest(QLatin1String(Method::SamplingCreateMessage), params.toJson(), timeout))
         .then(this, [](const QJsonValue &value) { return CreateMessageResult::fromJson(value.toObject()); });
 }
 
@@ -558,7 +550,7 @@ QFuture<ElicitResult> McpServer::createElicitation(
     }
 
     return LLMQore::compat(
-               m_session->sendRequest(QLatin1String(Method::ElicitationCreate), params.toJson(), timeout))
+               m_peer->session()->sendRequest(QLatin1String(Method::ElicitationCreate), params.toJson(), timeout))
         .then(this, [](const QJsonValue &value) { return ElicitResult::fromJson(value.toObject()); });
 }
 
@@ -578,21 +570,17 @@ void McpServer::sendLogMessage(
         params.insert("logger", logger);
     if (!message.isEmpty())
         params.insert("message", message);
-    m_session->sendNotification(QLatin1String(Method::LoggingMessage), params);
+    m_peer->session()->sendNotification(QLatin1String(Method::LoggingMessage), params);
 }
 
 void McpServer::start()
 {
-    if (!m_transport)
-        return;
-    if (!m_transport->isOpen())
-        m_transport->start();
+    m_peer->open();
 }
 
 void McpServer::stop()
 {
-    if (m_transport && m_transport->isOpen())
-        m_transport->stop();
+    m_peer->close();
     m_initialized = false;
 }
 

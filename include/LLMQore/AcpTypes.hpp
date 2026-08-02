@@ -20,6 +20,13 @@ namespace LLMQore::Acp {
 
 inline constexpr int kAcpProtocolVersion = 1;
 
+// The versions this build understands. An agent that names another one is
+// warned about, not rejected -- a live adapter may run ahead of this build.
+inline QStringList knownProtocolVersions()
+{
+    return {QString::number(kAcpProtocolVersion)};
+}
+
 namespace StopReason {
 inline constexpr const char *EndTurn         = "end_turn";
 inline constexpr const char *MaxTokens       = "max_tokens";

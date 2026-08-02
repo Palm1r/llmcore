@@ -15,6 +15,7 @@
 #include <LLMQore/JsonRpcSession.hpp>
 #include <LLMQore/LLMQore_global.h>
 #include <LLMQore/McpTypes.hpp>
+#include <LLMQore/ProtocolPeer.hpp>
 #include <LLMQore/RpcTransport.hpp>
 #include <LLMQore/Version.hpp>
 
@@ -72,8 +73,9 @@ public:
     void start();
     void stop();
 
-    Rpc::Transport *transport() const { return m_transport; }
-    Rpc::JsonRpcSession *session() const { return m_session; }
+    Rpc::Transport *transport() const { return m_peer->transport(); }
+    Rpc::JsonRpcSession *session() const { return m_peer->session(); }
+    Rpc::ProtocolPeer *peer() const { return m_peer; }
 
 signals:
     void clientInitialized(const LLMQore::Mcp::Implementation &clientInfo);
@@ -89,8 +91,7 @@ private:
     QList<LLMQore::BaseTool *> collectTools() const;
     LLMQore::BaseTool *findTool(const QString &name) const;
 
-    QPointer<Rpc::Transport> m_transport;
-    Rpc::JsonRpcSession *m_session = nullptr;
+    Rpc::ProtocolPeer *m_peer = nullptr;
     McpServerConfig m_config;
 
     QPointer<LLMQore::ToolRegistry> m_toolRegistry;

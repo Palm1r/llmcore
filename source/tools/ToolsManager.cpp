@@ -74,10 +74,8 @@ bool ToolRound::dispatch(int index)
         ToolsManager *manager = m_manager;
         const QString requestId = m_requestId;
 
-        LLMQore::futureThen(
-            manager,
-            manager->m_executionGate(requestId, toolId, toolName, input),
-            [manager, requestId, toolId, toolName, input](bool allowed) {
+        LLMQore::compat(manager->m_executionGate(requestId, toolId, toolName, input))
+            .then(manager, [manager, requestId, toolId, toolName, input](bool allowed) {
                 if (!allowed) {
                     qCDebug(llmToolsLog).noquote()
                         << QString("Tool %1 was declined before execution").arg(toolName);
