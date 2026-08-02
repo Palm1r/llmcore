@@ -10,6 +10,10 @@
 #include <LLMQore/McpTypes.hpp>
 #include <LLMQore/RpcStdioTransport.hpp>
 
+#include "mcp/McpTypeSchema.hpp"
+
+#include "JsonRoundTrip.hpp"
+
 using namespace LLMQore::Mcp;
 
 TEST(McpTypesTest, ImplementationRoundTrip)
@@ -488,4 +492,45 @@ TEST(McpProvisioning, AnEmptyEndpointBuildsNothing)
 {
     QObject owner;
     EXPECT_EQ(LLMQore::Mcp::makeTransport(LLMQore::Mcp::ServerEndpoint{}, &owner), nullptr);
+}
+
+// --- the field table is the test surface: every declared field must survive ---
+
+TEST(McpTypesTest, EveryTabledStructureHandsBackWhatItWasGiven)
+{
+    using LLMQoreTest::expectRoundTrip;
+
+    expectRoundTrip<IconInfo>("IconInfo");
+    expectRoundTrip<Implementation>("Implementation");
+    expectRoundTrip<ToolsCapability>("ToolsCapability");
+    expectRoundTrip<ResourcesCapability>("ResourcesCapability");
+    expectRoundTrip<PromptsCapability>("PromptsCapability");
+    expectRoundTrip<RootsCapability>("RootsCapability");
+    expectRoundTrip<ServerCapabilities>("ServerCapabilities");
+    expectRoundTrip<ClientCapabilities>("ClientCapabilities");
+    expectRoundTrip<InitializeResult>("InitializeResult");
+    expectRoundTrip<ToolInfo>("ToolInfo");
+    expectRoundTrip<ResourceInfo>("ResourceInfo");
+    expectRoundTrip<ResourceTemplate>("ResourceTemplate");
+    expectRoundTrip<PromptArgument>("PromptArgument");
+    expectRoundTrip<PromptInfo>("PromptInfo");
+    expectRoundTrip<PromptMessage>("PromptMessage");
+    expectRoundTrip<PromptGetResult>("PromptGetResult");
+    expectRoundTrip<Root>("Root");
+    expectRoundTrip<CompletionReference>("CompletionReference");
+    expectRoundTrip<CompletionArgument>("CompletionArgument");
+    expectRoundTrip<SamplingMessage>("SamplingMessage");
+    expectRoundTrip<ModelHint>("ModelHint");
+    expectRoundTrip<ModelPreferences>("ModelPreferences");
+    expectRoundTrip<CreateMessageParams>("CreateMessageParams");
+    expectRoundTrip<CreateMessageResult>("CreateMessageResult");
+    expectRoundTrip<ElicitRequestParams>("ElicitRequestParams");
+}
+
+TEST(McpTypesTest, CapabilitiesCarryUnknownFieldsThrough)
+{
+    using LLMQoreTest::expectUnknownKeySurvives;
+
+    expectUnknownKeySurvives<ServerCapabilities>("ServerCapabilities");
+    expectUnknownKeySurvives<ClientCapabilities>("ClientCapabilities");
 }

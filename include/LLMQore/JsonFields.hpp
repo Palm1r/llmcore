@@ -122,6 +122,8 @@ bool isEmptyValue(const M &m)
 {
     if constexpr (HasIsEmpty<M>::value)
         return m.isEmpty();
+    else if constexpr (std::is_same_v<M, bool>)
+        return !m;
     else
         return false;
 }
@@ -185,6 +187,8 @@ void decodeValue(const QJsonValue &v, M &m)
         m = v.toString(m);
     } else if constexpr (std::is_same_v<M, bool>) {
         m = v.toBool(m);
+    } else if constexpr (std::is_floating_point_v<M>) {
+        m = static_cast<M>(v.toDouble(m));
     } else {
         m = static_cast<M>(v.toInt(m));
     }
