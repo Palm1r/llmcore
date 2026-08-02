@@ -768,10 +768,11 @@ void BaseClient::executeToolsFromMessage(const RequestID &id)
     if (toolUseContent.isEmpty())
         return;
 
-    QList<ToolCall> calls;
+    QList<ToolRound::Call> calls;
     calls.reserve(toolUseContent.size());
     for (const auto *toolContent : toolUseContent)
-        calls.append(ToolCall{toolContent->id(), toolContent->name(), toolContent->input()});
+        calls.append(
+            ToolRound::Call{toolContent->id(), toolContent->name(), toolContent->input()});
 
     tools()->beginRound(id, calls);
 }

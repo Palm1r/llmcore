@@ -18,6 +18,9 @@
 #include <LLMQore/McpToolBinder.hpp>
 #include <LLMQore/RpcPipeTransport.hpp>
 #include <LLMQore/ToolRegistry.hpp>
+#include <LLMQore/ToolsManager.hpp>
+
+#include "clients/openai/OpenAIMessage.hpp"
 
 #include "TestHelpers.hpp"
 
@@ -239,6 +242,68 @@ TEST_F(McpToolBinderTest, ReconnectsAfterTransportLoss)
     ASSERT_TRUE(waitForSignal(synced, 2, std::chrono::seconds(10)));
     EXPECT_NE(registry.tool("srv_echo"), nullptr);
     EXPECT_EQ(waitForFuture(registry.tool("srv_echo")->executeAsync(QJsonObject{})).asText(), "hi");
+}
+
+// --- the ToolsManager facade must not swallow what the binder reports ---
+
+TEST_F(McpToolBinderTest, ToolsManagerRelaysToolsSyncedAndTheServerName)
+{
+    Loopback loop("upstream");
+    loop.server->addTool(new CannedTool("echo", "hi", loop.server));
+    loop.initialize();
+
+    ToolsManager tools(OpenAIMessage::toolDialect());
+    QSignalSpy synced(&tools, &ToolsManager::mcpToolsSynced);
+
+    tools.addMcpClient(loop.client, "alpha");
+    ASSERT_TRUE(waitForSignal(synced, 1)) << "the facade never re-emitted the binder's signal";
+
+    EXPECT_EQ(synced.first().at(0).toString(), QStringLiteral("alpha"));
+    EXPECT_EQ(synced.first().at(1).toInt(), 1);
+    EXPECT_NE(tools.tool("alpha_echo"), nullptr)
+        << "the facade dropped the server name, so the tool went in unprefixed";
+}
+
+TEST_F(McpToolBinderTest, ToolsManagerReportsTheFateOfAnMcpServer)
+{
+    ToolsManager tools(OpenAIMessage::toolDialect());
+    QSignalSpy failed(&tools, &ToolsManager::mcpServerInitFailed);
+
+    ServerEndpoint nothing;
+    nothing.name = QStringLiteral("nothing");
+    EXPECT_FALSE(tools.addMcpServer(nothing)) << "neither an http url nor a command";
+
+    ServerEndpoint broken;
+    broken.name = QStringLiteral("broken");
+    broken.command = QStringLiteral("llmqore-no-such-mcp-server");
+
+    EXPECT_TRUE(tools.addMcpServer(broken)) << "a transport was built, so the attempt was made";
+    ASSERT_TRUE(waitForSignal(failed, 1))
+        << "a consumer of ToolsManager cannot learn that the server never came up";
+    EXPECT_EQ(failed.first().at(0).toString(), QStringLiteral("broken"));
+
+    tools.shutdownMcp();
+    pumpEventLoop(std::chrono::milliseconds(1500));
+    EXPECT_EQ(failed.size(), 1) << "shutdown must stop the reconnect ladder";
+}
+
+TEST_F(McpToolBinderTest, ToolsManagerReportsHowManyServersWereLoaded)
+{
+    ToolsManager tools(OpenAIMessage::toolDialect());
+
+    const QJsonObject config{
+        {"mcpServers",
+         QJsonObject{
+             {"alpha", QJsonObject{{"command", "llmqore-no-such-mcp-server"}}},
+             {"beta", QJsonObject{{"enable", false}, {"command", "anything"}}},
+             {"gamma", QJsonObject{}},
+         }},
+    };
+
+    EXPECT_EQ(tools.loadMcpServers(config), 1)
+        << "a host cannot tell an empty config from a fully unusable one";
+
+    tools.shutdownMcp();
 }
 
 #include "tst_McpToolBinder.moc"

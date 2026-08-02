@@ -15,9 +15,9 @@ ToolRound::ToolRound(ToolsManager *manager, QString requestId)
     , m_requestId(std::move(requestId))
 {}
 
-void ToolRound::addCalls(const QList<ToolCall> &calls)
+void ToolRound::addCalls(const QList<Call> &calls)
 {
-    for (const ToolCall &call : calls) {
+    for (const Call &call : calls) {
         if (m_indexById.contains(call.id)) {
             qCDebug(llmToolsLog).noquote()
                 << QString("Tool %1 already in round for request %2").arg(call.id, m_requestId);
@@ -168,26 +168,48 @@ void ToolsManager::initConnections()
 {
     connect(m_toolHandler, &ToolHandler::toolCompleted, this, &ToolsManager::onToolCompleted);
     connect(m_toolHandler, &ToolHandler::toolFailed, this, &ToolsManager::onToolErrored);
+
+    connect(
+        m_binder, &Mcp::McpToolBinder::serverInitialized,
+        this, &ToolsManager::mcpServerInitialized);
+    connect(
+        m_binder, &Mcp::McpToolBinder::serverInitFailed,
+        this, &ToolsManager::mcpServerInitFailed);
+    connect(m_binder, &Mcp::McpToolBinder::toolsSynced, this, &ToolsManager::mcpToolsSynced);
+    connect(
+        m_binder, &Mcp::McpToolBinder::serverDisconnected,
+        this, &ToolsManager::mcpServerDisconnected);
 }
 
-void ToolsManager::addMcpServer(const Mcp::ServerEndpoint &endpoint)
+void ToolsManager::setMcpClientInfo(Mcp::Implementation info)
 {
-    m_binder->addServer(endpoint);
+    m_binder->setClientInfo(std::move(info));
 }
 
-void ToolsManager::loadMcpServers(const QJsonObject &config)
+bool ToolsManager::addMcpServer(const Mcp::ServerEndpoint &endpoint)
 {
-    m_binder->loadServers(config);
+    return m_binder->addServer(endpoint);
 }
 
-void ToolsManager::addMcpClient(Mcp::McpClient *client)
+int ToolsManager::loadMcpServers(const QJsonObject &config)
 {
-    m_binder->addClient(client);
+    return m_binder->loadServers(config);
+}
+
+void ToolsManager::addMcpClient(
+    Mcp::McpClient *client, const QString &serverName, bool autoReconnect)
+{
+    m_binder->addClient(client, serverName, autoReconnect);
 }
 
 void ToolsManager::removeMcpClient(Mcp::McpClient *client)
 {
     m_binder->removeClient(client);
+}
+
+void ToolsManager::shutdownMcp()
+{
+    m_binder->shutdown();
 }
 
 QString ToolsManager::displayName(const QString &toolName) const
@@ -198,7 +220,7 @@ QString ToolsManager::displayName(const QString &toolName) const
     return QStringLiteral("Unknown tool");
 }
 
-void ToolsManager::beginRound(const QString &requestId, const QList<ToolCall> &calls)
+void ToolsManager::beginRound(const QString &requestId, const QList<ToolRound::Call> &calls)
 {
     if (calls.isEmpty())
         return;
@@ -219,7 +241,7 @@ void ToolsManager::executeToolCall(
     const QString &toolName,
     const QJsonObject &input)
 {
-    beginRound(requestId, {ToolCall{toolId, toolName, input}});
+    beginRound(requestId, {ToolRound::Call{toolId, toolName, input}});
 }
 
 void ToolsManager::setExecutionGate(ExecutionGate gate)

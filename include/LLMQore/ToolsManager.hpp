@@ -17,6 +17,7 @@
 
 #include <LLMQore/LLMQore_global.h>
 #include <LLMQore/McpProvisioning.hpp>
+#include <LLMQore/McpTypes.hpp>
 #include <LLMQore/ToolRegistry.hpp>
 #include <LLMQore/ToolResult.hpp>
 #include <LLMQore/ToolDialect.hpp>
@@ -24,20 +25,12 @@
 namespace LLMQore::Mcp {
 class McpClient;
 class McpToolBinder;
-struct ToolInfo;
 }
 
 namespace LLMQore {
 
 class ToolHandler;
 class ToolsManager;
-
-struct ToolCall
-{
-    QString id;
-    QString name;
-    QJsonObject input;
-};
 
 struct PendingTool
 {
@@ -55,10 +48,17 @@ struct PendingTool
 class LLMQORE_EXPORT ToolRound
 {
 public:
+    struct Call
+    {
+        QString id;
+        QString name;
+        QJsonObject input;
+    };
+
     ToolRound() = default;
     ToolRound(ToolsManager *manager, QString requestId);
 
-    void addCalls(const QList<ToolCall> &calls);
+    void addCalls(const QList<Call> &calls);
     void advance();
     bool settle(const QString &toolId, const ToolResult &result, bool success);
     void abandon();
@@ -90,15 +90,18 @@ class LLMQORE_EXPORT ToolsManager : public ToolRegistry
 public:
     explicit ToolsManager(const ToolDialect &dialect, QObject *parent = nullptr);
 
-    void addMcpServer(const Mcp::ServerEndpoint &endpoint);
-    void loadMcpServers(const QJsonObject &config);
-    void addMcpClient(Mcp::McpClient *client);
+    void setMcpClientInfo(Mcp::Implementation info);
+    bool addMcpServer(const Mcp::ServerEndpoint &endpoint);
+    int loadMcpServers(const QJsonObject &config);
+    void addMcpClient(
+        Mcp::McpClient *client, const QString &serverName = {}, bool autoReconnect = false);
     void removeMcpClient(Mcp::McpClient *client);
+    void shutdownMcp();
 
     QJsonArray getToolsDefinitions() const;
     QString displayName(const QString &toolName) const;
 
-    void beginRound(const QString &requestId, const QList<ToolCall> &calls);
+    void beginRound(const QString &requestId, const QList<ToolRound::Call> &calls);
     void executeToolCall(
         const QString &requestId,
         const QString &toolId,
@@ -127,6 +130,11 @@ signals:
         const QString &result);
     void toolExecutionComplete(
         const QString &requestId, const QHash<QString, ToolResult> &toolResults);
+
+    void mcpServerInitialized(const QString &name, const LLMQore::Mcp::InitializeResult &result);
+    void mcpServerInitFailed(const QString &name, const QString &error);
+    void mcpToolsSynced(const QString &name, int toolCount);
+    void mcpServerDisconnected(const QString &name);
 
 private slots:
     void onToolCompleted(

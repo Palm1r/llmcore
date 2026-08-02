@@ -386,7 +386,7 @@ TEST_F(ToolsManagerTest, RoundClosesOnceWhenAnUnknownToolPrecedesAValidOne)
 
     mgr.beginRound(
         "req-1",
-        {ToolCall{"call_1", "no_such_tool", {}}, ToolCall{"call_2", "blocker", {}}});
+        {ToolRound::Call{"call_1", "no_such_tool", {}}, ToolRound::Call{"call_2", "blocker", {}}});
 
     EXPECT_EQ(complete.count(), 0)
         << "the round must not close while one of its calls is still running";
@@ -410,7 +410,7 @@ TEST_F(ToolsManagerTest, CleanupRequestOnALiveRoundKeepsItFromClosing)
 
     QSignalSpy complete(&mgr, &ToolsManager::toolExecutionComplete);
 
-    mgr.beginRound("req-1", {ToolCall{"call_1", "blocker", {}}, ToolCall{"call_2", "blocker", {}}});
+    mgr.beginRound("req-1", {ToolRound::Call{"call_1", "blocker", {}}, ToolRound::Call{"call_2", "blocker", {}}});
     ASSERT_EQ(blocker->pending.size(), 1);
     ASSERT_EQ(complete.count(), 0);
 
