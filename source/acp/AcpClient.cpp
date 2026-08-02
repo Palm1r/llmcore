@@ -229,8 +229,6 @@ void AcpClient::installHandlers()
         QLatin1String(Method::SessionUpdate),
         [this](const QJsonObject &params) { handleSessionUpdate(params); });
 
-    // No provider means the user is simply never asked; a cancelled outcome is
-    // a valid answer, not a refusal.
     m_peer->bindRequest(
         QLatin1String(Method::RequestPermission),
         QStringLiteral("session/request_permission"),

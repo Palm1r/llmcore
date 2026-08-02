@@ -6,10 +6,6 @@
 #include <LLMQore/JsonFields.hpp>
 #include <LLMQore/McpTypes.hpp>
 
-// The MCP wire tables: every field of every symmetric structure, named once.
-// `toJson`/`fromJson` are derived from these, and the round-trip test walks
-// them, so a field added here is a field the tests already cover.
-
 namespace LLMQore::Mcp {
 
 using LLMQore::Json::field;

@@ -11,15 +11,6 @@
 
 #include <LLMQore/JsonFields.hpp>
 
-// Walks a structure's field table, builds a wire object in which every declared
-// field is present, and asserts the structure hands all of it back. A field the
-// table declares but a hand-written half forgets shows up here as a missing or
-// changed key.
-//
-// The sample is built from the table, so this cannot see a member that never
-// made it into the table at all -- that case needs a test naming the field, as
-// AcpTypes.PromptResultKeepsItsUsage does.
-
 namespace LLMQoreTest {
 
 template<typename T>
@@ -56,8 +47,6 @@ QJsonValue sampleValue(int seed)
 
 } // namespace detail
 
-// A struct whose wire shape depends on a discriminator specializes this to hand
-// back one concrete, valid shape.
 template<typename T>
 QJsonObject sampleObject(int seed)
 {
@@ -91,8 +80,6 @@ void expectRoundTrip(const char *name)
         << "\n  back: " << QJsonDocument(back).toJson(QJsonDocument::Compact).constData();
 }
 
-// An unknown key must survive the round-trip on the structures that declare an
-// extras member -- otherwise a spec bump silently drops the peer's new field.
 template<typename T>
 void expectUnknownKeySurvives(const char *name)
 {

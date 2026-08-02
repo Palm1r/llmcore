@@ -17,9 +17,6 @@
 #include "LoopbackHarness.hpp"
 #include "TestHelpers.hpp"
 
-// The session is 556 lines with two protocols on top and had no test file of its
-// own: everything reached it through a loopback that only ever took happy paths.
-
 using namespace LLMQore;
 using LLMQoreTest::SessionPair;
 
@@ -45,7 +42,6 @@ protected:
     QCoreApplication *m_app = nullptr;
 };
 
-// Reads a future's outcome without blocking the thread its watcher needs.
 QString failureOf(QFuture<QJsonValue> future, std::chrono::milliseconds timeout = kDefaultWaitTimeout)
 {
     if (!future.isFinished()) {
@@ -71,9 +67,6 @@ QString failureOf(QFuture<QJsonValue> future, std::chrono::milliseconds timeout 
     return {};
 }
 
-// A handler whose answer the test holds on to, so the caller is left waiting
-// until the test says otherwise. The promise outlives the handler on purpose: a
-// promise destroyed mid-flight cancels its future and the session would answer.
 class HeldAnswer
 {
 public:

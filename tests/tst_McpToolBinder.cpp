@@ -244,8 +244,6 @@ TEST_F(McpToolBinderTest, ReconnectsAfterTransportLoss)
     EXPECT_EQ(waitForFuture(registry.tool("srv_echo")->executeAsync(QJsonObject{})).asText(), "hi");
 }
 
-// --- the ToolsManager facade must not swallow what the binder reports ---
-
 TEST_F(McpToolBinderTest, ToolsManagerRelaysToolsSyncedAndTheServerName)
 {
     Loopback loop("upstream");

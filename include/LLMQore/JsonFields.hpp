@@ -16,21 +16,6 @@
 #include <QString>
 #include <QStringList>
 
-// A wire structure describes its fields once -- name, member, and what happens
-// when the value is empty -- and both halves of the conversion are derived from
-// that description. A struct opts in by declaring, in its own namespace,
-//
-//     constexpr auto jsonSchema(const Foo *)
-//     {
-//         return std::make_tuple(
-//             LLMQore::Json::field("id", &Foo::id),
-//             LLMQore::Json::omitEmpty("title", &Foo::title));
-//     }
-//
-// found by argument-dependent lookup. A struct that also wants to carry unknown
-// keys across a round-trip declares `jsonExtras(const Foo *)` returning the
-// member that holds them.
-
 namespace LLMQore::Json {
 
 enum class Presence {

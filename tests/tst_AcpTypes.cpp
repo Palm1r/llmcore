@@ -16,8 +16,6 @@ using namespace LLMQore::Acp;
 
 namespace {
 
-// A representative initialize request round-trips, including nested
-// capabilities and optional clientInfo.
 TEST(AcpTypes, InitializeParamsRoundTrip)
 {
     InitializeParams p;
@@ -37,7 +35,6 @@ TEST(AcpTypes, InitializeParamsRoundTrip)
     EXPECT_EQ(back.clientInfo->title, "LLMQore");
 }
 
-// protocolVersion must serialize as a JSON number, not a string (ACP gotcha).
 TEST(AcpTypes, ProtocolVersionIsJsonNumber)
 {
     InitializeParams p;

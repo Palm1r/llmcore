@@ -20,8 +20,6 @@ namespace LLMQore::Acp {
 
 inline constexpr int kAcpProtocolVersion = 1;
 
-// The versions this build understands. An agent that names another one is
-// warned about, not rejected -- a live adapter may run ahead of this build.
 inline QStringList knownProtocolVersions()
 {
     return {QString::number(kAcpProtocolVersion)};
@@ -48,10 +46,10 @@ inline constexpr const char *Authenticate      = "authenticate";
 inline constexpr const char *NewSession        = "session/new";
 inline constexpr const char *LoadSession       = "session/load";
 inline constexpr const char *Prompt            = "session/prompt";
-inline constexpr const char *Cancel            = "session/cancel";        // notification
+inline constexpr const char *Cancel            = "session/cancel";
 inline constexpr const char *SetMode           = "session/set_mode";
 // agent -> client
-inline constexpr const char *SessionUpdate     = "session/update";        // notification
+inline constexpr const char *SessionUpdate     = "session/update";
 inline constexpr const char *RequestPermission = "session/request_permission";
 inline constexpr const char *FsReadTextFile    = "fs/read_text_file";
 inline constexpr const char *FsWriteTextFile   = "fs/write_text_file";
@@ -246,8 +244,8 @@ struct LLMQORE_EXPORT EmbeddedResource
 {
     QString uri;
     QString mimeType;
-    QString text;     // text resource
-    QString blob;     // base64 binary resource
+    QString text;
+    QString blob;
 
     QJsonObject toJson() const;
     static EmbeddedResource fromJson(const QJsonObject &obj);
@@ -525,8 +523,6 @@ struct LLMQORE_EXPORT WaitForTerminalExitResult
     static WaitForTerminalExitResult fromJson(const QJsonObject &obj);
 };
 
-// The types that travel through queued signals. The Q_DECLARE_METATYPE block
-// below names exactly this list, and registerMetatypes() is built from it.
 using QueuedTypes = std::tuple<
     ContentBlock,
     ToolCall,

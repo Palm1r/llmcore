@@ -494,8 +494,6 @@ TEST(McpProvisioning, AnEmptyEndpointBuildsNothing)
     EXPECT_EQ(LLMQore::Mcp::makeTransport(LLMQore::Mcp::ServerEndpoint{}, &owner), nullptr);
 }
 
-// --- the field table is the test surface: every declared field must survive ---
-
 TEST(McpTypesTest, EveryTabledStructureHandsBackWhatItWasGiven)
 {
     using LLMQoreTest::expectRoundTrip;

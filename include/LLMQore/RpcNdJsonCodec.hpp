@@ -12,9 +12,6 @@
 
 namespace LLMQore::Rpc {
 
-// Newline-delimited JSON: the single place that turns messages into lines and
-// lines back into messages. A line that is not a JSON object is logged and
-// dropped -- a peer's malformed line is not a transport failure.
 class LLMQORE_EXPORT NdJsonCodec
 {
 public:

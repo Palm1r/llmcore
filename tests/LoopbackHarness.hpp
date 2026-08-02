@@ -10,13 +10,8 @@
 
 #include "TestHelpers.hpp"
 
-// The five-line dance a loopback test opens with -- create the pipe pair, put a
-// peer on each end, start, and delete all four in the right order -- said once.
-
 namespace LLMQoreTest {
 
-// A raw JSON-RPC session on each end of a pipe: the shape a session-level test
-// needs, with no protocol on top.
 struct SessionPair
 {
     LLMQore::Rpc::PipeTransport *localTransport = nullptr;
@@ -47,8 +42,6 @@ struct SessionPair
     SessionPair &operator=(const SessionPair &) = delete;
 };
 
-// An McpServer and an McpClient joined by a pipe, started and ready to
-// initialize.
 struct McpPair
 {
     LLMQore::Rpc::PipeTransport *serverTransport = nullptr;

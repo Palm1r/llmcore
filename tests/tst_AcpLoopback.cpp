@@ -38,8 +38,6 @@ QFuture<QJsonValue> resolvedJson(const QJsonValue &v)
     return p->future();
 }
 
-// Minimal in-process ACP agent built on a JsonRpcSession: answers initialize /
-// session/new and streams agent_message_chunk updates during session/prompt.
 class FakeAgent
 {
 public:
@@ -454,11 +452,8 @@ TEST_F(AcpLoopbackTest, PeerAnswersPingWithoutAnyProtocolHandler)
     delete clientTransport;
 }
 
-// --- terminal/*: the surface ADR-0001 says can only be covered on loopback ---
-
 namespace {
 
-// A terminal provider that records the request shapes it was handed.
 class RecordingTerminalProvider : public AcpTerminalProvider
 {
 public:

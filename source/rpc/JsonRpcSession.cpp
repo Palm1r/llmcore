@@ -40,8 +40,6 @@ QString idToString(const QJsonValue &id)
 
 namespace {
 
-// Both places that turn a failed handler into an error response ask the same
-// question of the exception, so they ask it here.
 struct ErrorAnswer
 {
     int code = Rpc::ErrorCode::InternalError;
