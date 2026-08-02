@@ -1,18 +1,5 @@
 // Copyright (C) 2026 Petr Mironychev
 // SPDX-License-Identifier: MIT
-//
-// Smoke test for McpHttpTransport. Connects to an MCP server at the given
-// URL, performs the initialize handshake, lists tools, optionally calls one,
-// and exits.
-//
-// Usage:
-//   mcp-http-probe --spec <date> <url> [tool-to-call]
-//
-// Supported spec revisions:
-//   2024-11-05, 2025-03-26 (default)
-//
-// Example (Qt Creator):
-//   mcp-http-probe --spec 2024-11-05 http://127.0.0.1:3001/sse list_sessions
 
 #include <QCoreApplication>
 #include <QCommandLineParser>

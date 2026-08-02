@@ -15,7 +15,6 @@
 
 #include <LLMQore/LLMQore_global.h>
 
-// Wire types for Zed's Agent Client Protocol (ACP), host/client perspective.
 namespace LLMQore::Acp {
 
 inline constexpr int kAcpProtocolVersion = 1;
@@ -35,7 +34,6 @@ inline constexpr const char *RejectOnce  = "reject_once";
 inline constexpr const char *RejectAlways = "reject_always";
 } // namespace PermissionOptionKind
 
-// JSON-RPC method names (client -> agent unless noted).
 namespace Method {
 inline constexpr const char *Initialize        = "initialize";
 inline constexpr const char *Authenticate      = "authenticate";
@@ -55,8 +53,6 @@ inline constexpr const char *TerminalWaitForExit = "terminal/wait_for_exit";
 inline constexpr const char *TerminalKill      = "terminal/kill";
 inline constexpr const char *TerminalRelease   = "terminal/release";
 } // namespace Method
-
-// --- Shared small types ---
 
 struct LLMQORE_EXPORT EnvVariable
 {
@@ -79,8 +75,6 @@ struct LLMQORE_EXPORT Implementation
     QJsonObject toJson() const;
     static Implementation fromJson(const QJsonObject &obj);
 };
-
-// --- Initialization ---
 
 struct LLMQORE_EXPORT FileSystemCapability
 {
@@ -160,12 +154,6 @@ struct LLMQORE_EXPORT InitializeResult
     static InitializeResult fromJson(const QJsonObject &obj);
 };
 
-// --- MCP servers passed to the agent in session/new ---
-
-// Tagged union over `type`:
-//   "" or "stdio" -> command + args + env (serialized without a `type` key
-//                    for compatibility with agents predating the union form)
-//   "http"|"sse"  -> url + headers (gate on the agent's mcpCapabilities)
 struct LLMQORE_EXPORT McpServer
 {
     QString type;
@@ -191,8 +179,6 @@ struct LLMQORE_EXPORT McpServer
     static McpServer sse(
         const QString &name, const QString &url, const QList<EnvVariable> &headers = {});
 };
-
-// --- Session modes ---
 
 struct LLMQORE_EXPORT SessionMode
 {
@@ -243,8 +229,6 @@ struct LLMQORE_EXPORT LoadSessionParams
     static LoadSessionParams fromJson(const QJsonObject &obj);
 };
 
-// --- Content ---
-
 struct LLMQORE_EXPORT EmbeddedResource
 {
     QString uri;
@@ -256,11 +240,6 @@ struct LLMQORE_EXPORT EmbeddedResource
     static EmbeddedResource fromJson(const QJsonObject &obj);
 };
 
-// Tagged union over `type`:
-//   "text"          -> text
-//   "image"|"audio" -> data + mimeType (+ uri for image)
-//   "resource_link" -> uri + name (+ description, mimeType, size, title)
-//   "resource"      -> resource (EmbeddedResource)
 struct LLMQORE_EXPORT ContentBlock
 {
     QString type;
@@ -284,8 +263,6 @@ struct LLMQORE_EXPORT ContentBlock
 LLMQORE_EXPORT QJsonArray contentBlocksToJson(const QList<ContentBlock> &blocks);
 LLMQORE_EXPORT QList<ContentBlock> contentBlocksFromJson(const QJsonArray &arr);
 
-// --- Prompt ---
-
 struct LLMQORE_EXPORT PromptParams
 {
     QString sessionId;
@@ -298,14 +275,11 @@ struct LLMQORE_EXPORT PromptParams
 struct LLMQORE_EXPORT PromptResult
 {
     QString stopReason = QString::fromLatin1(StopReason::EndTurn);
-    // Token usage of the finished turn, agent-defined shape, passed raw.
     QJsonObject usage;
 
     QJsonObject toJson() const;
     static PromptResult fromJson(const QJsonObject &obj);
 };
-
-// --- Tool calls ---
 
 struct LLMQORE_EXPORT ToolCallLocation
 {
@@ -316,10 +290,6 @@ struct LLMQORE_EXPORT ToolCallLocation
     static ToolCallLocation fromJson(const QJsonObject &obj);
 };
 
-// Tagged union over `type`:
-//   "content"  -> content (ContentBlock)
-//   "diff"     -> path + oldText/newText
-//   "terminal" -> terminalId
 struct LLMQORE_EXPORT ToolCallContent
 {
     QString type = QStringLiteral("content");
@@ -337,8 +307,8 @@ struct LLMQORE_EXPORT ToolCall
 {
     QString toolCallId;
     QString title;
-    QString kind;     // read | edit | delete | move | search | execute | think | fetch | other
-    QString status;   // pending | in_progress | completed | failed
+    QString kind;
+    QString status;
     QList<ToolCallContent> content;
     QList<ToolCallLocation> locations;
     QJsonObject rawInput;
@@ -348,13 +318,11 @@ struct LLMQORE_EXPORT ToolCall
     static ToolCall fromJson(const QJsonObject &obj);
 };
 
-// --- Plan ---
-
 struct LLMQORE_EXPORT PlanEntry
 {
     QString content;
-    QString priority; // high | medium | low
-    QString status;   // pending | in_progress | completed
+    QString priority;
+    QString status;
 
     QJsonObject toJson() const;
     static PlanEntry fromJson(const QJsonObject &obj);
@@ -378,8 +346,6 @@ struct LLMQORE_EXPORT AvailableCommand
     static AvailableCommand fromJson(const QJsonObject &obj);
 };
 
-// --- Session update (agent -> client notification payload) ---
-
 namespace SessionUpdateKind {
 inline constexpr const char *UserMessageChunk   = "user_message_chunk";
 inline constexpr const char *AgentMessageChunk  = "agent_message_chunk";
@@ -393,18 +359,16 @@ inline constexpr const char *UsageUpdate        = "usage_update";
 inline constexpr const char *SessionInfoUpdate  = "session_info_update";
 } // namespace SessionUpdateKind
 
-// Tagged union over `sessionUpdate`. Only the fields relevant to the active
-// kind are populated.
 struct LLMQORE_EXPORT SessionUpdate
 {
     QString sessionUpdate;
-    std::optional<ContentBlock> content;        // *_message_chunk / thought
-    std::optional<Acp::ToolCall> toolCall;      // tool_call / tool_call_update
-    std::optional<Acp::Plan> plan;              // plan
-    QList<AvailableCommand> availableCommands;  // available_commands_update
-    QString currentModeId;                      // current_mode_update
-    QJsonObject usage;                          // usage_update, agent-defined shape
-    QString title;                              // session_info_update
+    std::optional<ContentBlock> content;
+    std::optional<Acp::ToolCall> toolCall;
+    std::optional<Acp::Plan> plan;
+    QList<AvailableCommand> availableCommands;
+    QString currentModeId;
+    QJsonObject usage;                         
+    QString title;
 
     QJsonObject toJson() const;
     static SessionUpdate fromJson(const QJsonObject &obj);
@@ -419,13 +383,11 @@ struct LLMQORE_EXPORT SessionNotification
     static SessionNotification fromJson(const QJsonObject &obj);
 };
 
-// --- Permission ---
-
 struct LLMQORE_EXPORT PermissionOption
 {
     QString optionId;
     QString name;
-    QString kind; // see PermissionOptionKind
+    QString kind;
 
     QJsonObject toJson() const;
     static PermissionOption fromJson(const QJsonObject &obj);
@@ -443,8 +405,8 @@ struct LLMQORE_EXPORT RequestPermissionParams
 
 struct LLMQORE_EXPORT RequestPermissionResult
 {
-    QString outcome;   // "selected" | "cancelled"
-    QString optionId;  // set when outcome == "selected"
+    QString outcome;
+    QString optionId;
 
     QJsonObject toJson() const;
     static RequestPermissionResult fromJson(const QJsonObject &obj);
@@ -452,8 +414,6 @@ struct LLMQORE_EXPORT RequestPermissionResult
     static RequestPermissionResult selected(const QString &optionId);
     static RequestPermissionResult cancelled();
 };
-
-// --- File system (agent -> client) ---
 
 struct LLMQORE_EXPORT ReadTextFileParams
 {
@@ -483,8 +443,6 @@ struct LLMQORE_EXPORT WriteTextFileParams
     QJsonObject toJson() const;
     static WriteTextFileParams fromJson(const QJsonObject &obj);
 };
-
-// --- Terminal (agent -> client) ---
 
 struct LLMQORE_EXPORT CreateTerminalParams
 {
@@ -535,8 +493,6 @@ struct LLMQORE_EXPORT TerminalOutputResult
     static TerminalOutputResult fromJson(const QJsonObject &obj);
 };
 
-// terminal/wait_for_exit, terminal/kill, terminal/release all take
-// { sessionId, terminalId }.
 struct LLMQORE_EXPORT TerminalRefParams
 {
     QString sessionId;

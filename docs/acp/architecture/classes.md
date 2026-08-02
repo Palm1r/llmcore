@@ -53,7 +53,7 @@ classDiagram
 
     class AcpAgentConfig {
         // program, arguments, env, cwd
-        // built-in templates (claude-code, gemini-cli, codex)
+        // no built-in agents; loaded from JSON by AcpAgentRegistry
     }
 
     class AcpPermissionProvider {

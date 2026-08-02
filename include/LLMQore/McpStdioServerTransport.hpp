@@ -18,9 +18,6 @@ class LLMQORE_EXPORT McpStdioServerTransport : public Rpc::Transport
 public:
     explicit McpStdioServerTransport(QObject *parent = nullptr);
 
-    // Reads newline-framed JSON from `input` and writes replies to `output`
-    // instead of the process-wide stdin/stdout. Both devices must be opened
-    // by the caller and outlive the transport.
     McpStdioServerTransport(QIODevice *input, QIODevice *output, QObject *parent = nullptr);
 
     ~McpStdioServerTransport() override;

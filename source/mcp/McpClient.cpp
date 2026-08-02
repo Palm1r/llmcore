@@ -117,22 +117,11 @@ void McpClient::installHandlers()
             auto promise = std::make_shared<QPromise<QJsonValue>>();
             promise->start();
 
-            // The sampling client is expected to live on the same thread as
-            // the MCP client — otherwise the ordering guarantee below (that
-            // no signals can fire between connect() and sendMessage()) no
-            // longer holds. Enforce it explicitly.
             Q_ASSERT_X(
                 m_samplingClient->thread() == this->thread(),
                 "McpClient::sampling",
                 "samplingClient must live on the same thread as McpClient");
 
-            // Bridge the request-scoped response to the QPromise via Qt signals.
-            // We connect to requestFinalized / requestFailed, filter by the
-            // exact RequestID we get back from sendMessage, and self-disconnect
-            // both handlers on the first firing so the promise resolves exactly
-            // once. A shared "done" flag guards against the (theoretically
-            // impossible but cheap to defend) double-resolve if the backend
-            // ever emits both finalized and failed for the same request.
             struct BridgeState
             {
                 LLMQore::RequestID id;
@@ -147,12 +136,6 @@ void McpClient::installHandlers()
                 QObject::disconnect(state->failedConn);
             };
 
-            // Register the signal handlers BEFORE calling sendMessage() so
-            // that a synchronously-delivered signal (possible in edge cases
-            // like cached/stubbed clients) cannot fire into the void. The
-            // lambda body filters by state->id, which is empty until we
-            // populate it right after sendMessage() returns — any signal
-            // for an unrelated request won't match and is dropped.
             state->finalizedConn = QObject::connect(
                 m_samplingClient, &LLMQore::BaseClient::requestFinalized, this,
                 [state, promise, disconnectBoth](

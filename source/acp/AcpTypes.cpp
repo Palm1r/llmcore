@@ -32,8 +32,6 @@ QJsonArray stringListToJson(const QStringList &list)
 
 } // namespace
 
-// --- EnvVariable ---
-
 QJsonObject EnvVariable::toJson() const
 {
     return QJsonObject{{"name", name}, {"value", value}};
@@ -64,8 +62,6 @@ QList<EnvVariable> envFromJson(const QJsonArray &arr)
     return out;
 }
 
-// --- Implementation ---
-
 QJsonObject Implementation::toJson() const
 {
     QJsonObject o{{"name", name}, {"version", version}};
@@ -82,8 +78,6 @@ Implementation Implementation::fromJson(const QJsonObject &obj)
     return i;
 }
 
-// --- FileSystemCapability ---
-
 QJsonObject FileSystemCapability::toJson() const
 {
     return QJsonObject{{"readTextFile", readTextFile}, {"writeTextFile", writeTextFile}};
@@ -97,8 +91,6 @@ FileSystemCapability FileSystemCapability::fromJson(const QJsonObject &obj)
     return c;
 }
 
-// --- ClientCapabilities ---
-
 QJsonObject ClientCapabilities::toJson() const
 {
     return QJsonObject{{"fs", fs.toJson()}, {"terminal", terminal}};
@@ -111,8 +103,6 @@ ClientCapabilities ClientCapabilities::fromJson(const QJsonObject &obj)
     c.terminal = obj.value("terminal").toBool();
     return c;
 }
-
-// --- PromptCapabilities ---
 
 QJsonObject PromptCapabilities::toJson() const
 {
@@ -129,8 +119,6 @@ PromptCapabilities PromptCapabilities::fromJson(const QJsonObject &obj)
     return c;
 }
 
-// --- McpCapabilities ---
-
 QJsonObject McpCapabilities::toJson() const
 {
     return QJsonObject{{"http", http}, {"sse", sse}};
@@ -143,8 +131,6 @@ McpCapabilities McpCapabilities::fromJson(const QJsonObject &obj)
     c.sse = obj.value("sse").toBool();
     return c;
 }
-
-// --- AgentCapabilities ---
 
 QJsonObject AgentCapabilities::toJson() const
 {
@@ -165,8 +151,6 @@ AgentCapabilities AgentCapabilities::fromJson(const QJsonObject &obj)
     return c;
 }
 
-// --- AuthMethod ---
-
 QJsonObject AuthMethod::toJson() const
 {
     QJsonObject o{{"id", id}, {"name", name}};
@@ -182,8 +166,6 @@ AuthMethod AuthMethod::fromJson(const QJsonObject &obj)
     m.description = obj.value("description").toString();
     return m;
 }
-
-// --- InitializeParams ---
 
 QJsonObject InitializeParams::toJson() const
 {
@@ -206,8 +188,6 @@ InitializeParams InitializeParams::fromJson(const QJsonObject &obj)
         p.clientInfo = Implementation::fromJson(obj.value("clientInfo").toObject());
     return p;
 }
-
-// --- InitializeResult ---
 
 QJsonObject InitializeResult::toJson() const
 {
@@ -236,8 +216,6 @@ InitializeResult InitializeResult::fromJson(const QJsonObject &obj)
         r.agentInfo = Implementation::fromJson(obj.value("agentInfo").toObject());
     return r;
 }
-
-// --- McpServer ---
 
 QJsonObject McpServer::toJson() const
 {
@@ -309,8 +287,6 @@ McpServer McpServer::sse(
     return s;
 }
 
-// --- SessionMode ---
-
 QJsonObject SessionMode::toJson() const
 {
     QJsonObject o{{"id", id}, {"name", name}};
@@ -326,8 +302,6 @@ SessionMode SessionMode::fromJson(const QJsonObject &obj)
     m.description = obj.value("description").toString();
     return m;
 }
-
-// --- SessionModeState ---
 
 QJsonObject SessionModeState::toJson() const
 {
@@ -345,8 +319,6 @@ SessionModeState SessionModeState::fromJson(const QJsonObject &obj)
         s.availableModes.append(SessionMode::fromJson(v.toObject()));
     return s;
 }
-
-// --- NewSessionParams ---
 
 namespace {
 
@@ -386,8 +358,6 @@ NewSessionParams NewSessionParams::fromJson(const QJsonObject &obj)
     return p;
 }
 
-// --- NewSessionResult ---
-
 QJsonObject NewSessionResult::toJson() const
 {
     QJsonObject o{{"sessionId", sessionId}};
@@ -404,8 +374,6 @@ NewSessionResult NewSessionResult::fromJson(const QJsonObject &obj)
         r.modes = SessionModeState::fromJson(obj.value("modes").toObject());
     return r;
 }
-
-// --- LoadSessionParams ---
 
 QJsonObject LoadSessionParams::toJson() const
 {
@@ -430,8 +398,6 @@ LoadSessionParams LoadSessionParams::fromJson(const QJsonObject &obj)
     return p;
 }
 
-// --- EmbeddedResource ---
-
 QJsonObject EmbeddedResource::toJson() const
 {
     QJsonObject o{{"uri", uri}};
@@ -452,8 +418,6 @@ EmbeddedResource EmbeddedResource::fromJson(const QJsonObject &obj)
     r.blob = obj.value("blob").toString();
     return r;
 }
-
-// --- ContentBlock ---
 
 QJsonObject ContentBlock::toJson() const
 {
@@ -528,8 +492,6 @@ QList<ContentBlock> contentBlocksFromJson(const QJsonArray &arr)
     return out;
 }
 
-// --- PromptParams ---
-
 QJsonObject PromptParams::toJson() const
 {
     return QJsonObject{{"sessionId", sessionId}, {"prompt", contentBlocksToJson(prompt)}};
@@ -543,8 +505,6 @@ PromptParams PromptParams::fromJson(const QJsonObject &obj)
     return p;
 }
 
-// --- PromptResult ---
-
 QJsonObject PromptResult::toJson() const
 {
     return QJsonObject{{"stopReason", stopReason}};
@@ -557,8 +517,6 @@ PromptResult PromptResult::fromJson(const QJsonObject &obj)
     r.usage = obj.value("usage").toObject();
     return r;
 }
-
-// --- ToolCallLocation ---
 
 QJsonObject ToolCallLocation::toJson() const
 {
@@ -576,8 +534,6 @@ ToolCallLocation ToolCallLocation::fromJson(const QJsonObject &obj)
         l.line = obj.value("line").toInt();
     return l;
 }
-
-// --- ToolCallContent ---
 
 QJsonObject ToolCallContent::toJson() const
 {
@@ -608,8 +564,6 @@ ToolCallContent ToolCallContent::fromJson(const QJsonObject &obj)
     c.terminalId = obj.value("terminalId").toString();
     return c;
 }
-
-// --- ToolCall ---
 
 QJsonObject ToolCall::toJson() const
 {
@@ -652,8 +606,6 @@ ToolCall ToolCall::fromJson(const QJsonObject &obj)
     return t;
 }
 
-// --- PlanEntry ---
-
 QJsonObject PlanEntry::toJson() const
 {
     return QJsonObject{{"content", content}, {"priority", priority}, {"status", status}};
@@ -667,8 +619,6 @@ PlanEntry PlanEntry::fromJson(const QJsonObject &obj)
     e.status = obj.value("status").toString();
     return e;
 }
-
-// --- Plan ---
 
 QJsonObject Plan::toJson() const
 {
@@ -686,8 +636,6 @@ Plan Plan::fromJson(const QJsonObject &obj)
     return p;
 }
 
-// --- AvailableCommand ---
-
 QJsonObject AvailableCommand::toJson() const
 {
     QJsonObject o{{"name", name}, {"description", description}};
@@ -704,8 +652,6 @@ AvailableCommand AvailableCommand::fromJson(const QJsonObject &obj)
     c.inputHint = obj.value("input").toObject().value("hint").toString();
     return c;
 }
-
-// --- SessionUpdate ---
 
 QJsonObject SessionUpdate::toJson() const
 {
@@ -766,8 +712,6 @@ SessionUpdate SessionUpdate::fromJson(const QJsonObject &obj)
     return u;
 }
 
-// --- SessionNotification ---
-
 QJsonObject SessionNotification::toJson() const
 {
     return QJsonObject{{"sessionId", sessionId}, {"update", update.toJson()}};
@@ -780,8 +724,6 @@ SessionNotification SessionNotification::fromJson(const QJsonObject &obj)
     n.update = SessionUpdate::fromJson(obj.value("update").toObject());
     return n;
 }
-
-// --- PermissionOption ---
 
 QJsonObject PermissionOption::toJson() const
 {
@@ -796,8 +738,6 @@ PermissionOption PermissionOption::fromJson(const QJsonObject &obj)
     o.kind = obj.value("kind").toString();
     return o;
 }
-
-// --- RequestPermissionParams ---
 
 QJsonObject RequestPermissionParams::toJson() const
 {
@@ -820,8 +760,6 @@ RequestPermissionParams RequestPermissionParams::fromJson(const QJsonObject &obj
         p.options.append(PermissionOption::fromJson(v.toObject()));
     return p;
 }
-
-// --- RequestPermissionResult ---
 
 QJsonObject RequestPermissionResult::toJson() const
 {
@@ -855,8 +793,6 @@ RequestPermissionResult RequestPermissionResult::cancelled()
     return r;
 }
 
-// --- ReadTextFileParams ---
-
 QJsonObject ReadTextFileParams::toJson() const
 {
     QJsonObject o{{"sessionId", sessionId}, {"path", path}};
@@ -879,8 +815,6 @@ ReadTextFileParams ReadTextFileParams::fromJson(const QJsonObject &obj)
     return p;
 }
 
-// --- ReadTextFileResult ---
-
 QJsonObject ReadTextFileResult::toJson() const
 {
     return QJsonObject{{"content", content}};
@@ -892,8 +826,6 @@ ReadTextFileResult ReadTextFileResult::fromJson(const QJsonObject &obj)
     r.content = obj.value("content").toString();
     return r;
 }
-
-// --- WriteTextFileParams ---
 
 QJsonObject WriteTextFileParams::toJson() const
 {
@@ -908,8 +840,6 @@ WriteTextFileParams WriteTextFileParams::fromJson(const QJsonObject &obj)
     p.content = obj.value("content").toString();
     return p;
 }
-
-// --- CreateTerminalParams ---
 
 QJsonObject CreateTerminalParams::toJson() const
 {
@@ -938,8 +868,6 @@ CreateTerminalParams CreateTerminalParams::fromJson(const QJsonObject &obj)
     return p;
 }
 
-// --- CreateTerminalResult ---
-
 QJsonObject CreateTerminalResult::toJson() const
 {
     return QJsonObject{{"terminalId", terminalId}};
@@ -951,8 +879,6 @@ CreateTerminalResult CreateTerminalResult::fromJson(const QJsonObject &obj)
     r.terminalId = obj.value("terminalId").toString();
     return r;
 }
-
-// --- ExitStatus ---
 
 QJsonObject ExitStatus::toJson() const
 {
@@ -971,8 +897,6 @@ ExitStatus ExitStatus::fromJson(const QJsonObject &obj)
     return s;
 }
 
-// --- TerminalOutputParams ---
-
 QJsonObject TerminalOutputParams::toJson() const
 {
     return QJsonObject{{"sessionId", sessionId}, {"terminalId", terminalId}};
@@ -985,8 +909,6 @@ TerminalOutputParams TerminalOutputParams::fromJson(const QJsonObject &obj)
     p.terminalId = obj.value("terminalId").toString();
     return p;
 }
-
-// --- TerminalOutputResult ---
 
 QJsonObject TerminalOutputResult::toJson() const
 {
@@ -1006,8 +928,6 @@ TerminalOutputResult TerminalOutputResult::fromJson(const QJsonObject &obj)
     return r;
 }
 
-// --- TerminalRefParams ---
-
 QJsonObject TerminalRefParams::toJson() const
 {
     return QJsonObject{{"sessionId", sessionId}, {"terminalId", terminalId}};
@@ -1020,8 +940,6 @@ TerminalRefParams TerminalRefParams::fromJson(const QJsonObject &obj)
     p.terminalId = obj.value("terminalId").toString();
     return p;
 }
-
-// --- WaitForTerminalExitResult ---
 
 QJsonObject WaitForTerminalExitResult::toJson() const
 {

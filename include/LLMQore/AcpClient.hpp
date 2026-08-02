@@ -37,8 +37,6 @@ public:
         QObject *parent = nullptr);
     ~AcpClient() override;
 
-    // --- Host capabilities (set before connectAndInitialize) ---
-    // Presence of a provider flips the matching clientCapabilities flag.
     void setPermissionProvider(AcpPermissionProvider *provider);
     void setFileSystemProvider(AcpFileSystemProvider *provider);
     void setTerminalProvider(AcpTerminalProvider *provider);
@@ -47,7 +45,6 @@ public:
     AcpFileSystemProvider *fileSystemProvider() const { return m_fsProvider.data(); }
     AcpTerminalProvider *terminalProvider() const { return m_terminalProvider.data(); }
 
-    // --- Outgoing (client -> agent) ---
     QFuture<InitializeResult> connectAndInitialize(
         std::chrono::milliseconds timeout = std::chrono::seconds(15));
     QFuture<void> authenticate(
@@ -68,7 +65,6 @@ public:
         const QString &modeId,
         std::chrono::milliseconds timeout = std::chrono::seconds(30));
 
-    // --- State ---
     bool isInitialized() const { return m_initialized; }
     const InitializeResult &agentInfo() const { return m_initResult; }
     ClientCapabilities clientCapabilities() const;
@@ -82,7 +78,6 @@ public:
 signals:
     void initialized(const LLMQore::Acp::InitializeResult &info);
 
-    // Streaming session/update (each carries the originating sessionId).
     void userMessageChunk(const QString &sessionId, const LLMQore::Acp::ContentBlock &content);
     void agentMessageChunk(const QString &sessionId, const LLMQore::Acp::ContentBlock &content);
     void agentThoughtChunk(const QString &sessionId, const LLMQore::Acp::ContentBlock &content);
@@ -92,9 +87,7 @@ signals:
     void availableCommandsUpdated(
         const QString &sessionId, const QList<LLMQore::Acp::AvailableCommand> &commands);
     void modeChanged(const QString &sessionId, const QString &modeId);
-    // Token-usage report (usage_update); payload shape is agent-defined, passed raw.
     void usageUpdated(const QString &sessionId, const QJsonObject &usage);
-    // Session metadata report (session_info_update), e.g. an agent-suggested title.
     void sessionInfoUpdated(const QString &sessionId, const QString &title);
 
     void promptFinished(const QString &sessionId, const QString &stopReason);

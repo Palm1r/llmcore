@@ -66,9 +66,6 @@ HttpClient::HttpClient(QObject *parent)
 
 HttpClient::~HttpClient()
 {
-    // A stream the caller never took would otherwise leak itself and the
-    // QNetworkReply it adopted. Tearing them down here -- rather than parenting
-    // them -- keeps the manager alive for the aborts their destructors issue.
     for (const QPointer<HttpStream> &stream : std::as_const(m_impl->streams)) {
         if (stream)
             delete stream.data();

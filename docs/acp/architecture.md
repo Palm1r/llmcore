@@ -2,7 +2,7 @@
 
 LLMQore as an **ACP (Agent Client Protocol) client** — the *host* side, mirroring
 Qt Creator 20's "ACP Client" extension. LLMQore launches an external coding agent
-(Claude Code, Codex, Gemini CLI, …) as a child process over stdio, drives the
+(Claude Code, Codex, …) as a child process over stdio, drives the
 conversation, streams the agent's output into a chat UI, and **services the agent's
 callbacks** into the workspace: permission prompts, file reads/writes, and terminal
 commands.
@@ -87,7 +87,7 @@ flowchart TD
     end
 
     subgraph Agent["External ACP agent (child process)"]
-        EA["claude-code / codex / gemini-cli"]
+        EA["claude-agent-acp / codex-acp"]
     end
 
     UI --> AC

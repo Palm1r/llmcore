@@ -54,7 +54,6 @@ QFuture<void> rejectedVoid(int code, const QString &message)
     return p.future();
 }
 
-// Apply 1-based `line` start and `limit` line count to text.
 QString sliceLines(const QString &text, std::optional<int> line, std::optional<int> limit)
 {
     if (!line && !limit)

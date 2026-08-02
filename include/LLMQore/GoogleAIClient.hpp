@@ -58,8 +58,6 @@ protected:
     [[nodiscard]] QString parseHttpError(const HttpResponse &response) const override;
 
 private:
-    // A 200-with-error-body response is not SSE-framed, so it has to be
-    // reassembled across chunks before it can be recognised.
     class JsonErrorSniffer
     {
     public:

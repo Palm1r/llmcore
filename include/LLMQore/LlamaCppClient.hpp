@@ -43,7 +43,6 @@ protected:
         const RequestID &id, const SSEEvent &event, const QJsonObject &json) override;
 
 private:
-    // llama.cpp's own /completion shape: bare text, no `choices` envelope.
     static bool isNativeCompletionChunk(const QJsonObject &chunk);
 };
 

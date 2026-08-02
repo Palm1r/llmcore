@@ -9,7 +9,9 @@
 #include <QEventLoop>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QProcessEnvironment>
 #include <QSignalSpy>
+#include <QStringList>
 #include <QTimer>
 #include <QtConcurrent/QtConcurrent>
 
@@ -44,6 +46,26 @@ inline QString getEnvOrDefault(const char *envVar, const QString &defaultValue)
 {
     const QByteArray value = qgetenv(envVar);
     return value.isEmpty() ? defaultValue : QString::fromUtf8(value);
+}
+
+inline QStringList childSearchPath()
+{
+    QStringList entries = QString::fromUtf8(qgetenv("LLMQORE_ENV_PATH"))
+                              .split(QLatin1Char(':'), Qt::SkipEmptyParts);
+    const QStringList inherited
+        = QString::fromUtf8(qgetenv("PATH")).split(QLatin1Char(':'), Qt::SkipEmptyParts);
+    for (const QString &entry : inherited) {
+        if (!entries.contains(entry))
+            entries.append(entry);
+    }
+    return entries;
+}
+
+inline QProcessEnvironment childEnvironment()
+{
+    QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+    environment.insert(QStringLiteral("PATH"), childSearchPath().join(QLatin1Char(':')));
+    return environment;
 }
 
 // --- A simple test tool that echoes its input ---

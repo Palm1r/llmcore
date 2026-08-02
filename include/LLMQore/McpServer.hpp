@@ -94,7 +94,6 @@ private:
     McpServerConfig m_config;
 
     QPointer<LLMQore::ToolRegistry> m_toolRegistry;
-    // QMap for stable alphabetical ordering in tools/list.
     QMap<QString, QPointer<LLMQore::BaseTool>> m_standaloneTools;
     QList<QPointer<BaseResourceProvider>> m_resourceProviders;
     QList<QPointer<BasePromptProvider>> m_promptProviders;

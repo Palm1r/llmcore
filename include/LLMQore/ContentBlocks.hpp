@@ -118,8 +118,6 @@ public:
     QString signature() const { return m_signature; }
     void appendThinking(const QString &text) { m_thinking += text; }
 
-    // Whether this block has already been announced to the caller. Kept on the
-    // block, so the client needs no per-request emission bookkeeping.
     bool isNotified() const noexcept { return m_notified; }
     void markNotified() noexcept { m_notified = true; }
     void setThinking(const QString &text) { m_thinking = text; }
@@ -150,8 +148,6 @@ private:
     bool m_notified = false;
 };
 
-// Ownership: caller (typically BaseMessage) takes ownership of the returned pointer.
-// All blocks added to a BaseMessage are deleted in ~BaseMessage and startNewContinuation.
 template<typename T, typename... Args>
 T *addContentBlock(QList<ContentBlock *> &blocks, Args &&...args)
 {

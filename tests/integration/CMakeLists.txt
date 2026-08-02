@@ -4,7 +4,9 @@ endif()
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Test Concurrent)
 
 add_executable(LLMQoreIntegrationTests
+    main.cpp
     IntegrationTestTools.cpp
+    tst_AcpIntegration.cpp
     tst_ClaudeIntegration.cpp
     tst_ClaudeMcpIntegration.cpp
     tst_OpenAIIntegration.cpp
@@ -33,7 +35,7 @@ target_link_libraries(LLMQoreIntegrationTests PRIVATE
     LLMQore::LLMQore
     Qt${QT_VERSION_MAJOR}::Test
     Qt${QT_VERSION_MAJOR}::Concurrent
-    GTest::gtest_main
+    GTest::gtest
 )
 
 # Integration tests are NOT added to CTest by default — run manually
@@ -41,5 +43,5 @@ target_link_libraries(LLMQoreIntegrationTests PRIVATE
 add_test(NAME LLMQoreIntegrationTests COMMAND LLMQoreIntegrationTests)
 set_tests_properties(LLMQoreIntegrationTests PROPERTIES
     LABELS "integration"
-    TIMEOUT 300
+    TIMEOUT 600
 )

@@ -220,10 +220,6 @@ bool OllamaMessage::tryParseToolCall()
 
 QString OllamaMessage::makeToolCallId(const QString &name)
 {
-    // Ollama's native shape carries no call id, so one is minted here. The
-    // wall-clock component this used to carry was there to dodge the tool
-    // queue's cross-round dedup; the round ledger clears itself now, so a
-    // loop-scoped counter is enough -- and it makes the id reproducible.
     return QString("call_%1_%2").arg(name).arg(m_toolCallSequence++);
 }
 

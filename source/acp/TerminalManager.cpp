@@ -16,7 +16,7 @@ struct TerminalManager::Terminal
     QString id;
     QProcess *process = nullptr;
     QByteArray output;
-    qint64 byteLimit = 0; // 0 == unlimited
+    qint64 byteLimit = 0;
     bool truncated = false;
     bool finished = false;
     std::optional<int> exitCode;
@@ -76,7 +76,7 @@ TerminalManager::~TerminalManager()
             t->process->waitForFinished(500);
         }
     }
-    qDeleteAll(m_terminals); // QProcess children are freed by the QObject parent
+    qDeleteAll(m_terminals);
 }
 
 void TerminalManager::appendOutput(Terminal *t, const QByteArray &data)

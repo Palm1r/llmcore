@@ -9,10 +9,6 @@
 
 namespace LLMQore {
 
-// All ToolRegistry methods below mutate or expose raw pointers to m_tools
-// and must run on the owning thread. toolsSnapshot() is also owning-thread
-// only (it reads m_tools), but the value it returns is safe to pass across
-// thread boundaries.
 namespace {
 inline void assertOwningThread(const QObject *self)
 {
@@ -88,8 +84,6 @@ QList<ToolSnapshot> ToolRegistry::toolsSnapshot() const
     for (auto *t : std::as_const(m_tools)) {
         if (!t)
             continue;
-        // Force detach on every QString so the snapshot owns its storage
-        // and cannot share COW buffers with live BaseTool fields.
         ToolSnapshot snap;
         snap.id = t->id();
         snap.id.detach();

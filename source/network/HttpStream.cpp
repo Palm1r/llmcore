@@ -86,8 +86,6 @@ HttpStream::HttpStream(QNetworkReply *reply, QObject *parent)
             return;
         }
 
-        // For tiny responses, metaDataChanged and finished can collapse
-        // into a single event-loop iteration, so readyRead never fires.
         if (!m_impl->headersFired)
             fireHeaders();
 

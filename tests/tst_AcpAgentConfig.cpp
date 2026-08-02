@@ -48,11 +48,11 @@ TEST(AcpAgentConfig, JsonRoundTrip)
 TEST(AcpAgentConfig, CreateTransportReturnsUnstartedTransport)
 {
     AcpAgentConfig c;
-    c.command = "gemini";
-    c.args = QStringList{"--experimental-acp"};
+    c.command = "npx";
+    c.args = QStringList{"-y", "@agentclientprotocol/claude-agent-acp"};
     auto *transport = c.createTransport();
     ASSERT_NE(transport, nullptr);
-    EXPECT_FALSE(transport->isOpen()); // not started yet
+    EXPECT_FALSE(transport->isOpen());
     delete transport;
 }
 

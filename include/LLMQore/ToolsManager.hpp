@@ -40,10 +40,6 @@ struct PendingTool
     bool complete = false;
 };
 
-// One turn of the agent loop. `completed` is the round's ledger, not the
-// request's history: it is cleared at every round boundary, so a model that
-// reuses a tool-call id in the next round is executed again instead of being
-// swallowed by the dedup.
 struct ToolRound
 {
     QList<PendingTool> queue;
@@ -79,8 +75,6 @@ public:
         const QJsonObject &input);
     void cleanupRequest(const QString &requestId);
 
-    // Asked before a tool runs. Only consulted for tools that declare
-    // ToolSafety::Mutating -- a read-only tool has nothing to approve.
     using ExecutionGate = std::function<QFuture<bool>(
         const QString &requestId,
         const QString &toolId,
@@ -114,7 +108,6 @@ private:
     void executeNextTool(const QString &requestId);
     void finalizePendingTool(
         const QString &requestId, const QString &toolId, const ToolResult &rich, bool success);
-    // Results of the round now closing -- not of every round so far.
     QHash<QString, ToolResult> getToolResults(const QString &requestId) const;
     QJsonArray buildToolsDefinitions() const;
 

@@ -34,8 +34,6 @@ void registerMetatypesOnce()
     Q_UNUSED(once);
 }
 
-// tool_call_update carries the current state of a tool call; merge the
-// non-empty fields onto the call the UI already shows.
 ToolCall mergeToolCall(ToolCall base, const ToolCall &upd)
 {
     if (!upd.toolCallId.isEmpty())
@@ -254,7 +252,6 @@ void AcpClient::installHandlers()
         QLatin1String(Method::SessionUpdate),
         [this](const QJsonObject &params) { handleSessionUpdate(params); });
 
-    // session/request_permission — always handled; no provider ⇒ cancel.
     m_session->setRequestHandler(
         QLatin1String(Method::RequestPermission),
         [this](const QJsonObject &params) -> QFuture<QJsonValue> {
@@ -267,7 +264,6 @@ void AcpClient::installHandlers()
                 this, f, [](const RequestPermissionResult &r) -> QJsonValue { return r.toJson(); });
         });
 
-    // fs/read_text_file
     m_session->setRequestHandler(
         QLatin1String(Method::FsReadTextFile),
         [this](const QJsonObject &params) -> QFuture<QJsonValue> {
@@ -284,7 +280,6 @@ void AcpClient::installHandlers()
             });
         });
 
-    // fs/write_text_file
     m_session->setRequestHandler(
         QLatin1String(Method::FsWriteTextFile),
         [this](const QJsonObject &params) -> QFuture<QJsonValue> {
@@ -297,7 +292,6 @@ void AcpClient::installHandlers()
                 this, f, []() -> QJsonValue { return QJsonObject{}; });
         });
 
-    // terminal/create
     m_session->setRequestHandler(
         QLatin1String(Method::TerminalCreate),
         [this](const QJsonObject &params) -> QFuture<QJsonValue> {
@@ -310,7 +304,6 @@ void AcpClient::installHandlers()
                 this, f, [](const CreateTerminalResult &r) -> QJsonValue { return r.toJson(); });
         });
 
-    // terminal/output
     m_session->setRequestHandler(
         QLatin1String(Method::TerminalOutput),
         [this](const QJsonObject &params) -> QFuture<QJsonValue> {
@@ -324,7 +317,6 @@ void AcpClient::installHandlers()
                 this, f, [](const TerminalOutputResult &r) -> QJsonValue { return r.toJson(); });
         });
 
-    // terminal/wait_for_exit
     m_session->setRequestHandler(
         QLatin1String(Method::TerminalWaitForExit),
         [this](const QJsonObject &params) -> QFuture<QJsonValue> {
@@ -340,7 +332,6 @@ void AcpClient::installHandlers()
                 });
         });
 
-    // terminal/kill
     m_session->setRequestHandler(
         QLatin1String(Method::TerminalKill),
         [this](const QJsonObject &params) -> QFuture<QJsonValue> {
@@ -352,7 +343,6 @@ void AcpClient::installHandlers()
             return LLMQore::futureThen(this, f, []() -> QJsonValue { return QJsonObject{}; });
         });
 
-    // terminal/release
     m_session->setRequestHandler(
         QLatin1String(Method::TerminalRelease),
         [this](const QJsonObject &params) -> QFuture<QJsonValue> {

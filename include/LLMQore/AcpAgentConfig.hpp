@@ -19,7 +19,7 @@ struct LLMQORE_EXPORT AcpAgentConfig
 {
     QString command;
     QStringList args;
-    QList<EnvVariable> env; // added on top of the inherited environment
+    QList<EnvVariable> env;
     QString cwd;
     int startupTimeoutMs = 10000;
 

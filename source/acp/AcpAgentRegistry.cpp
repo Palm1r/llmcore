@@ -13,7 +13,7 @@ namespace LLMQore::Acp {
 
 QJsonObject AcpAgentEntry::toJson() const
 {
-    QJsonObject o = config.toJson(); // command / args / env / cwd
+    QJsonObject o = config.toJson();
     o.insert("id", id);
     o.insert("name", name);
     if (!description.isEmpty())

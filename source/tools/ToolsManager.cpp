@@ -186,8 +186,6 @@ void ToolsManager::executeNextTool(const QString &requestId)
 
     const QHash<QString, ToolResult> results = getToolResults(requestId);
 
-    // Close the round before emitting: the handler may abort and drop the
-    // request, and nothing below may touch `queue` afterwards.
     queue.beginNextRound();
     queue.isExecuting = false;
 

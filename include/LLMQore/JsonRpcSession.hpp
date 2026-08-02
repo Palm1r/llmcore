@@ -25,7 +25,6 @@ class QTimer;
 
 namespace LLMQore::Rpc {
 
-// Notification names the session itself speaks, on both ends of the wire.
 namespace Method {
 inline constexpr const char *Cancelled = "notifications/cancelled";
 inline constexpr const char *Progress  = "notifications/progress";
@@ -33,12 +32,8 @@ inline constexpr const char *Progress  = "notifications/progress";
 
 enum class MessageKind { Request, Notification, Response, Invalid };
 
-// Classifies a JSON-RPC message by shape alone; the `jsonrpc` version field
-// is the caller's concern.
 [[nodiscard]] LLMQORE_EXPORT MessageKind classify(const QJsonObject &message);
 
-// A JSON-RPC id as its canonical string form: strings verbatim, numbers
-// rendered in decimal, anything else (including null) empty.
 [[nodiscard]] LLMQORE_EXPORT QString idToString(const QJsonValue &id);
 
 class LLMQORE_EXPORT JsonRpcSession : public QObject
@@ -56,7 +51,7 @@ public:
     struct CancellableRequest
     {
         QFuture<QJsonValue> future;
-        QString requestId; // same value used as the progress token
+        QString requestId;
     };
     CancellableRequest sendCancellableRequest(
         const QString &method,

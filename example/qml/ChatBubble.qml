@@ -20,9 +20,7 @@ Rectangle {
     implicitHeight: contentCol.implicitHeight + 16
     radius: 6
 
-    color: role === "user"  ? "#5e81ac"
-         : role === "error" ? "#bf616a"
-         : palette.base
+    color: role === "user" ? "#5e81ac" : role === "error" ? "#bf616a" : palette.base
 
     ColumnLayout {
         id: contentCol
@@ -35,10 +33,7 @@ Rectangle {
 
         Label {
             visible: !bubble.isToolInGroup
-            text: bubble.role === "user"      ? qsTr("You")
-                : bubble.role === "assistant"  ? qsTr("Assistant")
-                : bubble.role === "error"      ? qsTr("Error")
-                : bubble.role
+            text: bubble.role === "user" ? qsTr("You") : bubble.role === "assistant" ? qsTr("Assistant") : bubble.role === "error" ? qsTr("Error") : bubble.role
             font {
                 bold: true
                 pixelSize: 11
@@ -46,7 +41,6 @@ Rectangle {
             color: Qt.rgba(1, 1, 1, 0.5)
         }
 
-        // -- Tool result (collapsible) --
         Rectangle {
             Layout.fillWidth: true
             visible: bubble.isTool
@@ -72,10 +66,13 @@ Rectangle {
 
                     Label {
                         text: {
-                            const m = bubble.messageText.match(/^\[(.+?)\]:/)
-                            return m ? "Tool: " + m[1] : "Tool"
+                            const m = bubble.messageText.match(/^\[(.+?)\]:/);
+                            return m ? "Tool: " + m[1] : "Tool";
                         }
-                        font { bold: true; pixelSize: 10 }
+                        font {
+                            bold: true
+                            pixelSize: 10
+                        }
                         color: "#ebcb8b"
                     }
 
@@ -97,9 +94,8 @@ Rectangle {
                     Layout.fillWidth: true
                     visible: bubble.expanded
                     text: {
-                        const idx = bubble.messageText.indexOf("]: ")
-                        return idx >= 0 ? bubble.messageText.substring(idx + 3)
-                                        : bubble.messageText
+                        const idx = bubble.messageText.indexOf("]: ");
+                        return idx >= 0 ? bubble.messageText.substring(idx + 3) : bubble.messageText;
                     }
                     wrapMode: Text.WordWrap
                     textFormat: Text.PlainText
@@ -113,7 +109,6 @@ Rectangle {
             }
         }
 
-        // -- Regular message (selectable, markdown) --
         TextEdit {
             visible: !bubble.isTool
             Layout.fillWidth: true
@@ -129,7 +124,6 @@ Rectangle {
         }
     }
 
-    // -- Context menu --
     MouseArea {
         anchors.fill: parent
         acceptedButtons: Qt.RightButton
@@ -143,14 +137,15 @@ Rectangle {
         MenuItem {
             text: qsTr("Copy")
             onTriggered: {
-                let t = bubble.messageText
+                let t = bubble.messageText;
                 if (bubble.isTool) {
-                    const idx = t.indexOf("]: ")
-                    if (idx >= 0) t = t.substring(idx + 3)
+                    const idx = t.indexOf("]: ");
+                    if (idx >= 0)
+                        t = t.substring(idx + 3);
                 }
-                clipHelper.text = t
-                clipHelper.selectAll()
-                clipHelper.copy()
+                clipHelper.text = t;
+                clipHelper.selectAll();
+                clipHelper.copy();
             }
         }
 
@@ -158,9 +153,9 @@ Rectangle {
             text: qsTr("Copy as Markdown")
             visible: bubble.role === "assistant"
             onTriggered: {
-                clipHelper.text = bubble.messageText
-                clipHelper.selectAll()
-                clipHelper.copy()
+                clipHelper.text = bubble.messageText;
+                clipHelper.selectAll();
+                clipHelper.copy();
             }
         }
     }

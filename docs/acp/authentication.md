@@ -10,14 +10,21 @@ variables).
 
 - On `initialize` the agent returns `authMethods`. If it is **non-empty**, the host
   should call `AcpClient::authenticate(methodId)` before `session/new`.
-- If the agent has **no usable credential**, calls fail with a JSON-RPC error
-  `-32000 Authentication required` — typically at `session/prompt` (the first call that
-  actually reaches the provider), even though `initialize` and `session/new` succeeded.
+- If the agent has **no usable credential**, calls fail at `session/prompt` — the first
+  call that actually reaches the provider — even though `initialize` and `session/new`
+  succeeded. Observed against `@agentclientprotocol/claude-agent-acp` 0.64.0:
 
+```json
+{"jsonrpc":"2.0","id":3,
+ "error":{"code":-32603,
+          "message":"Internal error: Failed to authenticate: OAuth session expired and could not be refreshed",
+          "data":{"errorKind":"authentication_failed"}}}
 ```
-llmqore.rpc: --> request id=3 method=session/prompt
-llmqore.rpc: <-- response id=3 error=Authentication required
-```
+
+  Note the code is the generic `-32603`, **not** a dedicated auth code. Detect this by
+  `Rpc::RemoteError::data()["errorKind"] == "authentication_failed"`, not by the code —
+  `tst_AcpIntegration.cpp` does exactly that to tell a stale credential apart from any
+  other internal error.
 
 ## Claude Code adapter (`@agentclientprotocol/claude-agent-acp`)
 
@@ -69,8 +76,12 @@ A GUI-launched app does **not** inherit your interactive shell's exports. Puttin
 where the host can actually see it: the run-configuration environment, the agent's
 `env` block, or a `~/.zshenv` (which is always sourced) — not `~/.zshrc`.
 
+The same trap catches **non-interactive shells**, which is how CI and test runners launch
+things: zsh reads `~/.zshrc` only when interactive, so a token exported there is invisible
+to `LLMQoreIntegrationTests`. `~/.zshenv` is read by every zsh, interactive or not.
+
 ## Other agents
 
-Auth is agent-specific. Gemini CLI (`gemini --experimental-acp`) and Codex use their own
-login / keys; consult each agent's docs and provide the relevant env vars the same way
-(host process env or the agent's `env` block in `agents.json`).
+Auth is agent-specific. Codex (`npx -y @zed-industries/codex-acp`) uses its own login /
+keys; consult each agent's docs and provide the relevant env vars the same way (host
+process env or the agent's `env` block in `agents.json`).

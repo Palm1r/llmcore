@@ -32,7 +32,6 @@ inline constexpr const char *kKnownProtocolVersions[] = {
     kProtocolVersion2024_11_05,
 };
 
-// JSON-RPC method names (client -> server unless noted).
 namespace Method {
 inline constexpr const char *Initialize             = "initialize";
 inline constexpr const char *Ping                   = "ping";
@@ -61,7 +60,6 @@ inline constexpr const char *PromptsListChanged          = "notifications/prompt
 inline constexpr const char *RootsListChanged            = "notifications/roots/list_changed";
 } // namespace Method
 
-// Completion reference kinds (`completion/complete` -> `ref.type`).
 namespace RefType {
 inline constexpr const char *Prompt   = "ref/prompt";
 inline constexpr const char *Resource = "ref/resource";

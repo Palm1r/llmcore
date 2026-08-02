@@ -114,11 +114,6 @@ public:
     }
 };
 
-// --- Extra tools used by the MCP server demo ---
-// Kept intentionally distinct from the three "built-in" tools above so that
-// the chat example shows MCP-sourced and locally-provided tools coexisting
-// without id collisions.
-
 class IPv4Tool : public LLMQore::BaseTool
 {
     Q_OBJECT
@@ -219,19 +214,10 @@ public:
     }
 };
 
-// Reads an image file by absolute path and returns it as an MCP image content
-// block (base64 on the wire, preserved end-to-end through McpServer /
-// McpRemoteTool / ClaudeClient continuation). Intentionally exposed only
-// through the MCP server demo — you would typically guard it with a
-// workspace sandbox in real use; here the caller is expected to trust the
-// LLM with full disk read access for the demo scenario.
 class ImageReadTool : public LLMQore::BaseTool
 {
     Q_OBJECT
 public:
-    // Hard upper bound on returned image size. 10 MiB is enough for most
-    // screenshots and photos but small enough to keep base64 payloads out
-    // of pathological territory on the wire.
     static constexpr qint64 kMaxImageBytes = 10 * 1024 * 1024;
 
     explicit ImageReadTool(QObject *parent = nullptr)

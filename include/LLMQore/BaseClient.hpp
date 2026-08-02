@@ -65,9 +65,6 @@ struct LLMQORE_EXPORT CompletionInfo
     QString stopReason;
     std::optional<TokenUsage> usage;
 
-    // Payload of the last turn actually sent, including every tool round-trip
-    // the loop added. Callers keeping their own history must carry this forward
-    // instead of their original request, or the tool exchange is lost.
     QJsonObject requestPayload;
 };
 
@@ -121,8 +118,6 @@ public:
     int maxToolContinuations() const;
     void setMaxToolContinuations(int limit);
 
-    // Rounds of the agent loop this request has completed. Zero once the
-    // request is finished, failed or cancelled.
     [[nodiscard]] int toolRounds(const RequestID &id) const;
 
     int transferTimeoutMs() const;
@@ -148,11 +143,8 @@ signals:
         const QString &result);
 
 protected:
-    // The provider's tool dialect, supplied by its message translator.
     virtual const ToolDialect &toolDialect() const = 0;
 
-    // How the provider spells token usage. `kNoUsageSchema` for a client that
-    // reports none.
     virtual const UsageSchema &usageSchema() const = 0;
 
     virtual void processData(const RequestID &id, const QByteArray &data);
@@ -163,19 +155,13 @@ protected:
         const QHash<QString, ToolResult> &toolResults)
         = 0;
 
-    // Per-request state beyond the message object. Only providers that keep
-    // some survives-the-turn bookkeeping need this.
     virtual void cleanupDerivedData(const RequestID &id);
 
-    // Which category the shared code logs under, so each provider still
-    // reports under its own name. Set once, in the subclass constructor.
     [[nodiscard]] const QLoggingCategory &logCategory() const;
     void setLogCategory(const QLoggingCategory &category);
 
     [[nodiscard]] virtual QString parseHttpError(const HttpResponse &response) const;
 
-    // "HTTP <status>: <error.message>", plus one parenthesised clause per
-    // annotation whose field is present. An empty label renders the value bare.
     struct ErrorAnnotation
     {
         QString label;
@@ -184,8 +170,6 @@ protected:
     [[nodiscard]] QString parseErrorObject(
         const HttpResponse &response, const QList<ErrorAnnotation> &annotations) const;
 
-    // GET `url`, read `arrayKey` out of the response object, and collect
-    // `idKey` from each entry. `idMapper` post-processes each raw id.
     [[nodiscard]] QFuture<QList<QString>> fetchModelList(
         const QUrl &url,
         const QString &arrayKey = QStringLiteral("data"),
@@ -194,12 +178,9 @@ protected:
 
     [[nodiscard]] QUrl endpointUrl(const QString &endpoint, const QString &defaultPath) const;
 
-    // --- per-request message object, owned by the base ---
-
     [[nodiscard]] BaseMessage *messageForRequest(const RequestID &id) const;
     void setMessageForRequest(const RequestID &id, BaseMessage *message);
 
-    // The lazy-create-or-restart skeleton every provider's stream handler runs.
     template<typename T>
     T *ensureMessage(const RequestID &id)
     {
@@ -246,9 +227,6 @@ protected:
 
     virtual void onStreamDrained(const RequestID &id);
 
-    // Called by the base at end-of-stream, before it decides the request is
-    // done. Providers whose framer can hold a trailing event drain it here
-    // instead of re-implementing the tail of onStreamFinished.
     virtual void flushStreamBuffers(const RequestID &id);
 
     void dispatchSseEvents(const RequestID &id, const QList<SSEEvent> &events);
@@ -271,8 +249,6 @@ protected:
 
     void captureStopReason(const RequestID &id);
 
-    // Reads whatever `root` says about token usage and merges it into the
-    // turn's snapshot, leaving counters the response did not mention alone.
     void applyUsage(const RequestID &id, const QJsonObject &root);
     void applyUsage(const RequestID &id, const QJsonObject &root, const UsageSchema &schema);
 
@@ -293,8 +269,6 @@ protected:
     QString m_model;
 
 private:
-    // The agent loop. Driven by ToolsManager::toolExecutionComplete; not part
-    // of the surface a caller drives.
     void handleToolsCompleted(
         const RequestID &id, const QHash<QString, ToolResult> &toolResults);
     void setUsage(const RequestID &id, const TokenUsage &usage);

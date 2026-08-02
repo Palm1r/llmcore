@@ -25,14 +25,6 @@ class McpClient;
 class McpRemoteTool;
 struct ToolInfo;
 
-// Keeps a ToolRegistry in sync with the tools of one or more MCP servers:
-// connect, list, wrap each tool in a McpRemoteTool (id-prefixed with the
-// server name; an id already registered by another binding is skipped with
-// a warning instead of being replaced), diff-resync on toolsChanged that
-// keeps unchanged tools alive, reconnect with backoff for servers bound
-// with autoReconnect, and removal of a client's tools when it goes away.
-// The registry must outlive the binder; a registry destroyed first simply
-// stops receiving updates.
 class LLMQORE_EXPORT McpToolBinder : public QObject
 {
     Q_OBJECT
@@ -40,29 +32,17 @@ public:
     explicit McpToolBinder(LLMQore::ToolRegistry *registry, QObject *parent = nullptr);
     ~McpToolBinder() override;
 
-    // Identity reported to servers by clients the binder creates itself.
     void setClientInfo(Implementation info);
 
-    // Provisions a client+transport for `endpoint` (binder-owned, with
-    // reconnect+backoff). Returns false when no transport could be created
-    // for the endpoint.
     bool addServer(const ServerEndpoint &endpoint);
 
-    // Provisions every endpoint of the `mcpServers` map in `config`.
-    // Returns the number of servers accepted.
     int loadServers(const QJsonObject &config);
 
-    // Binds an externally-owned, already-provisioned client. Its tool ids
-    // are prefixed with `serverName` when given. The binder follows
-    // toolsChanged, removes the tools when the client is destroyed, and —
-    // only when `autoReconnect` is set — re-initializes it with backoff
-    // after a transport loss.
     void addClient(
         McpClient *client, const QString &serverName = {}, bool autoReconnect = false);
 
     void removeClient(McpClient *client);
 
-    // Stops reconnect attempts and shuts down binder-owned clients.
     void shutdown();
 
 signals:

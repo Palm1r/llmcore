@@ -12,43 +12,65 @@ ApplicationWindow {
     id: root
 
     readonly property var llmProviders: [
-        { name: "Claude",    url: "https://api.anthropic.com",                       needsKey: true  },
-        { name: "OpenAI",    url: "https://api.openai.com",                          needsKey: true  },
-        { name: "Ollama",    url: "http://localhost:11434",                          needsKey: false },
-        { name: "Google AI", url: "https://generativelanguage.googleapis.com",       needsKey: true  },
-        { name: "LlamaCpp",  url: "http://localhost:8080",                           needsKey: false },
+        {
+            name: "Claude",
+            url: "https://api.anthropic.com",
+            needsKey: true
+        },
+        {
+            name: "OpenAI",
+            url: "https://api.openai.com",
+            needsKey: true
+        },
+        {
+            name: "Ollama",
+            url: "http://localhost:11434",
+            needsKey: false
+        },
+        {
+            name: "Google AI",
+            url: "https://generativelanguage.googleapis.com",
+            needsKey: true
+        },
+        {
+            name: "LlamaCpp",
+            url: "http://localhost:8080",
+            needsKey: false
+        },
     ]
 
-    // Add acp agents from registry
-    readonly property var providers: llmProviders.concat(
-        controller.acpAgentNames.map(n => ({ name: n, url: "", needsKey: false })))
+    readonly property var providers: llmProviders.concat(controller.acpAgentNames.map(n => ({
+                name: n,
+                url: "",
+                needsKey: false
+            })))
 
     width: 800
     height: 600
     visible: true
     title: "LLMQore Chat"
 
-    // -- Nord palette ---------------------------------------------------------
-
     palette {
-        window:          "#2e3440"
-        base:            "#3b4252"
-        alternateBase:   "#434c5e"
-        text:            "#eceff4"
-        windowText:      "#eceff4"
-        button:          "#4c566a"
-        buttonText:      "#eceff4"
-        highlight:       "#88c0d0"
+        window: "#2e3440"
+        base: "#3b4252"
+        alternateBase: "#434c5e"
+        text: "#eceff4"
+        windowText: "#eceff4"
+        button: "#4c566a"
+        buttonText: "#eceff4"
+        highlight: "#88c0d0"
         highlightedText: "#2e3440"
-        placeholderText:  "#7b88a1"
-        mid:             "#4c566a"
-        dark:            "#2e3440"
-        light:           "#e5e9f0"
+        placeholderText: "#7b88a1"
+        mid: "#4c566a"
+        dark: "#2e3440"
+        light: "#e5e9f0"
     }
 
     color: palette.window
 
-    ChatController { id: controller }
+    ChatController {
+        id: controller
+    }
 
     ToolsDrawer {
         id: toolsDrawer
@@ -63,8 +85,6 @@ ApplicationWindow {
             topMargin: 6
         }
         spacing: 0
-
-        // -- Chat messages ------------------------------------------------
 
         ListView {
             id: chatView
@@ -83,14 +103,14 @@ ApplicationWindow {
                 required property int index
 
                 readonly property bool isToolInGroup: {
-                    if (role !== "tool" || index === 0) return false
-                    const prev = controller.messages.roleAt(index - 1)
-                    return prev === "assistant" || prev === "tool"
+                    if (role !== "tool" || index === 0)
+                        return false;
+                    const prev = controller.messages.roleAt(index - 1);
+                    return prev === "assistant" || prev === "tool";
                 }
 
                 width: ListView.view.width
-                implicitHeight: delegateBubble.implicitHeight
-                                + (isToolInGroup ? 1 : (index > 0 ? 6 : 0))
+                implicitHeight: delegateBubble.implicitHeight + (isToolInGroup ? 1 : (index > 0 ? 6 : 0))
 
                 ChatBubble {
                     id: delegateBubble
@@ -103,19 +123,16 @@ ApplicationWindow {
                 }
             }
 
-            // Robust auto-scroll: keep at bottom during streaming
             onCountChanged: scrollToBottom()
             onContentHeightChanged: {
                 if (atYEnd || controller.busy)
-                    scrollToBottom()
+                    scrollToBottom();
             }
 
             function scrollToBottom() {
-                Qt.callLater(() => positionViewAtEnd())
+                Qt.callLater(() => positionViewAtEnd());
             }
         }
-
-        // -- Separator ----------------------------------------------------
 
         Rectangle {
             Layout.fillWidth: true
@@ -123,8 +140,6 @@ ApplicationWindow {
             implicitHeight: 1
             color: palette.alternateBase
         }
-
-        // -- Provider bar -------------------------------------------------
 
         ProviderBar {
             id: providerBar
@@ -137,8 +152,6 @@ ApplicationWindow {
             onReconnectRequested: root.reconnect()
         }
 
-        // -- Input bar ----------------------------------------------------
-
         ChatInput {
             Layout.fillWidth: true
             Layout.topMargin: 6
@@ -147,15 +160,13 @@ ApplicationWindow {
 
             onSendRequested: text => {
                 if (!controller.modelList.length && providerBar.currentModel.length === 0)
-                    return
-                controller.send(text, providerBar.currentModel)
+                    return;
+                controller.send(text, providerBar.currentModel);
             }
             onStopRequested: controller.stopGeneration()
             onClearRequested: controller.clearChat()
             onToolsToggled: toolsDrawer.open()
         }
-
-        // -- Status (shown when not busy) ---------------------------------
 
         Label {
             Layout.topMargin: 4
@@ -167,8 +178,6 @@ ApplicationWindow {
             font.pixelSize: 11
             color: palette.placeholderText
         }
-
-        // -- Typing indicator ---------------------------------------------
 
         RowLayout {
             Layout.fillWidth: true
@@ -183,15 +192,27 @@ ApplicationWindow {
                 model: 3
                 delegate: Rectangle {
                     required property int index
-                    width: 6; height: 6; radius: 3
+                    width: 6
+                    height: 6
+                    radius: 3
                     color: "#88c0d0"
 
                     SequentialAnimation on opacity {
                         loops: Animation.Infinite
                         running: controller.busy
-                        PauseAnimation { duration: index * 200 }
-                        NumberAnimation { from: 0.3; to: 1.0; duration: 400 }
-                        NumberAnimation { from: 1.0; to: 0.3; duration: 400 }
+                        PauseAnimation {
+                            duration: index * 200
+                        }
+                        NumberAnimation {
+                            from: 0.3
+                            to: 1.0
+                            duration: 400
+                        }
+                        NumberAnimation {
+                            from: 1.0
+                            to: 0.3
+                            duration: 400
+                        }
                     }
                 }
             }
@@ -205,11 +226,7 @@ ApplicationWindow {
     }
 
     function reconnect() {
-        controller.setupProvider(
-            providerBar.providerName(),
-            providerBar.providerUrl(),
-            providerBar.providerKey()
-        )
+        controller.setupProvider(providerBar.providerName(), providerBar.providerUrl(), providerBar.providerKey());
     }
 
     Component.onCompleted: reconnect()

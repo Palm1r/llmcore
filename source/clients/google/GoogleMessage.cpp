@@ -16,7 +16,6 @@ namespace {
 
 QJsonValue sanitizeSchemaValueForGoogle(const QJsonValue &value);
 
-// Gemini rejects most of JSON Schema's composition and reference vocabulary.
 QJsonObject sanitizeSchemaForGoogle(const QJsonObject &schema)
 {
     static const QSet<QString> kUnsupported{
@@ -286,11 +285,6 @@ QJsonArray GoogleMessage::createToolResultParts(
             return;
         }
 
-        // Binary blocks ride as sibling inlineData parts in the same function
-        // turn. The nested FunctionResponse.parts shape from the multimodal
-        // function-response docs is rejected with a generic INVALID_ARGUMENT
-        // by the live Gemini API (verified 2026-06 on gemini-3.1-flash-lite
-        // and gemini-3-flash with valid thought signatures).
         const QString textPart = buildGeminiResponseText(r);
         functionResponse["response"]
             = QJsonObject{{"result", textPart.isEmpty() ? QString() : textPart}};
