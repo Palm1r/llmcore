@@ -430,10 +430,9 @@ QFuture<bool> answer(bool value)
     return future;
 }
 
-void pumpEvents(int rounds = 20)
+bool waitForCompletion(QSignalSpy &spy, int timeoutMs = 10000)
 {
-    for (int i = 0; i < rounds; ++i)
-        QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
+    return spy.count() > 0 || spy.wait(timeoutMs);
 }
 
 } // namespace
@@ -452,7 +451,7 @@ TEST_F(ToolsManagerTest, ExecutionGateDeclinesAMutatingTool)
 
     QSignalSpy complete(&mgr, &ToolsManager::toolExecutionComplete);
     mgr.executeToolCall("req", "call_1", "writer", QJsonObject{});
-    pumpEvents();
+    ASSERT_TRUE(waitForCompletion(complete)) << "toolExecutionComplete never arrived";
 
     ASSERT_EQ(asked, QStringList{"writer"});
     ASSERT_EQ(complete.count(), 1);
@@ -472,7 +471,7 @@ TEST_F(ToolsManagerTest, ExecutionGateAllowsAMutatingTool)
 
     QSignalSpy complete(&mgr, &ToolsManager::toolExecutionComplete);
     mgr.executeToolCall("req", "call_1", "writer", QJsonObject{});
-    pumpEvents();
+    ASSERT_TRUE(waitForCompletion(complete)) << "toolExecutionComplete never arrived";
 
     ASSERT_EQ(complete.count(), 1);
     const auto results = complete.first().at(1).value<LLMQoreToolResultHash>();
@@ -493,7 +492,7 @@ TEST_F(ToolsManagerTest, ExecutionGateIsNotConsultedForAReadOnlyTool)
 
     QSignalSpy complete(&mgr, &ToolsManager::toolExecutionComplete);
     mgr.executeToolCall("req", "call_1", "reader", QJsonObject{});
-    pumpEvents();
+    ASSERT_TRUE(waitForCompletion(complete)) << "toolExecutionComplete never arrived";
 
     EXPECT_FALSE(asked) << "a read-only tool has nothing for the user to approve";
     ASSERT_EQ(complete.count(), 1);
