@@ -520,7 +520,7 @@ TEST_F(AcpLoopbackTest, TerminalCallsReachTheProviderAndComeBackInShape)
     CreateTerminalParams create;
     create.sessionId = QStringLiteral("s1");
     create.command = QStringLiteral("ls");
-    create.args = {QStringLiteral("-l")};
+    create.args = QStringList{QStringLiteral("-l")};
     create.cwd = QStringLiteral("/tmp");
     create.env = {EnvVariable{QStringLiteral("K"), QStringLiteral("V")}};
     create.outputByteLimit = 4096;
