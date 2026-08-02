@@ -10,6 +10,7 @@
 #include <QJsonObject>
 #include <QNetworkRequest>
 #include <QPromise>
+#include <QSet>
 #include <QSignalSpy>
 #include <QThread>
 #include <QTimer>
@@ -28,6 +29,7 @@
 #include <LLMQore/JsonRpcSession.hpp>
 #include "clients/claude/ClaudeMessage.hpp"
 #include "clients/openai/OpenAIMessage.hpp"
+#include "LoopbackHarness.hpp"
 #include "TestHelpers.hpp"
 #include <LLMQore/ToolRegistry.hpp>
 #include <LLMQore/ToolsManager.hpp>
@@ -129,7 +131,6 @@ public:
         return promise->future();
     }
 
-    // Seed a set of suggestions keyed by (templateUri, placeholderName).
     void addCompletion(
         const QString &templateUri,
         const QString &placeholderName,
@@ -157,10 +158,26 @@ public:
         return promise->future();
     }
 
+    bool supportsSubscription() const override { return m_supportsSubscription; }
+    void subscribe(const QString &uri) override { m_subscribed.insert(uri); }
+    void unsubscribe(const QString &uri) override { m_subscribed.remove(uri); }
+
+    void setSupportsSubscription(bool on) { m_supportsSubscription = on; }
+    bool isSubscribed(const QString &uri) const { return m_subscribed.contains(uri); }
+
+    void touch(const QString &uri, const QString &text)
+    {
+        m_resources.insert(uri, text);
+        if (m_subscribed.contains(uri))
+            emit resourceUpdated(uri);
+    }
+
 private:
     QHash<QString, QString> m_resources;
     QHash<QString, QStringList> m_completions;
     QList<ResourceTemplate> m_templates;
+    QSet<QString> m_subscribed;
+    bool m_supportsSubscription = false;
 };
 
 class MemoryPromptProvider : public BasePromptProvider
@@ -213,8 +230,6 @@ public:
         return promise->future();
     }
 
-    // For the "greet" prompt, complete the "name" argument with a canned
-    // list of friendly names, prefix-filtered by the partial value.
     QFuture<CompletionResult> completeArgument(
         const QString &promptName,
         const QString &argumentName,
@@ -239,8 +254,6 @@ public:
     }
 };
 
-// A prompt provider that does NOT override completeArgument, so the base-
-// class default (empty result) is exercised by the loopback.
 class PlainPromptProvider : public BasePromptProvider
 {
     Q_OBJECT
@@ -265,13 +278,6 @@ public:
     }
 };
 
-// Minimal BaseClient stub for sampling loopback tests. Does NOT touch the
-// network — it emits requestFinalized (or requestFailed) on the next event
-// loop tick with canned metadata, so the McpClient::setSamplingClient
-// handler sees a complete flow without needing a live HTTP transport.
-//
-// All BaseClient pure virtuals are satisfied with no-op stubs; sendMessage
-// is overridden to emit the canonical signals via a deferred QTimer tick.
 class FakeSamplingClient : public BaseClient
 {
     Q_OBJECT
@@ -280,17 +286,11 @@ public:
         : BaseClient({}, {}, QStringLiteral("fake-model-1.0"), parent)
     {}
 
-    // Canned finalisation result. Host test sets these before hooking the
-    // client to the McpClient.
     QString cannedText = QStringLiteral("pong");
     QString cannedStopReason = QStringLiteral("end_turn");
 
-    // If set, sendMessage fires requestFailed with this error instead of
-    // requestFinalized — used to verify the error envelope round-trip.
     QString cannedError;
 
-    // Last payload seen — allows tests to verify the SamplingPayloadBuilder
-    // ran and produced what we expected.
     QJsonObject lastPayload;
 
     RequestID sendMessage(
@@ -301,8 +301,6 @@ public:
         lastPayload = payload;
         const RequestID id = QStringLiteral("fake-req-1");
 
-        // Fire on the next tick (QTimer::singleShot(0)) to avoid re-entrancy
-        // into the sampling handler that is currently unwinding up the stack.
         const QString err = cannedError;
         const QString text = cannedText;
         const QString stop = cannedStopReason;
@@ -354,9 +352,6 @@ protected:
     }
 };
 
-// Elicitation provider that records the last request it saw and replies with a
-// canned "accept" envelope whose content mirrors `cannedContent`. Used by the
-// elicitation loopback tests to prove the server → client flow.
 class CannedElicitationProvider : public BaseElicitationProvider
 {
     Q_OBJECT
@@ -382,8 +377,6 @@ public:
     QJsonObject cannedContent = QJsonObject{{"username", "octocat"}};
 };
 
-// Elicitation provider that always refuses. Used to verify the error envelope
-// round-trip.
 class RefusingElicitationProvider : public BaseElicitationProvider
 {
     Q_OBJECT
@@ -424,7 +417,6 @@ public:
     }
 };
 
-// Tool that publishes progress updates and respects server-side cancellation.
 class ProgressiveTool : public BaseTool
 {
     Q_OBJECT
@@ -552,7 +544,6 @@ TEST_F(McpLoopbackTest, AddMcpClientRegistersToolsInToolsManager)
     ASSERT_NE(tool, nullptr);
     EXPECT_EQ(tool->id(), "echo");
 
-    // Execute through the BaseTool interface — proves the adapter works end-to-end.
     QFuture<LLMQore::ToolResult> exec
         = tool->executeAsync(QJsonObject{{"text", "via-manager"}});
     const LLMQore::ToolResult result = waitForFuture(exec);
@@ -578,7 +569,6 @@ TEST_F(McpLoopbackTest, ToolsChangedNotificationRefreshesTools)
 
     manager.addMcpClient(&client);
 
-    // Allow the async listTools to complete.
     {
         QEventLoop loop;
         QTimer::singleShot(500, &loop, &QEventLoop::quit);
@@ -589,7 +579,6 @@ TEST_F(McpLoopbackTest, ToolsChangedNotificationRefreshesTools)
 
     QSignalSpy changedSpy(&client, &McpClient::toolsChanged);
 
-    // Add a second tool, server pushes notifications/tools/list_changed.
     class UppercaseTool : public BaseTool
     {
     public:
@@ -609,13 +598,11 @@ TEST_F(McpLoopbackTest, ToolsChangedNotificationRefreshesTools)
     };
     server.addTool(new UppercaseTool(&server));
 
-    // Pump the event loop until the signal fires or we time out.
     QEventLoop loop;
     QTimer::singleShot(2000, &loop, &QEventLoop::quit);
     QObject::connect(&client, &McpClient::toolsChanged, &loop, &QEventLoop::quit);
     loop.exec();
 
-    // Allow the follow-up listTools to complete.
     QTimer::singleShot(300, &loop, &QEventLoop::quit);
     loop.exec();
 
@@ -796,17 +783,14 @@ TEST_F(McpLoopbackTest, CompletionForPromptArgumentReturnsFilteredSuggestions)
     ref.type = "ref/prompt";
     ref.name = "greet";
 
-    // Partial value "a" -> "alice".
     CompletionResult r1 = waitForFuture(
         client.complete(ref, "name", "a"));
     EXPECT_EQ(r1.values.size(), 1);
     EXPECT_EQ(r1.values.first(), "alice");
 
-    // Partial value "" -> all five names.
     CompletionResult r2 = waitForFuture(client.complete(ref, "name", ""));
     EXPECT_EQ(r2.values.size(), 5);
 
-    // Unknown argument -> empty result, not an error.
     CompletionResult r3 = waitForFuture(
         client.complete(ref, "nonexistent", ""));
     EXPECT_TRUE(r3.values.isEmpty());
@@ -836,11 +820,9 @@ TEST_F(McpLoopbackTest, CompletionForResourceTemplatePlaceholder)
     ref.type = "ref/resource";
     ref.uri = "file:///logs/{date}.log";
 
-    // All three match the shared "2026" prefix.
     CompletionResult all = waitForFuture(client.complete(ref, "date", "2026"));
     EXPECT_EQ(all.values.size(), 3);
 
-    // Only the 2026-04-11 suggestion matches the most-specific prefix.
     CompletionResult narrow
         = waitForFuture(client.complete(ref, "date", "2026-04-11"));
     ASSERT_EQ(narrow.values.size(), 1);
@@ -852,8 +834,6 @@ TEST_F(McpLoopbackTest, CompletionForResourceTemplatePlaceholder)
 
 TEST_F(McpLoopbackTest, CompletionDefaultProviderReturnsEmptyList)
 {
-    // A provider that does NOT override completeArgument must silently
-    // return an empty list via the base-class default — never an error.
     auto [serverTransport, clientTransport] = Rpc::PipeTransport::createPair();
     McpServer server(serverTransport, McpServerConfig{});
     server.addPromptProvider(new PlainPromptProvider(&server));
@@ -884,7 +864,6 @@ TEST_F(McpLoopbackTest, RootsListRoundTripsFromServerToClient)
     server.start();
     waitForFuture(client.connectAndInitialize());
 
-    // Server calls roots/list on the client over the same session.
     QFuture<QJsonValue> raw
         = server.session()->sendRequest(QLatin1String(Mcp::Method::RootsList), QJsonObject{});
     const QJsonValue value = waitForFuture(raw);
@@ -927,7 +906,6 @@ TEST_F(McpLoopbackTest, ProgressNotificationsDeliveredToCallback)
     EXPECT_FALSE(result.isError);
     EXPECT_EQ(result.asText(), "counted 3");
 
-    // Pump a short tail so any in-flight progress notifications can arrive.
     QEventLoop tail;
     QTimer::singleShot(100, &tail, &QEventLoop::quit);
     tail.exec();
@@ -946,7 +924,6 @@ TEST_F(McpLoopbackTest, CancelRequestAbortsOutstandingCall)
     auto [serverTransport, clientTransport] = Rpc::PipeTransport::createPair();
     McpServer server(serverTransport, McpServerConfig{});
 
-    // Tool that never completes on its own (parks on a promise we never finish).
     class SlowTool : public BaseTool
     {
     public:
@@ -976,14 +953,12 @@ TEST_F(McpLoopbackTest, CancelRequestAbortsOutstandingCall)
 
     auto call = client.callToolWithProgress("slow", QJsonObject{});
 
-    // Give the request a moment to reach the server side.
     QEventLoop pump;
     QTimer::singleShot(50, &pump, &QEventLoop::quit);
     pump.exec();
 
     client.cancel(call.requestId, "test cancel");
 
-    // The future should end with an exception.
     QEventLoop loop;
     QFutureWatcher<LLMQore::ToolResult> watcher;
     QObject::connect(&watcher, &QFutureWatcher<LLMQore::ToolResult>::finished, &loop, &QEventLoop::quit);
@@ -1003,7 +978,6 @@ TEST_F(McpLoopbackTest, CancelRequestAbortsOutstandingCall)
     }
     EXPECT_TRUE(threw);
 
-    // Release the held promise so nothing leaks after shutdown.
     slow->m_held->addResult(LLMQore::ToolResult::text("late"));
     slow->m_held->finish();
 
@@ -1036,18 +1010,8 @@ TEST_F(McpLoopbackTest, ResourcesListAndRead)
     delete clientTransport;
 }
 
-// --- Sampling tests (server → client) ---
-//
-// Post-refactor: sampling is wired up via McpClient::setSamplingClient,
-// which takes a live BaseClient and a payload-builder lambda. Tests use
-// FakeSamplingClient (above) as a minimal BaseClient that short-circuits
-// sendMessage() into canned onFinalized / onFailed callbacks.
-
 namespace {
 
-// Builder lambda used across the sampling tests — trivial wrapper that
-// just echoes the wire-format CreateMessageParams back out. Real host
-// code would build a Claude/OpenAI-specific payload here.
 QJsonObject passthroughBuilder(const CreateMessageParams &p)
 {
     return p.toJson();
@@ -1081,17 +1045,12 @@ TEST_F(McpLoopbackTest, SamplingRoundTripsFromServerToClient)
     const CreateMessageResult result = waitForFuture(
         server.createSamplingMessage(params, std::chrono::seconds(5)));
 
-    // Assistant reply assembled from FakeSamplingClient's canned values +
-    // BaseClient::model() (passed through CompletionInfo::model).
     EXPECT_EQ(result.role, "assistant");
     EXPECT_EQ(result.content.value("type").toString(), "text");
     EXPECT_EQ(result.content.value("text").toString(), "pong");
     EXPECT_EQ(result.model, "fake-model-1.0");
-    // Stop reason passthrough — raw provider string, no normalisation.
     EXPECT_EQ(result.stopReason, "end_turn");
 
-    // The builder should have been invoked and its output handed to the
-    // fake client's sendMessage as-is.
     EXPECT_TRUE(fakeClient.lastPayload.contains("messages"));
     const QJsonArray outMessages
         = fakeClient.lastPayload.value("messages").toArray();
@@ -1111,7 +1070,7 @@ TEST_F(McpLoopbackTest, SamplingWithoutClientFailsCapabilityGuard)
     auto [serverTransport, clientTransport] = Rpc::PipeTransport::createPair();
 
     McpServer server(serverTransport, McpServerConfig{});
-    McpClient client(clientTransport); // no sampling client wired up
+    McpClient client(clientTransport);
 
     server.start();
     waitForFuture(client.connectAndInitialize());
@@ -1123,10 +1082,6 @@ TEST_F(McpLoopbackTest, SamplingWithoutClientFailsCapabilityGuard)
     params.messages = {msg};
     params.maxTokens = 16;
 
-    // Without a sampling client the McpClient never declares the
-    // `sampling` capability during initialize, so the server-side guard
-    // short-circuits with Rpc::ProtocolError before the request ever
-    // reaches the wire.
     try {
         waitForFuture(server.createSamplingMessage(params, std::chrono::seconds(2)));
         FAIL() << "Expected Rpc::ProtocolError";
@@ -1148,9 +1103,6 @@ TEST_F(McpLoopbackTest, SamplingClientErrorPropagatesAsRemoteError)
 
     McpClient client(clientTransport);
     FakeSamplingClient fakeClient;
-    // FakeSamplingClient fires onFailed instead of onFinalized when
-    // cannedError is set. That maps to Rpc::RemoteError(InternalError) on
-    // the wire, which surfaces as an exception on the server side.
     fakeClient.cannedError = "Upstream LLM refused";
     client.setSamplingClient(&fakeClient, &passthroughBuilder);
 
@@ -1177,8 +1129,6 @@ TEST_F(McpLoopbackTest, SamplingClientErrorPropagatesAsRemoteError)
     delete serverTransport;
     delete clientTransport;
 }
-
-// --- Elicitation tests (server → client) ---
 
 TEST_F(McpLoopbackTest, ElicitationRoundTripsFromServerToClient)
 {
@@ -1213,8 +1163,6 @@ TEST_F(McpLoopbackTest, ElicitationRoundTripsFromServerToClient)
     EXPECT_EQ(result.content.value("username").toString(), "alice");
     EXPECT_EQ(result.content.value("remember").toBool(), true);
 
-    // The provider should have seen exactly what the server sent, with the
-    // requestedSchema round-tripped verbatim.
     EXPECT_EQ(provider.lastParams.message, "Enter your username");
     EXPECT_EQ(
         provider.lastParams.requestedSchema.value("type").toString(), "object");
@@ -1232,7 +1180,7 @@ TEST_F(McpLoopbackTest, ElicitationWithoutClientProviderFailsCapabilityGuard)
     auto [serverTransport, clientTransport] = Rpc::PipeTransport::createPair();
 
     McpServer server(serverTransport, McpServerConfig{});
-    McpClient client(clientTransport); // no elicitation provider
+    McpClient client(clientTransport);
 
     server.start();
     waitForFuture(client.connectAndInitialize());
@@ -1241,10 +1189,6 @@ TEST_F(McpLoopbackTest, ElicitationWithoutClientProviderFailsCapabilityGuard)
     params.message = "hi";
     params.requestedSchema = QJsonObject{{"type", "object"}};
 
-    // Without a client-side provider the client never declares the
-    // `elicitation` capability, so the server-side guard catches the call
-    // before it reaches the wire and raises Rpc::ProtocolError — exactly
-    // the same contract as sampling above.
     try {
         waitForFuture(server.createElicitation(params, std::chrono::seconds(2)));
         FAIL() << "Expected Rpc::ProtocolError";
@@ -1290,3 +1234,49 @@ TEST_F(McpLoopbackTest, ElicitationProviderRefusalPropagatesAsRemoteError)
 }
 
 #include "tst_McpLoopback.moc"
+
+TEST_F(McpLoopbackTest, SubscribingToAResourceDeliversUpdatesUntilUnsubscribed)
+{
+    LLMQoreTest::McpPair pair;
+    auto *provider = new MemoryResourceProvider(pair.server);
+    provider->setSupportsSubscription(true);
+    provider->addResource("mem://note", "first");
+    pair.server->addResourceProvider(provider);
+
+    const InitializeResult init = pair.initialize();
+    ASSERT_TRUE(init.capabilities.resources.has_value());
+    EXPECT_TRUE(init.capabilities.resources->subscribe)
+        << "a provider that supports subscription must be advertised as such";
+
+    QStringList updates;
+    QObject::connect(pair.client, &McpClient::resourceUpdated, [&updates](const QString &uri) {
+        updates << uri;
+    });
+
+    waitForVoidFuture(pair.client->subscribeResource("mem://note"));
+    EXPECT_TRUE(provider->isSubscribed("mem://note"));
+
+    provider->touch("mem://note", "second");
+    pumpEventLoop(std::chrono::milliseconds(50));
+    EXPECT_EQ(updates, QStringList{"mem://note"});
+
+    waitForVoidFuture(pair.client->unsubscribeResource("mem://note"));
+    EXPECT_FALSE(provider->isSubscribed("mem://note"));
+
+    provider->touch("mem://note", "third");
+    pumpEventLoop(std::chrono::milliseconds(50));
+    EXPECT_EQ(updates, QStringList{"mem://note"})
+        << "an unsubscribed client must stop hearing about the resource";
+}
+
+TEST_F(McpLoopbackTest, SubscriptionIsNotAdvertisedWhenNoProviderSupportsIt)
+{
+    LLMQoreTest::McpPair pair;
+    auto *provider = new MemoryResourceProvider(pair.server);
+    provider->addResource("mem://note", "first");
+    pair.server->addResourceProvider(provider);
+
+    const InitializeResult init = pair.initialize();
+    ASSERT_TRUE(init.capabilities.resources.has_value());
+    EXPECT_FALSE(init.capabilities.resources->subscribe);
+}

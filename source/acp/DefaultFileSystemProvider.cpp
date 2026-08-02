@@ -3,56 +3,17 @@
 
 #include <LLMQore/DefaultFileSystemProvider.hpp>
 
-#include <memory>
-
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
-#include <QPromise>
 #include <QStringList>
 
+#include <LLMQore/FutureUtils.hpp>
 #include <LLMQore/RpcExceptions.hpp>
 
 namespace LLMQore::Acp {
 
 namespace {
-
-template<typename T>
-QFuture<T> resolved(T value)
-{
-    QPromise<T> p;
-    p.start();
-    p.addResult(std::move(value));
-    p.finish();
-    return p.future();
-}
-
-QFuture<void> resolvedVoid()
-{
-    QPromise<void> p;
-    p.start();
-    p.finish();
-    return p.future();
-}
-
-template<typename T>
-QFuture<T> rejected(int code, const QString &message)
-{
-    QPromise<T> p;
-    p.start();
-    p.setException(std::make_exception_ptr(Rpc::RemoteError(code, message)));
-    p.finish();
-    return p.future();
-}
-
-QFuture<void> rejectedVoid(int code, const QString &message)
-{
-    QPromise<void> p;
-    p.start();
-    p.setException(std::make_exception_ptr(Rpc::RemoteError(code, message)));
-    p.finish();
-    return p.future();
-}
 
 QString sliceLines(const QString &text, std::optional<int> line, std::optional<int> limit)
 {
@@ -79,30 +40,32 @@ QFuture<QString> DefaultFileSystemProvider::readTextFile(
 {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        return rejected<QString>(
+        return LLMQore::failedFuture<QString>(Rpc::RemoteError(
             Rpc::ErrorCode::InvalidParams,
-            QString("Cannot open '%1': %2").arg(path, file.errorString()));
+            QString("Cannot open '%1': %2").arg(path, file.errorString())));
     }
     const QString content = QString::fromUtf8(file.readAll());
-    return resolved<QString>(sliceLines(content, line, limit));
+    return LLMQore::readyFuture(sliceLines(content, line, limit));
 }
 
 QFuture<void> DefaultFileSystemProvider::writeTextFile(
     const QString &, const QString &path, const QString &content)
 {
-    if (!m_writable)
-        return rejectedVoid(Rpc::ErrorCode::MethodNotFound, QStringLiteral("writes disabled"));
+    if (!m_writable) {
+        return LLMQore::failedFuture<void>(Rpc::RemoteError(
+            Rpc::ErrorCode::MethodNotFound, QStringLiteral("writes disabled")));
+    }
 
     QFileInfo(path).absoluteDir().mkpath(QStringLiteral("."));
     QFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        return rejectedVoid(
+        return LLMQore::failedFuture<void>(Rpc::RemoteError(
             Rpc::ErrorCode::InvalidParams,
-            QString("Cannot write '%1': %2").arg(path, file.errorString()));
+            QString("Cannot write '%1': %2").arg(path, file.errorString())));
     }
     file.write(content.toUtf8());
     file.close();
-    return resolvedVoid();
+    return LLMQore::readyFuture();
 }
 
 } // namespace LLMQore::Acp

@@ -22,24 +22,12 @@
 #include <LLMQore/JsonRpcSession.hpp>
 #include <LLMQore/RpcPipeTransport.hpp>
 
+#include "TestHelpers.hpp"
+
 using namespace LLMQore;
 using namespace LLMQore::Acp;
 
 namespace {
-
-template<typename T>
-T waitForFuture(const QFuture<T> &future, int timeoutMs = 5000)
-{
-    if (future.isFinished())
-        return future.result();
-    QEventLoop loop;
-    QFutureWatcher<T> watcher;
-    QObject::connect(&watcher, &QFutureWatcher<T>::finished, &loop, &QEventLoop::quit);
-    watcher.setFuture(future);
-    QTimer::singleShot(timeoutMs, &loop, &QEventLoop::quit);
-    loop.exec();
-    return future.result();
-}
 
 QFuture<QJsonValue> resolvedJson(const QJsonValue &v)
 {
@@ -50,8 +38,6 @@ QFuture<QJsonValue> resolvedJson(const QJsonValue &v)
     return p->future();
 }
 
-// Minimal in-process ACP agent built on a JsonRpcSession: answers initialize /
-// session/new and streams agent_message_chunk updates during session/prompt.
 class FakeAgent
 {
 public:
@@ -383,12 +369,250 @@ TEST_F(AcpLoopbackTest, PromptDrivesHostCallbacksFsAndPermission)
         [streamed](const QString &, const ContentBlock &c) { streamed->append(c.text); });
 
     const PromptResult pr
-        = waitForFuture(client.prompt(ns.sessionId, {ContentBlock::makeText("go")}), 8000);
+        = waitForFuture(
+            client.prompt(ns.sessionId, {ContentBlock::makeText("go")}),
+            std::chrono::seconds(8));
 
     EXPECT_EQ(pr.stopReason, "end_turn");
     EXPECT_EQ(*capturedContent, "hello-from-host");
     EXPECT_EQ(*capturedOutcome, "selected");
     EXPECT_EQ(*streamed, "read=hello-from-host;perm=selected");
+
+    delete agentSession;
+    delete serverTransport;
+    delete clientTransport;
+}
+
+
+namespace {
+
+QString failureOf(QFuture<PromptResult> future)
+{
+    if (!future.isFinished()) {
+        QEventLoop loop;
+        QFutureWatcher<PromptResult> watcher;
+        QObject::connect(
+            &watcher, &QFutureWatcher<PromptResult>::finished, &loop, &QEventLoop::quit);
+        watcher.setFuture(future);
+        QTimer::singleShot(5000, &loop, &QEventLoop::quit);
+        loop.exec();
+    }
+
+    try {
+        future.result();
+    } catch (const Rpc::JsonRpcException &e) {
+        return e.message();
+    } catch (const std::exception &e) {
+        return QString::fromUtf8(e.what());
+    }
+    return {};
+}
+
+} // namespace
+
+TEST_F(AcpLoopbackTest, PromptBeforeInitializeFailsWithoutReachingTheAgent)
+{
+    auto [serverTransport, clientTransport] = Rpc::PipeTransport::createPair();
+    auto *agentSession = new Rpc::JsonRpcSession(serverTransport);
+    int requestsSeen = 0;
+    QObject::connect(agentSession, &Rpc::JsonRpcSession::incomingRequest, [&requestsSeen]() {
+        ++requestsSeen;
+    });
+    serverTransport->start();
+
+    AcpClient client(clientTransport);
+    ASSERT_FALSE(client.isInitialized());
+
+    const QString error = failureOf(client.prompt("s1", {ContentBlock::makeText("hi")}));
+    EXPECT_EQ(error, QStringLiteral("Client not initialized"))
+        << "a prompt before the handshake must fail the way MCP already fails";
+    EXPECT_EQ(requestsSeen, 0) << "nothing may reach the agent before the handshake";
+
+    delete agentSession;
+    delete serverTransport;
+    delete clientTransport;
+}
+
+TEST_F(AcpLoopbackTest, PeerAnswersPingWithoutAnyProtocolHandler)
+{
+    auto [serverTransport, clientTransport] = Rpc::PipeTransport::createPair();
+    auto *agentSession = new Rpc::JsonRpcSession(serverTransport);
+    serverTransport->start();
+
+    AcpClient client(clientTransport);
+    clientTransport->start();
+
+    const QJsonValue reply
+        = waitForFuture(agentSession->sendRequest(QStringLiteral("ping"), QJsonObject{}));
+    EXPECT_TRUE(reply.isObject()) << "ping is a JSON-RPC concern, so every peer answers it";
+
+    delete agentSession;
+    delete serverTransport;
+    delete clientTransport;
+}
+
+namespace {
+
+class RecordingTerminalProvider : public AcpTerminalProvider
+{
+public:
+    QFuture<CreateTerminalResult> createTerminal(const CreateTerminalParams &params) override
+    {
+        created.append(params);
+        CreateTerminalResult r;
+        r.terminalId = QStringLiteral("term-%1").arg(created.size());
+        return LLMQore::readyFuture(r);
+    }
+
+    QFuture<TerminalOutputResult> terminalOutput(const QString &, const QString &terminalId) override
+    {
+        outputAsked.append(terminalId);
+        TerminalOutputResult r;
+        r.output = QStringLiteral("line-1\n");
+        r.truncated = true;
+        ExitStatus status;
+        status.exitCode = 0;
+        r.exitStatus = status;
+        return LLMQore::readyFuture(r);
+    }
+
+    QFuture<WaitForTerminalExitResult> waitForExit(const QString &, const QString &terminalId) override
+    {
+        waitedFor.append(terminalId);
+        WaitForTerminalExitResult r;
+        r.exitCode = 3;
+        r.signal = QStringLiteral("none");
+        return LLMQore::readyFuture(r);
+    }
+
+    QFuture<void> killTerminal(const QString &, const QString &terminalId) override
+    {
+        killed.append(terminalId);
+        return LLMQore::readyFuture();
+    }
+
+    QFuture<void> releaseTerminal(const QString &, const QString &terminalId) override
+    {
+        released.append(terminalId);
+        return LLMQore::readyFuture();
+    }
+
+    QList<CreateTerminalParams> created;
+    QStringList outputAsked;
+    QStringList waitedFor;
+    QStringList killed;
+    QStringList released;
+};
+
+} // namespace
+
+TEST_F(AcpLoopbackTest, TerminalCallsReachTheProviderAndComeBackInShape)
+{
+    auto [serverTransport, clientTransport] = Rpc::PipeTransport::createPair();
+    auto *agentSession = new Rpc::JsonRpcSession(serverTransport);
+    serverTransport->start();
+
+    AcpClient client(clientTransport);
+    RecordingTerminalProvider terminal;
+    client.setTerminalProvider(&terminal);
+    clientTransport->start();
+
+    CreateTerminalParams create;
+    create.sessionId = QStringLiteral("s1");
+    create.command = QStringLiteral("ls");
+    create.args = QStringList{QStringLiteral("-l")};
+    create.cwd = QStringLiteral("/tmp");
+    create.env = {EnvVariable{QStringLiteral("K"), QStringLiteral("V")}};
+    create.outputByteLimit = 4096;
+
+    const CreateTerminalResult created = CreateTerminalResult::fromJson(
+        waitForFuture(
+            agentSession->sendRequest(QLatin1String(Method::TerminalCreate), create.toJson()))
+            .toObject());
+    EXPECT_EQ(created.terminalId, QStringLiteral("term-1"));
+    ASSERT_EQ(terminal.created.size(), 1);
+    EXPECT_EQ(terminal.created.first().command, QStringLiteral("ls"));
+    EXPECT_EQ(terminal.created.first().args, QStringList{QStringLiteral("-l")});
+    EXPECT_EQ(terminal.created.first().cwd, QStringLiteral("/tmp"));
+    ASSERT_EQ(terminal.created.first().env.size(), 1);
+    EXPECT_EQ(terminal.created.first().env.first().name, QStringLiteral("K"));
+    ASSERT_TRUE(terminal.created.first().outputByteLimit.has_value());
+    EXPECT_EQ(*terminal.created.first().outputByteLimit, 4096);
+
+    TerminalOutputParams outParams;
+    outParams.sessionId = QStringLiteral("s1");
+    outParams.terminalId = created.terminalId;
+    const TerminalOutputResult out = TerminalOutputResult::fromJson(
+        waitForFuture(
+            agentSession->sendRequest(QLatin1String(Method::TerminalOutput), outParams.toJson()))
+            .toObject());
+    EXPECT_EQ(out.output, QStringLiteral("line-1\n"));
+    EXPECT_TRUE(out.truncated);
+    ASSERT_TRUE(out.exitStatus.has_value());
+    ASSERT_TRUE(out.exitStatus->exitCode.has_value());
+    EXPECT_EQ(*out.exitStatus->exitCode, 0);
+    EXPECT_EQ(terminal.outputAsked, QStringList{created.terminalId});
+
+    TerminalRefParams ref;
+    ref.sessionId = QStringLiteral("s1");
+    ref.terminalId = created.terminalId;
+
+    const WaitForTerminalExitResult exit = WaitForTerminalExitResult::fromJson(
+        waitForFuture(
+            agentSession->sendRequest(QLatin1String(Method::TerminalWaitForExit), ref.toJson()))
+            .toObject());
+    ASSERT_TRUE(exit.exitCode.has_value());
+    EXPECT_EQ(*exit.exitCode, 3);
+    EXPECT_EQ(exit.signal, QStringLiteral("none"));
+    EXPECT_EQ(terminal.waitedFor, QStringList{created.terminalId});
+
+    EXPECT_TRUE(waitForFuture(
+                    agentSession->sendRequest(QLatin1String(Method::TerminalKill), ref.toJson()))
+                    .isObject());
+    EXPECT_EQ(terminal.killed, QStringList{created.terminalId});
+
+    EXPECT_TRUE(waitForFuture(
+                    agentSession->sendRequest(QLatin1String(Method::TerminalRelease), ref.toJson()))
+                    .isObject());
+    EXPECT_EQ(terminal.released, QStringList{created.terminalId});
+
+    delete agentSession;
+    delete serverTransport;
+    delete clientTransport;
+}
+
+TEST_F(AcpLoopbackTest, TerminalCallsAreRefusedWhenNoProviderIsWired)
+{
+    auto [serverTransport, clientTransport] = Rpc::PipeTransport::createPair();
+    auto *agentSession = new Rpc::JsonRpcSession(serverTransport);
+    serverTransport->start();
+
+    AcpClient client(clientTransport);
+    clientTransport->start();
+
+    TerminalRefParams ref;
+    ref.sessionId = QStringLiteral("s1");
+    ref.terminalId = QStringLiteral("term-1");
+
+    QString error;
+    try {
+        QFuture<QJsonValue> f
+            = agentSession->sendRequest(QLatin1String(Method::TerminalKill), ref.toJson());
+        QEventLoop loop;
+        QFutureWatcher<QJsonValue> watcher;
+        QObject::connect(&watcher, &QFutureWatcher<QJsonValue>::finished, &loop, &QEventLoop::quit);
+        watcher.setFuture(f);
+        QTimer::singleShot(3000, &loop, &QEventLoop::quit);
+        loop.exec();
+        f.result();
+    } catch (const Rpc::JsonRpcException &e) {
+        error = e.message();
+    }
+
+    EXPECT_TRUE(error.contains(QStringLiteral("terminal not supported")))
+        << "the refusal must name the capability, once: " << qPrintable(error);
+    EXPECT_TRUE(error.contains(QString::number(Rpc::ErrorCode::MethodNotFound)))
+        << qPrintable(error);
 
     delete agentSession;
     delete serverTransport;

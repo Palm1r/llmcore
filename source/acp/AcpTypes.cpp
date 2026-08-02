@@ -3,15 +3,11 @@
 
 #include <LLMQore/AcpTypes.hpp>
 
+#include "AcpTypeSchema.hpp"
+
 namespace LLMQore::Acp {
 
 namespace {
-
-void insertIfNonEmpty(QJsonObject &o, const char *key, const QString &v)
-{
-    if (!v.isEmpty())
-        o.insert(QLatin1String(key), v);
-}
 
 QStringList stringListFromJson(const QJsonArray &arr)
 {
@@ -30,19 +26,31 @@ QJsonArray stringListToJson(const QStringList &list)
     return arr;
 }
 
+template<typename... Ts>
+void registerAll(const std::tuple<Ts...> *)
+{
+    (qRegisterMetaType<Ts>(), ...);
+}
+
 } // namespace
+
+void registerMetatypes()
+{
+    static const bool once = []() {
+        registerAll(static_cast<const QueuedTypes *>(nullptr));
+        return true;
+    }();
+    Q_UNUSED(once)
+}
 
 QJsonObject EnvVariable::toJson() const
 {
-    return QJsonObject{{"name", name}, {"value", value}};
+    return Json::toJson(*this);
 }
 
 EnvVariable EnvVariable::fromJson(const QJsonObject &obj)
 {
-    EnvVariable e;
-    e.name = obj.value("name").toString();
-    e.value = obj.value("value").toString();
-    return e;
+    return Json::fromJson<EnvVariable>(obj);
 }
 
 QJsonArray envToJson(const QList<EnvVariable> &env)
@@ -64,157 +72,92 @@ QList<EnvVariable> envFromJson(const QJsonArray &arr)
 
 QJsonObject Implementation::toJson() const
 {
-    QJsonObject o{{"name", name}, {"version", version}};
-    insertIfNonEmpty(o, "title", title);
-    return o;
+    return Json::toJson(*this);
 }
 
 Implementation Implementation::fromJson(const QJsonObject &obj)
 {
-    Implementation i;
-    i.name = obj.value("name").toString();
-    i.version = obj.value("version").toString();
-    i.title = obj.value("title").toString();
-    return i;
+    return Json::fromJson<Implementation>(obj);
 }
 
 QJsonObject FileSystemCapability::toJson() const
 {
-    return QJsonObject{{"readTextFile", readTextFile}, {"writeTextFile", writeTextFile}};
+    return Json::toJson(*this);
 }
 
 FileSystemCapability FileSystemCapability::fromJson(const QJsonObject &obj)
 {
-    FileSystemCapability c;
-    c.readTextFile = obj.value("readTextFile").toBool();
-    c.writeTextFile = obj.value("writeTextFile").toBool();
-    return c;
+    return Json::fromJson<FileSystemCapability>(obj);
 }
 
 QJsonObject ClientCapabilities::toJson() const
 {
-    return QJsonObject{{"fs", fs.toJson()}, {"terminal", terminal}};
+    return Json::toJson(*this);
 }
 
 ClientCapabilities ClientCapabilities::fromJson(const QJsonObject &obj)
 {
-    ClientCapabilities c;
-    c.fs = FileSystemCapability::fromJson(obj.value("fs").toObject());
-    c.terminal = obj.value("terminal").toBool();
-    return c;
+    return Json::fromJson<ClientCapabilities>(obj);
 }
 
 QJsonObject PromptCapabilities::toJson() const
 {
-    return QJsonObject{
-        {"image", image}, {"audio", audio}, {"embeddedContext", embeddedContext}};
+    return Json::toJson(*this);
 }
 
 PromptCapabilities PromptCapabilities::fromJson(const QJsonObject &obj)
 {
-    PromptCapabilities c;
-    c.image = obj.value("image").toBool();
-    c.audio = obj.value("audio").toBool();
-    c.embeddedContext = obj.value("embeddedContext").toBool();
-    return c;
+    return Json::fromJson<PromptCapabilities>(obj);
 }
 
 QJsonObject McpCapabilities::toJson() const
 {
-    return QJsonObject{{"http", http}, {"sse", sse}};
+    return Json::toJson(*this);
 }
 
 McpCapabilities McpCapabilities::fromJson(const QJsonObject &obj)
 {
-    McpCapabilities c;
-    c.http = obj.value("http").toBool();
-    c.sse = obj.value("sse").toBool();
-    return c;
+    return Json::fromJson<McpCapabilities>(obj);
 }
 
 QJsonObject AgentCapabilities::toJson() const
 {
-    return QJsonObject{
-        {"loadSession", loadSession},
-        {"promptCapabilities", promptCapabilities.toJson()},
-        {"mcpCapabilities", mcpCapabilities.toJson()},
-    };
+    return Json::toJson(*this);
 }
 
 AgentCapabilities AgentCapabilities::fromJson(const QJsonObject &obj)
 {
-    AgentCapabilities c;
-    c.loadSession = obj.value("loadSession").toBool();
-    c.promptCapabilities
-        = PromptCapabilities::fromJson(obj.value("promptCapabilities").toObject());
-    c.mcpCapabilities = McpCapabilities::fromJson(obj.value("mcpCapabilities").toObject());
-    return c;
+    return Json::fromJson<AgentCapabilities>(obj);
 }
 
 QJsonObject AuthMethod::toJson() const
 {
-    QJsonObject o{{"id", id}, {"name", name}};
-    insertIfNonEmpty(o, "description", description);
-    return o;
+    return Json::toJson(*this);
 }
 
 AuthMethod AuthMethod::fromJson(const QJsonObject &obj)
 {
-    AuthMethod m;
-    m.id = obj.value("id").toString();
-    m.name = obj.value("name").toString();
-    m.description = obj.value("description").toString();
-    return m;
+    return Json::fromJson<AuthMethod>(obj);
 }
 
 QJsonObject InitializeParams::toJson() const
 {
-    QJsonObject o{
-        {"protocolVersion", protocolVersion},
-        {"clientCapabilities", clientCapabilities.toJson()},
-    };
-    if (clientInfo)
-        o.insert("clientInfo", clientInfo->toJson());
-    return o;
+    return Json::toJson(*this);
 }
 
 InitializeParams InitializeParams::fromJson(const QJsonObject &obj)
 {
-    InitializeParams p;
-    p.protocolVersion = obj.value("protocolVersion").toInt(kAcpProtocolVersion);
-    p.clientCapabilities
-        = ClientCapabilities::fromJson(obj.value("clientCapabilities").toObject());
-    if (obj.contains("clientInfo"))
-        p.clientInfo = Implementation::fromJson(obj.value("clientInfo").toObject());
-    return p;
+    return Json::fromJson<InitializeParams>(obj);
 }
 
 QJsonObject InitializeResult::toJson() const
 {
-    QJsonObject o{
-        {"protocolVersion", protocolVersion},
-        {"agentCapabilities", agentCapabilities.toJson()},
-    };
-    QJsonArray methods;
-    for (const AuthMethod &m : authMethods)
-        methods.append(m.toJson());
-    o.insert("authMethods", methods);
-    if (agentInfo)
-        o.insert("agentInfo", agentInfo->toJson());
-    return o;
+    return Json::toJson(*this);
 }
 
 InitializeResult InitializeResult::fromJson(const QJsonObject &obj)
 {
-    InitializeResult r;
-    r.protocolVersion = obj.value("protocolVersion").toInt(kAcpProtocolVersion);
-    r.agentCapabilities
-        = AgentCapabilities::fromJson(obj.value("agentCapabilities").toObject());
-    for (const QJsonValue &v : obj.value("authMethods").toArray())
-        r.authMethods.append(AuthMethod::fromJson(v.toObject()));
-    if (obj.contains("agentInfo"))
-        r.agentInfo = Implementation::fromJson(obj.value("agentInfo").toObject());
-    return r;
+    return Json::fromJson<InitializeResult>(obj);
 }
 
 QJsonObject McpServer::toJson() const
@@ -289,119 +232,59 @@ McpServer McpServer::sse(
 
 QJsonObject SessionMode::toJson() const
 {
-    QJsonObject o{{"id", id}, {"name", name}};
-    insertIfNonEmpty(o, "description", description);
-    return o;
+    return Json::toJson(*this);
 }
 
 SessionMode SessionMode::fromJson(const QJsonObject &obj)
 {
-    SessionMode m;
-    m.id = obj.value("id").toString();
-    m.name = obj.value("name").toString();
-    m.description = obj.value("description").toString();
-    return m;
+    return Json::fromJson<SessionMode>(obj);
 }
 
 QJsonObject SessionModeState::toJson() const
 {
-    QJsonArray modes;
-    for (const SessionMode &m : availableModes)
-        modes.append(m.toJson());
-    return QJsonObject{{"currentModeId", currentModeId}, {"availableModes", modes}};
+    return Json::toJson(*this);
 }
 
 SessionModeState SessionModeState::fromJson(const QJsonObject &obj)
 {
-    SessionModeState s;
-    s.currentModeId = obj.value("currentModeId").toString();
-    for (const QJsonValue &v : obj.value("availableModes").toArray())
-        s.availableModes.append(SessionMode::fromJson(v.toObject()));
-    return s;
+    return Json::fromJson<SessionModeState>(obj);
 }
-
-namespace {
-
-QJsonArray mcpServersToJson(const QList<McpServer> &servers)
-{
-    QJsonArray arr;
-    for (const McpServer &s : servers)
-        arr.append(s.toJson());
-    return arr;
-}
-
-QList<McpServer> mcpServersFromJson(const QJsonArray &arr)
-{
-    QList<McpServer> out;
-    for (const QJsonValue &v : arr)
-        out.append(McpServer::fromJson(v.toObject()));
-    return out;
-}
-
-} // namespace
 
 QJsonObject NewSessionParams::toJson() const
 {
-    QJsonObject o{{"cwd", cwd}, {"mcpServers", mcpServersToJson(mcpServers)}};
-    if (!additionalDirectories.isEmpty())
-        o.insert("additionalDirectories", stringListToJson(additionalDirectories));
-    return o;
+    return Json::toJson(*this);
 }
 
 NewSessionParams NewSessionParams::fromJson(const QJsonObject &obj)
 {
-    NewSessionParams p;
-    p.cwd = obj.value("cwd").toString();
-    p.mcpServers = mcpServersFromJson(obj.value("mcpServers").toArray());
-    p.additionalDirectories
-        = stringListFromJson(obj.value("additionalDirectories").toArray());
-    return p;
+    return Json::fromJson<NewSessionParams>(obj);
 }
 
 QJsonObject NewSessionResult::toJson() const
 {
-    QJsonObject o{{"sessionId", sessionId}};
-    if (modes)
-        o.insert("modes", modes->toJson());
-    return o;
+    return Json::toJson(*this);
 }
 
 NewSessionResult NewSessionResult::fromJson(const QJsonObject &obj)
 {
-    NewSessionResult r;
-    r.sessionId = obj.value("sessionId").toString();
-    if (obj.contains("modes") && obj.value("modes").isObject())
-        r.modes = SessionModeState::fromJson(obj.value("modes").toObject());
-    return r;
+    return Json::fromJson<NewSessionResult>(obj);
 }
 
 QJsonObject LoadSessionParams::toJson() const
 {
-    QJsonObject o{
-        {"sessionId", sessionId},
-        {"cwd", cwd},
-        {"mcpServers", mcpServersToJson(mcpServers)},
-    };
-    if (!additionalDirectories.isEmpty())
-        o.insert("additionalDirectories", stringListToJson(additionalDirectories));
-    return o;
+    return Json::toJson(*this);
 }
 
 LoadSessionParams LoadSessionParams::fromJson(const QJsonObject &obj)
 {
-    LoadSessionParams p;
-    p.sessionId = obj.value("sessionId").toString();
-    p.cwd = obj.value("cwd").toString();
-    p.mcpServers = mcpServersFromJson(obj.value("mcpServers").toArray());
-    p.additionalDirectories
-        = stringListFromJson(obj.value("additionalDirectories").toArray());
-    return p;
+    return Json::fromJson<LoadSessionParams>(obj);
 }
 
 QJsonObject EmbeddedResource::toJson() const
 {
     QJsonObject o{{"uri", uri}};
-    insertIfNonEmpty(o, "mimeType", mimeType);
+    if (!mimeType.isEmpty())
+        o.insert("mimeType", mimeType);
     if (!blob.isEmpty())
         o.insert("blob", blob);
     else
@@ -427,16 +310,20 @@ QJsonObject ContentBlock::toJson() const
     } else if (type == QLatin1String("image")) {
         o.insert("data", data);
         o.insert("mimeType", mimeType);
-        insertIfNonEmpty(o, "uri", uri);
+        if (!uri.isEmpty())
+            o.insert("uri", uri);
     } else if (type == QLatin1String("audio")) {
         o.insert("data", data);
         o.insert("mimeType", mimeType);
     } else if (type == QLatin1String("resource_link")) {
         o.insert("uri", uri);
         o.insert("name", name);
-        insertIfNonEmpty(o, "description", description);
-        insertIfNonEmpty(o, "mimeType", mimeType);
-        insertIfNonEmpty(o, "title", title);
+        if (!description.isEmpty())
+            o.insert("description", description);
+        if (!mimeType.isEmpty())
+            o.insert("mimeType", mimeType);
+        if (!title.isEmpty())
+            o.insert("title", title);
         if (size)
             o.insert("size", *size);
     } else if (type == QLatin1String("resource")) {
@@ -450,21 +337,7 @@ QJsonObject ContentBlock::toJson() const
 
 ContentBlock ContentBlock::fromJson(const QJsonObject &obj)
 {
-    ContentBlock b;
-    b.type = obj.value("type").toString();
-    b.text = obj.value("text").toString();
-    b.data = obj.value("data").toString();
-    b.mimeType = obj.value("mimeType").toString();
-    b.uri = obj.value("uri").toString();
-    b.name = obj.value("name").toString();
-    b.description = obj.value("description").toString();
-    b.title = obj.value("title").toString();
-    if (obj.contains("size"))
-        b.size = obj.value("size").toInt();
-    if (obj.contains("resource") && obj.value("resource").isObject())
-        b.resource = EmbeddedResource::fromJson(obj.value("resource").toObject());
-    b.annotations = obj.value("annotations").toObject();
-    return b;
+    return Json::fromJson<ContentBlock>(obj);
 }
 
 ContentBlock ContentBlock::makeText(const QString &text)
@@ -494,45 +367,32 @@ QList<ContentBlock> contentBlocksFromJson(const QJsonArray &arr)
 
 QJsonObject PromptParams::toJson() const
 {
-    return QJsonObject{{"sessionId", sessionId}, {"prompt", contentBlocksToJson(prompt)}};
+    return Json::toJson(*this);
 }
 
 PromptParams PromptParams::fromJson(const QJsonObject &obj)
 {
-    PromptParams p;
-    p.sessionId = obj.value("sessionId").toString();
-    p.prompt = contentBlocksFromJson(obj.value("prompt").toArray());
-    return p;
+    return Json::fromJson<PromptParams>(obj);
 }
 
 QJsonObject PromptResult::toJson() const
 {
-    return QJsonObject{{"stopReason", stopReason}};
+    return Json::toJson(*this);
 }
 
 PromptResult PromptResult::fromJson(const QJsonObject &obj)
 {
-    PromptResult r;
-    r.stopReason = obj.value("stopReason").toString(StopReason::EndTurn);
-    r.usage = obj.value("usage").toObject();
-    return r;
+    return Json::fromJson<PromptResult>(obj);
 }
 
 QJsonObject ToolCallLocation::toJson() const
 {
-    QJsonObject o{{"path", path}};
-    if (line)
-        o.insert("line", *line);
-    return o;
+    return Json::toJson(*this);
 }
 
 ToolCallLocation ToolCallLocation::fromJson(const QJsonObject &obj)
 {
-    ToolCallLocation l;
-    l.path = obj.value("path").toString();
-    if (obj.contains("line"))
-        l.line = obj.value("line").toInt();
-    return l;
+    return Json::fromJson<ToolCallLocation>(obj);
 }
 
 QJsonObject ToolCallContent::toJson() const
@@ -554,86 +414,37 @@ QJsonObject ToolCallContent::toJson() const
 
 ToolCallContent ToolCallContent::fromJson(const QJsonObject &obj)
 {
-    ToolCallContent c;
-    c.type = obj.value("type").toString(QStringLiteral("content"));
-    if (obj.contains("content") && obj.value("content").isObject())
-        c.content = ContentBlock::fromJson(obj.value("content").toObject());
-    c.path = obj.value("path").toString();
-    c.oldText = obj.value("oldText").toString();
-    c.newText = obj.value("newText").toString();
-    c.terminalId = obj.value("terminalId").toString();
-    return c;
+    return Json::fromJson<ToolCallContent>(obj);
 }
 
 QJsonObject ToolCall::toJson() const
 {
-    QJsonObject o{{"toolCallId", toolCallId}};
-    insertIfNonEmpty(o, "title", title);
-    insertIfNonEmpty(o, "kind", kind);
-    insertIfNonEmpty(o, "status", status);
-    if (!content.isEmpty()) {
-        QJsonArray arr;
-        for (const ToolCallContent &c : content)
-            arr.append(c.toJson());
-        o.insert("content", arr);
-    }
-    if (!locations.isEmpty()) {
-        QJsonArray arr;
-        for (const ToolCallLocation &l : locations)
-            arr.append(l.toJson());
-        o.insert("locations", arr);
-    }
-    if (!rawInput.isEmpty())
-        o.insert("rawInput", rawInput);
-    if (!rawOutput.isEmpty())
-        o.insert("rawOutput", rawOutput);
-    return o;
+    return Json::toJson(*this);
 }
 
 ToolCall ToolCall::fromJson(const QJsonObject &obj)
 {
-    ToolCall t;
-    t.toolCallId = obj.value("toolCallId").toString();
-    t.title = obj.value("title").toString();
-    t.kind = obj.value("kind").toString();
-    t.status = obj.value("status").toString();
-    for (const QJsonValue &v : obj.value("content").toArray())
-        t.content.append(ToolCallContent::fromJson(v.toObject()));
-    for (const QJsonValue &v : obj.value("locations").toArray())
-        t.locations.append(ToolCallLocation::fromJson(v.toObject()));
-    t.rawInput = obj.value("rawInput").toObject();
-    t.rawOutput = obj.value("rawOutput").toObject();
-    return t;
+    return Json::fromJson<ToolCall>(obj);
 }
 
 QJsonObject PlanEntry::toJson() const
 {
-    return QJsonObject{{"content", content}, {"priority", priority}, {"status", status}};
+    return Json::toJson(*this);
 }
 
 PlanEntry PlanEntry::fromJson(const QJsonObject &obj)
 {
-    PlanEntry e;
-    e.content = obj.value("content").toString();
-    e.priority = obj.value("priority").toString();
-    e.status = obj.value("status").toString();
-    return e;
+    return Json::fromJson<PlanEntry>(obj);
 }
 
 QJsonObject Plan::toJson() const
 {
-    QJsonArray arr;
-    for (const PlanEntry &e : entries)
-        arr.append(e.toJson());
-    return QJsonObject{{"entries", arr}};
+    return Json::toJson(*this);
 }
 
 Plan Plan::fromJson(const QJsonObject &obj)
 {
-    Plan p;
-    for (const QJsonValue &v : obj.value("entries").toArray())
-        p.entries.append(PlanEntry::fromJson(v.toObject()));
-    return p;
+    return Json::fromJson<Plan>(obj);
 }
 
 QJsonObject AvailableCommand::toJson() const
@@ -714,51 +525,32 @@ SessionUpdate SessionUpdate::fromJson(const QJsonObject &obj)
 
 QJsonObject SessionNotification::toJson() const
 {
-    return QJsonObject{{"sessionId", sessionId}, {"update", update.toJson()}};
+    return Json::toJson(*this);
 }
 
 SessionNotification SessionNotification::fromJson(const QJsonObject &obj)
 {
-    SessionNotification n;
-    n.sessionId = obj.value("sessionId").toString();
-    n.update = SessionUpdate::fromJson(obj.value("update").toObject());
-    return n;
+    return Json::fromJson<SessionNotification>(obj);
 }
 
 QJsonObject PermissionOption::toJson() const
 {
-    return QJsonObject{{"optionId", optionId}, {"name", name}, {"kind", kind}};
+    return Json::toJson(*this);
 }
 
 PermissionOption PermissionOption::fromJson(const QJsonObject &obj)
 {
-    PermissionOption o;
-    o.optionId = obj.value("optionId").toString();
-    o.name = obj.value("name").toString();
-    o.kind = obj.value("kind").toString();
-    return o;
+    return Json::fromJson<PermissionOption>(obj);
 }
 
 QJsonObject RequestPermissionParams::toJson() const
 {
-    QJsonArray opts;
-    for (const PermissionOption &o : options)
-        opts.append(o.toJson());
-    return QJsonObject{
-        {"sessionId", sessionId},
-        {"toolCall", toolCall.toJson()},
-        {"options", opts},
-    };
+    return Json::toJson(*this);
 }
 
 RequestPermissionParams RequestPermissionParams::fromJson(const QJsonObject &obj)
 {
-    RequestPermissionParams p;
-    p.sessionId = obj.value("sessionId").toString();
-    p.toolCall = ToolCall::fromJson(obj.value("toolCall").toObject());
-    for (const QJsonValue &v : obj.value("options").toArray())
-        p.options.append(PermissionOption::fromJson(v.toObject()));
-    return p;
+    return Json::fromJson<RequestPermissionParams>(obj);
 }
 
 QJsonObject RequestPermissionResult::toJson() const
@@ -795,167 +587,102 @@ RequestPermissionResult RequestPermissionResult::cancelled()
 
 QJsonObject ReadTextFileParams::toJson() const
 {
-    QJsonObject o{{"sessionId", sessionId}, {"path", path}};
-    if (line)
-        o.insert("line", *line);
-    if (limit)
-        o.insert("limit", *limit);
-    return o;
+    return Json::toJson(*this);
 }
 
 ReadTextFileParams ReadTextFileParams::fromJson(const QJsonObject &obj)
 {
-    ReadTextFileParams p;
-    p.sessionId = obj.value("sessionId").toString();
-    p.path = obj.value("path").toString();
-    if (obj.contains("line") && !obj.value("line").isNull())
-        p.line = obj.value("line").toInt();
-    if (obj.contains("limit") && !obj.value("limit").isNull())
-        p.limit = obj.value("limit").toInt();
-    return p;
+    return Json::fromJson<ReadTextFileParams>(obj);
 }
 
 QJsonObject ReadTextFileResult::toJson() const
 {
-    return QJsonObject{{"content", content}};
+    return Json::toJson(*this);
 }
 
 ReadTextFileResult ReadTextFileResult::fromJson(const QJsonObject &obj)
 {
-    ReadTextFileResult r;
-    r.content = obj.value("content").toString();
-    return r;
+    return Json::fromJson<ReadTextFileResult>(obj);
 }
 
 QJsonObject WriteTextFileParams::toJson() const
 {
-    return QJsonObject{{"sessionId", sessionId}, {"path", path}, {"content", content}};
+    return Json::toJson(*this);
 }
 
 WriteTextFileParams WriteTextFileParams::fromJson(const QJsonObject &obj)
 {
-    WriteTextFileParams p;
-    p.sessionId = obj.value("sessionId").toString();
-    p.path = obj.value("path").toString();
-    p.content = obj.value("content").toString();
-    return p;
+    return Json::fromJson<WriteTextFileParams>(obj);
 }
 
 QJsonObject CreateTerminalParams::toJson() const
 {
-    QJsonObject o{
-        {"sessionId", sessionId},
-        {"command", command},
-        {"args", stringListToJson(args)},
-        {"env", envToJson(env)},
-    };
-    insertIfNonEmpty(o, "cwd", cwd);
-    if (outputByteLimit)
-        o.insert("outputByteLimit", *outputByteLimit);
-    return o;
+    return Json::toJson(*this);
 }
 
 CreateTerminalParams CreateTerminalParams::fromJson(const QJsonObject &obj)
 {
-    CreateTerminalParams p;
-    p.sessionId = obj.value("sessionId").toString();
-    p.command = obj.value("command").toString();
-    p.args = stringListFromJson(obj.value("args").toArray());
-    p.cwd = obj.value("cwd").toString();
-    p.env = envFromJson(obj.value("env").toArray());
-    if (obj.contains("outputByteLimit") && !obj.value("outputByteLimit").isNull())
-        p.outputByteLimit = obj.value("outputByteLimit").toInt();
-    return p;
+    return Json::fromJson<CreateTerminalParams>(obj);
 }
 
 QJsonObject CreateTerminalResult::toJson() const
 {
-    return QJsonObject{{"terminalId", terminalId}};
+    return Json::toJson(*this);
 }
 
 CreateTerminalResult CreateTerminalResult::fromJson(const QJsonObject &obj)
 {
-    CreateTerminalResult r;
-    r.terminalId = obj.value("terminalId").toString();
-    return r;
+    return Json::fromJson<CreateTerminalResult>(obj);
 }
 
 QJsonObject ExitStatus::toJson() const
 {
-    QJsonObject o;
-    o.insert("exitCode", exitCode ? QJsonValue(*exitCode) : QJsonValue());
-    o.insert("signal", signal.isEmpty() ? QJsonValue() : QJsonValue(signal));
-    return o;
+    return Json::toJson(*this);
 }
 
 ExitStatus ExitStatus::fromJson(const QJsonObject &obj)
 {
-    ExitStatus s;
-    if (obj.contains("exitCode") && !obj.value("exitCode").isNull())
-        s.exitCode = obj.value("exitCode").toInt();
-    s.signal = obj.value("signal").toString();
-    return s;
+    return Json::fromJson<ExitStatus>(obj);
 }
 
 QJsonObject TerminalOutputParams::toJson() const
 {
-    return QJsonObject{{"sessionId", sessionId}, {"terminalId", terminalId}};
+    return Json::toJson(*this);
 }
 
 TerminalOutputParams TerminalOutputParams::fromJson(const QJsonObject &obj)
 {
-    TerminalOutputParams p;
-    p.sessionId = obj.value("sessionId").toString();
-    p.terminalId = obj.value("terminalId").toString();
-    return p;
+    return Json::fromJson<TerminalOutputParams>(obj);
 }
 
 QJsonObject TerminalOutputResult::toJson() const
 {
-    QJsonObject o{{"output", output}, {"truncated", truncated}};
-    if (exitStatus)
-        o.insert("exitStatus", exitStatus->toJson());
-    return o;
+    return Json::toJson(*this);
 }
 
 TerminalOutputResult TerminalOutputResult::fromJson(const QJsonObject &obj)
 {
-    TerminalOutputResult r;
-    r.output = obj.value("output").toString();
-    r.truncated = obj.value("truncated").toBool();
-    if (obj.contains("exitStatus") && obj.value("exitStatus").isObject())
-        r.exitStatus = ExitStatus::fromJson(obj.value("exitStatus").toObject());
-    return r;
+    return Json::fromJson<TerminalOutputResult>(obj);
 }
 
 QJsonObject TerminalRefParams::toJson() const
 {
-    return QJsonObject{{"sessionId", sessionId}, {"terminalId", terminalId}};
+    return Json::toJson(*this);
 }
 
 TerminalRefParams TerminalRefParams::fromJson(const QJsonObject &obj)
 {
-    TerminalRefParams p;
-    p.sessionId = obj.value("sessionId").toString();
-    p.terminalId = obj.value("terminalId").toString();
-    return p;
+    return Json::fromJson<TerminalRefParams>(obj);
 }
 
 QJsonObject WaitForTerminalExitResult::toJson() const
 {
-    QJsonObject o;
-    o.insert("exitCode", exitCode ? QJsonValue(*exitCode) : QJsonValue());
-    o.insert("signal", signal.isEmpty() ? QJsonValue() : QJsonValue(signal));
-    return o;
+    return Json::toJson(*this);
 }
 
 WaitForTerminalExitResult WaitForTerminalExitResult::fromJson(const QJsonObject &obj)
 {
-    WaitForTerminalExitResult r;
-    if (obj.contains("exitCode") && !obj.value("exitCode").isNull())
-        r.exitCode = obj.value("exitCode").toInt();
-    r.signal = obj.value("signal").toString();
-    return r;
+    return Json::fromJson<WaitForTerminalExitResult>(obj);
 }
 
 } // namespace LLMQore::Acp

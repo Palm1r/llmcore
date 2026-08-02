@@ -468,7 +468,11 @@ void ChatController::loadMcpConfig(const QString &path)
         return;
     }
 
-    m_client->tools()->loadMcpServers(doc.object());
+    const int loaded = m_client->tools()->loadMcpServers(doc.object());
+    if (loaded == 0)
+        qWarning().noquote() << "ChatController: no MCP server was loaded from" << path;
+    else
+        qInfo().noquote() << "ChatController: loaded" << loaded << "MCP server(s) from" << path;
 }
 
 void ChatController::setBusy(bool busy)

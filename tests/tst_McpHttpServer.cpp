@@ -23,6 +23,8 @@
 
 #include "FakeHttpTransport.hpp"
 
+#include "TestHelpers.hpp"
+
 using namespace LLMQore;
 using namespace LLMQore::Mcp;
 
@@ -49,20 +51,6 @@ QJsonObject jsonRpcResult(int id, const QString &value)
 QByteArray compact(const QJsonObject &object)
 {
     return QJsonDocument(object).toJson(QJsonDocument::Compact);
-}
-
-template<typename T>
-T waitForFuture(const QFuture<T> &future, int timeoutMs = 5000)
-{
-    if (future.isFinished())
-        return future.result();
-    QEventLoop loop;
-    QFutureWatcher<T> watcher;
-    QObject::connect(&watcher, &QFutureWatcher<T>::finished, &loop, &QEventLoop::quit);
-    watcher.setFuture(future);
-    QTimer::singleShot(timeoutMs, &loop, &QEventLoop::quit);
-    loop.exec();
-    return future.result();
 }
 
 // Minimal tool so we have something for the HTTP loopback to exercise.
@@ -358,3 +346,4 @@ TEST_F(McpHttpServerTest, HttpErrorStatusIsReportedAsTransportError)
 }
 
 #include "tst_McpHttpServer.moc"
+

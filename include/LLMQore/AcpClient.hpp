@@ -18,11 +18,9 @@
 #include <LLMQore/AcpTerminalProvider.hpp>
 #include <LLMQore/AcpTypes.hpp>
 #include <LLMQore/LLMQore_global.h>
+#include <LLMQore/ProtocolPeer.hpp>
 #include <LLMQore/RpcTransport.hpp>
-
-namespace LLMQore::Rpc {
-class JsonRpcSession;
-}
+#include <LLMQore/Version.hpp>
 
 namespace LLMQore::Acp {
 
@@ -32,7 +30,8 @@ class LLMQORE_EXPORT AcpClient : public QObject
 public:
     explicit AcpClient(
         Rpc::Transport *transport,
-        Implementation clientInfo = {QStringLiteral("LLMQore"), QStringLiteral("0.6.0"),
+        Implementation clientInfo = {QStringLiteral("LLMQore"),
+                                     QStringLiteral(LLMQORE_VERSION_STRING),
                                      QStringLiteral("LLMQore")},
         QObject *parent = nullptr);
     ~AcpClient() override;
@@ -65,13 +64,14 @@ public:
         const QString &modeId,
         std::chrono::milliseconds timeout = std::chrono::seconds(30));
 
-    bool isInitialized() const { return m_initialized; }
+    bool isInitialized() const { return m_peer->isInitialized(); }
     const InitializeResult &agentInfo() const { return m_initResult; }
     ClientCapabilities clientCapabilities() const;
     QStringList sessionIds() const { return m_sessions.keys(); }
 
-    Rpc::JsonRpcSession *session() const { return m_session; }
-    Rpc::Transport *transport() const { return m_transport.data(); }
+    Rpc::JsonRpcSession *session() const { return m_peer->session(); }
+    Rpc::Transport *transport() const { return m_peer->transport(); }
+    Rpc::ProtocolPeer *peer() const { return m_peer; }
 
     void shutdown();
 
@@ -105,11 +105,9 @@ private:
         QHash<QString, ToolCall> tools;
     };
 
-    QPointer<Rpc::Transport> m_transport;
-    Rpc::JsonRpcSession *m_session = nullptr;
+    Rpc::ProtocolPeer *m_peer = nullptr;
     Implementation m_clientInfo;
     InitializeResult m_initResult;
-    bool m_initialized = false;
 
     QHash<QString, SessionState> m_sessions;
 

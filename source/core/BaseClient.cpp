@@ -764,13 +764,17 @@ void BaseClient::executeToolsFromMessage(const RequestID &id)
     if (msg->state() != MessageState::RequiresToolExecution)
         return;
 
-    auto toolUseContent = msg->getCurrentToolUseContent();
+    const auto toolUseContent = msg->getCurrentToolUseContent();
     if (toolUseContent.isEmpty())
         return;
 
-    for (auto *toolContent : toolUseContent) {
-        tools()->executeToolCall(id, toolContent->id(), toolContent->name(), toolContent->input());
-    }
+    QList<ToolRound::Call> calls;
+    calls.reserve(toolUseContent.size());
+    for (const auto *toolContent : toolUseContent)
+        calls.append(
+            ToolRound::Call{toolContent->id(), toolContent->name(), toolContent->input()});
+
+    tools()->beginRound(id, calls);
 }
 
 QJsonObject BaseClient::buildReplayContinuation(

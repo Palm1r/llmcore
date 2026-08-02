@@ -304,7 +304,21 @@ client->tools()->addMcpServer({
 ```cpp
 QFile file("mcp_servers.json");
 file.open(QIODevice::ReadOnly);
-client->tools()->loadMcpServers(QJsonDocument::fromJson(file.readAll()).object());
+const int loaded
+    = client->tools()->loadMcpServers(QJsonDocument::fromJson(file.readAll()).object());
+if (loaded == 0)
+    qWarning() << "no usable MCP server in the config";
+```
+
+`addMcpServer` returns `false` when the entry names neither an http(s) url nor a
+command; `loadMcpServers` returns how many servers it started. Starting a server
+only means a transport was built -- whether it came up is reported by the signals:
+
+```cpp
+connect(client->tools(), &LLMQore::ToolsManager::mcpServerInitialized, ...);
+connect(client->tools(), &LLMQore::ToolsManager::mcpServerInitFailed, ...);
+connect(client->tools(), &LLMQore::ToolsManager::mcpToolsSynced, ...);
+connect(client->tools(), &LLMQore::ToolsManager::mcpServerDisconnected, ...);
 ```
 
 Config format (compatible with Claude Desktop):
@@ -336,8 +350,10 @@ Config format (compatible with Claude Desktop):
 auto *mcpClient = new LLMQore::Mcp::McpClient(transport, {"my-app", "1.0.0"}, &app);
 mcpClient->connectAndInitialize();
 
-claudeClient->tools()->addMcpClient(mcpClient);
-openaiClient->tools()->addMcpClient(mcpClient);
+// The optional name prefixes the remote tool ids, so two servers offering
+// `read_file` do not overwrite each other; autoReconnect re-binds after a drop.
+claudeClient->tools()->addMcpClient(mcpClient, "fs", /*autoReconnect*/ true);
+openaiClient->tools()->addMcpClient(mcpClient, "fs", /*autoReconnect*/ true);
 ```
 
 ### Use the MCP client directly

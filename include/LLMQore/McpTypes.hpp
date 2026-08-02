@@ -32,6 +32,14 @@ inline constexpr const char *kKnownProtocolVersions[] = {
     kProtocolVersion2024_11_05,
 };
 
+inline QStringList knownProtocolVersions()
+{
+    QStringList versions;
+    for (const char *version : kKnownProtocolVersions)
+        versions.append(QString::fromLatin1(version));
+    return versions;
+}
+
 namespace Method {
 inline constexpr const char *Initialize             = "initialize";
 inline constexpr const char *Ping                   = "ping";

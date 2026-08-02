@@ -74,10 +74,14 @@ target_sources(LLMQore PRIVATE
     ${PROJECT_SOURCE_DIR}/include/LLMQore/RpcExceptions.hpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/RpcTransport.hpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/JsonRpcSession.hpp
+    ${PROJECT_SOURCE_DIR}/include/LLMQore/ProtocolPeer.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/rpc/ProtocolPeer.cpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/RpcStdioTransport.hpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/RpcPipeTransport.hpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/RpcLineFramer.hpp
+    ${PROJECT_SOURCE_DIR}/include/LLMQore/RpcNdJsonCodec.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/rpc/RpcLineFramer.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/rpc/RpcNdJsonCodec.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/rpc/RpcTransport.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/rpc/JsonRpcSession.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/rpc/RpcStdioClientTransport.cpp

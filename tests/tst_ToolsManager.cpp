@@ -3,6 +3,8 @@
 
 #include <gtest/gtest.h>
 
+#include <memory>
+
 #include <QCoreApplication>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -332,6 +334,92 @@ TEST_F(ToolsManagerTest, CleanupRequest)
 
     mgr.cleanupRequest("req-1");
     mgr.cleanupRequest("req-nonexistent");
+}
+
+
+class BlockingTool : public BaseTool
+{
+    Q_OBJECT
+public:
+    using BaseTool::BaseTool;
+
+    QString id() const override { return QStringLiteral("blocker"); }
+    QString displayName() const override { return QStringLiteral("Blocker"); }
+    QString description() const override { return QStringLiteral("Finishes on demand"); }
+    QJsonObject parametersSchema() const override { return QJsonObject{{"type", "object"}}; }
+
+    QFuture<ToolResult> executeAsync(const QJsonObject &) override
+    {
+        auto promise = std::make_shared<QPromise<ToolResult>>();
+        promise->start();
+        pending.append(promise);
+        return promise->future();
+    }
+
+    void release(int index, const QString &text)
+    {
+        pending[index]->addResult(ToolResult::text(text));
+        pending[index]->finish();
+    }
+
+    QList<std::shared_ptr<QPromise<ToolResult>>> pending;
+};
+
+namespace {
+
+void pumpEvents(int rounds = 20)
+{
+    for (int i = 0; i < rounds; ++i)
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
+}
+
+} // namespace
+
+TEST_F(ToolsManagerTest, RoundClosesOnceWhenAnUnknownToolPrecedesAValidOne)
+{
+    ToolsManager mgr(OpenAIMessage::toolDialect());
+    auto *blocker = new BlockingTool;
+    mgr.addTool(blocker);
+
+    QSignalSpy complete(&mgr, &ToolsManager::toolExecutionComplete);
+
+    mgr.beginRound(
+        "req-1",
+        {ToolRound::Call{"call_1", "no_such_tool", {}}, ToolRound::Call{"call_2", "blocker", {}}});
+
+    EXPECT_EQ(complete.count(), 0)
+        << "the round must not close while one of its calls is still running";
+    ASSERT_EQ(blocker->pending.size(), 1);
+
+    blocker->release(0, QStringLiteral("done"));
+    ASSERT_TRUE(complete.count() > 0 || complete.wait(3000));
+
+    ASSERT_EQ(complete.count(), 1);
+    const auto results = complete.first().at(1).value<LLMQoreToolResultHash>();
+    EXPECT_EQ(results.size(), 2);
+    EXPECT_TRUE(results["call_1"].isError);
+    EXPECT_EQ(results["call_2"].asText(), QStringLiteral("done"));
+}
+
+TEST_F(ToolsManagerTest, CleanupRequestOnALiveRoundKeepsItFromClosing)
+{
+    ToolsManager mgr(OpenAIMessage::toolDialect());
+    auto *blocker = new BlockingTool;
+    mgr.addTool(blocker);
+
+    QSignalSpy complete(&mgr, &ToolsManager::toolExecutionComplete);
+
+    mgr.beginRound("req-1", {ToolRound::Call{"call_1", "blocker", {}}, ToolRound::Call{"call_2", "blocker", {}}});
+    ASSERT_EQ(blocker->pending.size(), 1);
+    ASSERT_EQ(complete.count(), 0);
+
+    mgr.cleanupRequest("req-1");
+
+    blocker->release(0, QStringLiteral("too late"));
+    pumpEvents();
+
+    EXPECT_EQ(complete.count(), 0) << "an abandoned round must never close";
+    EXPECT_EQ(blocker->pending.size(), 1) << "the second call must never start";
 }
 
 TEST_F(ToolsManagerTest, BaseTool_EnableDisable)

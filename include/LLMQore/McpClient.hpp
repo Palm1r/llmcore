@@ -19,8 +19,10 @@
 #include <LLMQore/JsonRpcSession.hpp>
 #include <LLMQore/LLMQore_global.h>
 #include <LLMQore/McpTypes.hpp>
+#include <LLMQore/ProtocolPeer.hpp>
 #include <LLMQore/RpcTransport.hpp>
 #include <LLMQore/ToolResult.hpp>
+#include <LLMQore/Version.hpp>
 
 namespace LLMQore::Mcp {
 
@@ -30,7 +32,7 @@ class LLMQORE_EXPORT McpClient : public QObject
 public:
     explicit McpClient(
         Rpc::Transport *transport,
-        Implementation clientInfo = {"LLMQore", "0.1.0"},
+        Implementation clientInfo = {"LLMQore", QStringLiteral(LLMQORE_VERSION_STRING)},
         QObject *parent = nullptr);
     ~McpClient() override;
 
@@ -92,12 +94,13 @@ public:
         return m_elicitationProvider.data();
     }
 
-    bool isInitialized() const { return m_initialized; }
+    bool isInitialized() const { return m_peer->isInitialized(); }
     const InitializeResult &serverInfo() const { return m_initResult; }
     const QList<ToolInfo> &cachedTools() const { return m_cachedTools; }
 
-    Rpc::Transport *transport() const { return m_transport; }
-    Rpc::JsonRpcSession *session() const { return m_session; }
+    Rpc::Transport *transport() const { return m_peer->transport(); }
+    Rpc::JsonRpcSession *session() const { return m_peer->session(); }
+    Rpc::ProtocolPeer *peer() const { return m_peer; }
 
     void shutdown();
 
@@ -121,12 +124,10 @@ private:
     QFuture<QJsonValue> sendInitialized(
         const QString &method, const QJsonObject &params = {});
 
-    QPointer<Rpc::Transport> m_transport;
-    Rpc::JsonRpcSession *m_session = nullptr;
+    Rpc::ProtocolPeer *m_peer = nullptr;
     Implementation m_clientInfo;
     InitializeResult m_initResult;
     QList<ToolInfo> m_cachedTools;
-    bool m_initialized = false;
     QPointer<BaseRootsProvider> m_rootsProvider;
     QPointer<LLMQore::BaseClient> m_samplingClient;
     SamplingPayloadBuilder m_samplingBuilder;

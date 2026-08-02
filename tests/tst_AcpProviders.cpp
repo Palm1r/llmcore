@@ -16,36 +16,12 @@
 #include <LLMQore/RpcExceptions.hpp>
 #include <LLMQore/TerminalManager.hpp>
 
+#include "TestHelpers.hpp"
+
 using namespace LLMQore;
 using namespace LLMQore::Acp;
 
 namespace {
-
-template<typename T>
-T waitForFuture(const QFuture<T> &future, int timeoutMs = 5000)
-{
-    if (future.isFinished())
-        return future.result();
-    QEventLoop loop;
-    QFutureWatcher<T> watcher;
-    QObject::connect(&watcher, &QFutureWatcher<T>::finished, &loop, &QEventLoop::quit);
-    watcher.setFuture(future);
-    QTimer::singleShot(timeoutMs, &loop, &QEventLoop::quit);
-    loop.exec();
-    return future.result();
-}
-
-void waitForVoidFuture(const QFuture<void> &future, int timeoutMs = 5000)
-{
-    if (future.isFinished())
-        return;
-    QEventLoop loop;
-    QFutureWatcher<void> watcher;
-    QObject::connect(&watcher, &QFutureWatcher<void>::finished, &loop, &QEventLoop::quit);
-    watcher.setFuture(future);
-    QTimer::singleShot(timeoutMs, &loop, &QEventLoop::quit);
-    loop.exec();
-}
 
 class AcpProvidersTest : public ::testing::Test
 {

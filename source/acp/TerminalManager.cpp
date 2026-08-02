@@ -7,6 +7,7 @@
 #include <QProcessEnvironment>
 #include <QPromise>
 
+#include <LLMQore/FutureUtils.hpp>
 #include <LLMQore/RpcExceptions.hpp>
 
 namespace LLMQore::Acp {
@@ -25,34 +26,6 @@ struct TerminalManager::Terminal
 };
 
 namespace {
-
-template<typename T>
-QFuture<T> resolved(T value)
-{
-    QPromise<T> p;
-    p.start();
-    p.addResult(std::move(value));
-    p.finish();
-    return p.future();
-}
-
-QFuture<void> resolvedVoid()
-{
-    QPromise<void> p;
-    p.start();
-    p.finish();
-    return p.future();
-}
-
-template<typename T>
-QFuture<T> rejected(int code, const QString &message)
-{
-    QPromise<T> p;
-    p.start();
-    p.setException(std::make_exception_ptr(Rpc::RemoteError(code, message)));
-    p.finish();
-    return p.future();
-}
 
 WaitForTerminalExitResult exitResult(std::optional<int> exitCode, const QString &signal)
 {
@@ -146,7 +119,7 @@ QFuture<CreateTerminalResult> TerminalManager::createTerminal(const CreateTermin
 
     CreateTerminalResult result;
     result.terminalId = id;
-    return resolved(result);
+    return LLMQore::readyFuture(result);
 }
 
 QFuture<TerminalOutputResult> TerminalManager::terminalOutput(
@@ -154,9 +127,9 @@ QFuture<TerminalOutputResult> TerminalManager::terminalOutput(
 {
     auto it = m_terminals.find(terminalId);
     if (it == m_terminals.end())
-        return rejected<TerminalOutputResult>(
+        return LLMQore::failedFuture<TerminalOutputResult>(Rpc::RemoteError(
             Rpc::ErrorCode::InvalidParams,
-            QString("Unknown terminalId: %1").arg(terminalId));
+            QString("Unknown terminalId: %1").arg(terminalId)));
 
     Terminal *t = it.value();
     TerminalOutputResult r;
@@ -168,7 +141,7 @@ QFuture<TerminalOutputResult> TerminalManager::terminalOutput(
         es.signal = t->signal;
         r.exitStatus = es;
     }
-    return resolved(r);
+    return LLMQore::readyFuture(r);
 }
 
 QFuture<WaitForTerminalExitResult> TerminalManager::waitForExit(
@@ -176,13 +149,13 @@ QFuture<WaitForTerminalExitResult> TerminalManager::waitForExit(
 {
     auto it = m_terminals.find(terminalId);
     if (it == m_terminals.end())
-        return rejected<WaitForTerminalExitResult>(
+        return LLMQore::failedFuture<WaitForTerminalExitResult>(Rpc::RemoteError(
             Rpc::ErrorCode::InvalidParams,
-            QString("Unknown terminalId: %1").arg(terminalId));
+            QString("Unknown terminalId: %1").arg(terminalId)));
 
     Terminal *t = it.value();
     if (t->finished)
-        return resolved(exitResult(t->exitCode, t->signal));
+        return LLMQore::readyFuture(exitResult(t->exitCode, t->signal));
 
     auto promise = std::make_shared<QPromise<WaitForTerminalExitResult>>();
     promise->start();
@@ -198,14 +171,14 @@ QFuture<void> TerminalManager::killTerminal(const QString &, const QString &term
         if (t->process && t->process->state() != QProcess::NotRunning)
             t->process->kill();
     }
-    return resolvedVoid();
+    return LLMQore::readyFuture();
 }
 
 QFuture<void> TerminalManager::releaseTerminal(const QString &, const QString &terminalId)
 {
     auto it = m_terminals.find(terminalId);
     if (it == m_terminals.end())
-        return resolvedVoid();
+        return LLMQore::readyFuture();
 
     Terminal *t = it.value();
     m_terminals.erase(it);
@@ -225,7 +198,7 @@ QFuture<void> TerminalManager::releaseTerminal(const QString &, const QString &t
 
     delete t->process;
     delete t;
-    return resolvedVoid();
+    return LLMQore::readyFuture();
 }
 
 } // namespace LLMQore::Acp
