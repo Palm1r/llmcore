@@ -6,15 +6,15 @@
 #include <LLMQore/Log.hpp>
 
 #include <LLMQore/RpcLineFramer.hpp>
+#include <LLMQore/RpcNdJsonCodec.hpp>
 
 #include <QFileInfo>
-#include <QJsonDocument>
 
 namespace LLMQore::Rpc {
 
 struct StdioClientTransport::Impl
 {
-    LineFramer stdoutFramer;
+    NdJsonCodec stdoutCodec;
     LineFramer stderrFramer;
 };
 
@@ -95,7 +95,7 @@ void StdioClientTransport::stop()
     }
     m_process->deleteLater();
     m_process = nullptr;
-    m_impl->stdoutFramer.clear();
+    m_impl->stdoutCodec.clear();
     m_impl->stderrFramer.clear();
 
     emit closed();
@@ -112,27 +112,17 @@ void StdioClientTransport::send(const QJsonObject &message)
         emit errorOccurred(QStringLiteral("Transport not open"));
         return;
     }
-    const QByteArray payload = QJsonDocument(message).toJson(QJsonDocument::Compact);
-    m_process->write(payload);
-    m_process->write("\n", 1);
+    m_process->write(NdJsonCodec::encode(message));
 }
 
 void StdioClientTransport::onReadyReadStdout()
 {
     if (!m_process)
         return;
-    const QByteArray data = m_process->readAllStandardOutput();
-    const QByteArrayList lines = m_impl->stdoutFramer.append(data);
-    for (const QByteArray &line : lines) {
-        QJsonParseError err{};
-        const QJsonDocument doc = QJsonDocument::fromJson(line, &err);
-        if (err.error != QJsonParseError::NoError || !doc.isObject()) {
-            qCWarning(llmRpcLog).noquote()
-                << QString("Dropping invalid JSON line: %1").arg(QString::fromUtf8(line));
-            continue;
-        }
-        emit messageReceived(doc.object());
-    }
+    const QList<QJsonObject> messages
+        = m_impl->stdoutCodec.decode(m_process->readAllStandardOutput());
+    for (const QJsonObject &message : messages)
+        emit messageReceived(message);
 }
 
 void StdioClientTransport::onReadyReadStderr()

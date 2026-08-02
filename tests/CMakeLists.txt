@@ -28,6 +28,7 @@ add_executable(LLMQoreUnitTests
     tst_OllamaMessage.cpp
     tst_ClientConstructors.cpp
     tst_RpcLineFramer.cpp
+    tst_RpcNdJsonCodec.cpp
     tst_McpTypes.cpp
     tst_McpLoopback.cpp
     tst_McpToolBinder.cpp

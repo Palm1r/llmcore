@@ -5,7 +5,7 @@
 
 #include <LLMQore/Log.hpp>
 
-#include <LLMQore/RpcLineFramer.hpp>
+#include <LLMQore/RpcNdJsonCodec.hpp>
 
 #include <QDateTime>
 #include <QFile>
@@ -104,7 +104,7 @@ protected:
     void run() override
     {
         m_trace->note(QStringLiteral("reader thread started"));
-        Rpc::LineFramer framer;
+        Rpc::NdJsonCodec codec;
         char buf[4096];
 #ifdef Q_OS_WIN
         const int fd = _fileno(stdin);
@@ -128,21 +128,13 @@ protected:
             const QByteArray chunk(buf, static_cast<int>(n));
             if (m_trace->isEnabled())
                 m_trace->log(QStringLiteral("RAW<"), chunk);
-            const QByteArrayList frames = framer.append(chunk);
-            for (const QByteArray &frame : frames) {
-                m_trace->log(QStringLiteral("IN <"), frame);
-                QJsonParseError err{};
-                const QJsonDocument doc = QJsonDocument::fromJson(frame, &err);
-                if (err.error != QJsonParseError::NoError || !doc.isObject()) {
-                    m_trace->note(
-                        QString("PARSE FAIL: %1").arg(err.errorString()));
-                    qCWarning(llmMcpLog).noquote()
-                        << QString("Dropping invalid stdin JSON line: %1")
-                               .arg(QString::fromUtf8(frame));
-                    continue;
-                }
-                QJsonObject obj = doc.object();
-                postToOwner("messageReceived", Q_ARG(QJsonObject, obj));
+            const QList<QJsonObject> messages = codec.decode(chunk);
+            for (QJsonObject message : messages) {
+                if (m_trace->isEnabled())
+                    m_trace->log(
+                        QStringLiteral("IN <"),
+                        QJsonDocument(message).toJson(QJsonDocument::Compact));
+                postToOwner("messageReceived", Q_ARG(QJsonObject, message));
                 if (m_stop.loadAcquire() != 0)
                     break;
             }
@@ -177,7 +169,7 @@ struct McpStdioServerTransport::Impl
     StdinReaderThread *reader = nullptr;
     QIODevice *in = nullptr;
     QIODevice *out = nullptr;
-    Rpc::LineFramer framer;
+    Rpc::NdJsonCodec codec;
     std::shared_ptr<StdioTrace> trace;
 };
 
@@ -268,19 +260,16 @@ void McpStdioServerTransport::send(const QJsonObject &message)
     QString writeError;
     {
         QMutexLocker locker(&m_impl->writeMutex);
-        const QByteArray payload = QJsonDocument(message).toJson(QJsonDocument::Compact);
-        m_impl->trace->log(QStringLiteral("OUT>"), payload);
+        const QByteArray line = Rpc::NdJsonCodec::encode(message);
+        m_impl->trace->log(QStringLiteral("OUT>"), line);
         if (m_impl->out) {
-            const qint64 written = m_impl->out->write(payload);
-            const qint64 newline = m_impl->out->write("\n", 1);
-            if (written != payload.size() || newline != 1) {
+            if (m_impl->out->write(line) != line.size()) {
                 writeError = m_impl->out->errorString();
                 if (writeError.isEmpty())
                     writeError = QStringLiteral("Short write to output device");
             }
         } else {
-            std::fwrite(payload.constData(), 1, static_cast<size_t>(payload.size()), stdout);
-            std::fputc('\n', stdout);
+            std::fwrite(line.constData(), 1, static_cast<size_t>(line.size()), stdout);
             std::fflush(stdout);
         }
     }
@@ -299,19 +288,12 @@ void McpStdioServerTransport::readFromDevice()
     if (data.isEmpty())
         return;
     m_impl->trace->log(QStringLiteral("RAW<"), data);
-    const QByteArrayList frames = m_impl->framer.append(data);
-    for (const QByteArray &frame : frames) {
-        m_impl->trace->log(QStringLiteral("IN <"), frame);
-        QJsonParseError err = {};
-        const QJsonDocument doc = QJsonDocument::fromJson(frame, &err);
-        if (err.error != QJsonParseError::NoError || !doc.isObject()) {
-            m_impl->trace->note(QString("PARSE FAIL: %1").arg(err.errorString()));
-            qCWarning(llmMcpLog).noquote()
-                << QString("Dropping invalid stdin JSON line: %1")
-                       .arg(QString::fromUtf8(frame));
-            continue;
-        }
-        emit messageReceived(doc.object());
+    const QList<QJsonObject> messages = m_impl->codec.decode(data);
+    for (const QJsonObject &message : messages) {
+        if (m_impl->trace->isEnabled())
+            m_impl->trace->log(
+                QStringLiteral("IN <"), QJsonDocument(message).toJson(QJsonDocument::Compact));
+        emit messageReceived(message);
     }
 }
 
