@@ -129,8 +129,11 @@ full tool-using turn. The adapter called exactly **one** host method the whole t
   `terminal` capability reference is `clientCapabilities.auth.terminal`, an auth-flow
   concern unrelated to our `terminal` flag.
 
-Both stay covered by `tst_AcpLoopback` alone. This is a property of the agent, not a gap
-in effort: no amount of work against this adapter will close it, and a conformance test
+Both stay covered by `tst_AcpLoopback` alone, and now actually are:
+`AcpLoopbackTest.PromptDrivesHostCallbacksFsAndPermission` drives `fs/*`, and
+`AcpLoopbackTest.TerminalCallsReachTheProviderAndComeBackInShape` drives all five
+`terminal/*` methods plus the refusal a host without a terminal provider sends back.
+This is a property of the agent, not a gap in effort: no amount of work against this adapter will close it, and a conformance test
 asserting the file appeared on disk would be a false green — the agent writes it without
 touching the host provider. A different agent could close it; swap one in with
 `LLMQORE_ACP_AGENT_CMD` / `LLMQORE_ACP_AGENT_ARGS`.

@@ -10,6 +10,7 @@
 #include <QJsonObject>
 #include <QNetworkRequest>
 #include <QPromise>
+#include <QSet>
 #include <QSignalSpy>
 #include <QThread>
 #include <QTimer>
@@ -28,6 +29,7 @@
 #include <LLMQore/JsonRpcSession.hpp>
 #include "clients/claude/ClaudeMessage.hpp"
 #include "clients/openai/OpenAIMessage.hpp"
+#include "LoopbackHarness.hpp"
 #include "TestHelpers.hpp"
 #include <LLMQore/ToolRegistry.hpp>
 #include <LLMQore/ToolsManager.hpp>
@@ -157,10 +159,28 @@ public:
         return promise->future();
     }
 
+    bool supportsSubscription() const override { return m_supportsSubscription; }
+    void subscribe(const QString &uri) override { m_subscribed.insert(uri); }
+    void unsubscribe(const QString &uri) override { m_subscribed.remove(uri); }
+
+    void setSupportsSubscription(bool on) { m_supportsSubscription = on; }
+    bool isSubscribed(const QString &uri) const { return m_subscribed.contains(uri); }
+
+    // Only a subscriber hears about a change -- that is the whole point of the
+    // subscribe/unsubscribe pair.
+    void touch(const QString &uri, const QString &text)
+    {
+        m_resources.insert(uri, text);
+        if (m_subscribed.contains(uri))
+            emit resourceUpdated(uri);
+    }
+
 private:
     QHash<QString, QString> m_resources;
     QHash<QString, QStringList> m_completions;
     QList<ResourceTemplate> m_templates;
+    QSet<QString> m_subscribed;
+    bool m_supportsSubscription = false;
 };
 
 class MemoryPromptProvider : public BasePromptProvider
@@ -1290,3 +1310,51 @@ TEST_F(McpLoopbackTest, ElicitationProviderRefusalPropagatesAsRemoteError)
 }
 
 #include "tst_McpLoopback.moc"
+
+// --- resources/subscribe: zero hits in tests/ until now ---
+
+TEST_F(McpLoopbackTest, SubscribingToAResourceDeliversUpdatesUntilUnsubscribed)
+{
+    LLMQoreTest::McpPair pair;
+    auto *provider = new MemoryResourceProvider(pair.server);
+    provider->setSupportsSubscription(true);
+    provider->addResource("mem://note", "first");
+    pair.server->addResourceProvider(provider);
+
+    const InitializeResult init = pair.initialize();
+    ASSERT_TRUE(init.capabilities.resources.has_value());
+    EXPECT_TRUE(init.capabilities.resources->subscribe)
+        << "a provider that supports subscription must be advertised as such";
+
+    QStringList updates;
+    QObject::connect(pair.client, &McpClient::resourceUpdated, [&updates](const QString &uri) {
+        updates << uri;
+    });
+
+    waitForVoidFuture(pair.client->subscribeResource("mem://note"));
+    EXPECT_TRUE(provider->isSubscribed("mem://note"));
+
+    provider->touch("mem://note", "second");
+    pumpEventLoop(std::chrono::milliseconds(50));
+    EXPECT_EQ(updates, QStringList{"mem://note"});
+
+    waitForVoidFuture(pair.client->unsubscribeResource("mem://note"));
+    EXPECT_FALSE(provider->isSubscribed("mem://note"));
+
+    provider->touch("mem://note", "third");
+    pumpEventLoop(std::chrono::milliseconds(50));
+    EXPECT_EQ(updates, QStringList{"mem://note"})
+        << "an unsubscribed client must stop hearing about the resource";
+}
+
+TEST_F(McpLoopbackTest, SubscriptionIsNotAdvertisedWhenNoProviderSupportsIt)
+{
+    LLMQoreTest::McpPair pair;
+    auto *provider = new MemoryResourceProvider(pair.server);
+    provider->addResource("mem://note", "first");
+    pair.server->addResourceProvider(provider);
+
+    const InitializeResult init = pair.initialize();
+    ASSERT_TRUE(init.capabilities.resources.has_value());
+    EXPECT_FALSE(init.capabilities.resources->subscribe);
+}
