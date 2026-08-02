@@ -22,6 +22,7 @@
 #include <LLMQore/ProtocolPeer.hpp>
 #include <LLMQore/RpcTransport.hpp>
 #include <LLMQore/ToolResult.hpp>
+#include <LLMQore/Version.hpp>
 
 namespace LLMQore::Mcp {
 
@@ -31,7 +32,7 @@ class LLMQORE_EXPORT McpClient : public QObject
 public:
     explicit McpClient(
         Rpc::Transport *transport,
-        Implementation clientInfo = {"LLMQore", "0.1.0"},
+        Implementation clientInfo = {"LLMQore", QStringLiteral(LLMQORE_VERSION_STRING)},
         QObject *parent = nullptr);
     ~McpClient() override;
 

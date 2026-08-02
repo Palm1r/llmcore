@@ -20,6 +20,7 @@
 #include <LLMQore/LLMQore_global.h>
 #include <LLMQore/ProtocolPeer.hpp>
 #include <LLMQore/RpcTransport.hpp>
+#include <LLMQore/Version.hpp>
 
 namespace LLMQore::Acp {
 
@@ -29,7 +30,8 @@ class LLMQORE_EXPORT AcpClient : public QObject
 public:
     explicit AcpClient(
         Rpc::Transport *transport,
-        Implementation clientInfo = {QStringLiteral("LLMQore"), QStringLiteral("0.6.0"),
+        Implementation clientInfo = {QStringLiteral("LLMQore"),
+                                     QStringLiteral(LLMQORE_VERSION_STRING),
                                      QStringLiteral("LLMQore")},
         QObject *parent = nullptr);
     ~AcpClient() override;
