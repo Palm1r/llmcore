@@ -17,28 +17,6 @@
 
 namespace LLMQore::Mcp {
 
-namespace {
-
-QFuture<QJsonValue> makeErrorFuture(Rpc::JsonRpcException err)
-{
-    QPromise<QJsonValue> promise;
-    promise.start();
-    promise.setException(std::make_exception_ptr(std::move(err)));
-    promise.finish();
-    return promise.future();
-}
-
-QFuture<QJsonValue> makeReadyJsonFuture(QJsonValue value)
-{
-    QPromise<QJsonValue> promise;
-    promise.start();
-    promise.addResult(std::move(value));
-    promise.finish();
-    return promise.future();
-}
-
-} // namespace
-
 McpClient::McpClient(Rpc::Transport *transport, Implementation clientInfo, QObject *parent)
     : QObject(parent)
     , m_transport(transport)
@@ -98,7 +76,7 @@ void McpClient::installHandlers()
         QLatin1String(Method::RootsList),
         [this](const QJsonObject &) -> QFuture<QJsonValue> {
             if (!m_rootsProvider)
-                return makeReadyJsonFuture(QJsonObject{{"roots", QJsonArray{}}});
+                return LLMQore::readyFuture<QJsonValue>(QJsonObject{{"roots", QJsonArray{}}});
 
             return LLMQore::compat(m_rootsProvider->listRoots())
                 .then(this, [](const QList<Root> &list) {
@@ -114,7 +92,7 @@ void McpClient::installHandlers()
 
     m_session->setRequestHandler(
         QLatin1String(Method::Ping), [](const QJsonObject &) -> QFuture<QJsonValue> {
-            return makeReadyJsonFuture(QJsonObject{});
+            return LLMQore::readyFuture<QJsonValue>(QJsonObject{});
         });
 
     m_session->setRequestHandler(
@@ -230,7 +208,7 @@ void McpClient::installHandlers()
 QFuture<InitializeResult> McpClient::connectAndInitialize(std::chrono::milliseconds timeout)
 {
     if (!m_transport) {
-        return LLMQore::compat(makeErrorFuture(Rpc::TransportError(QStringLiteral("No transport"))))
+        return LLMQore::compat(LLMQore::failedFuture<QJsonValue>(Rpc::TransportError(QStringLiteral("No transport"))))
             .then(this, [](const QJsonValue &) { return InitializeResult{}; });
     }
 
@@ -289,14 +267,14 @@ QFuture<QJsonValue> McpClient::sendInitialized(
     const QString &method, const QJsonObject &params)
 {
     if (!m_initialized)
-        return makeErrorFuture(Rpc::ProtocolError(QStringLiteral("Client not initialized")));
+        return LLMQore::failedFuture<QJsonValue>(Rpc::ProtocolError(QStringLiteral("Client not initialized")));
     return m_session->sendRequest(method, params);
 }
 
 QFuture<void> McpClient::ping(std::chrono::milliseconds timeout)
 {
     QFuture<QJsonValue> raw = (!m_transport || !m_transport->isOpen())
-        ? makeErrorFuture(Rpc::TransportError(QStringLiteral("Transport is not open")))
+        ? LLMQore::failedFuture<QJsonValue>(Rpc::TransportError(QStringLiteral("Transport is not open")))
         : m_session->sendRequest(QLatin1String(Method::Ping), QJsonObject{}, timeout);
     return LLMQore::compat(raw).then(this, [](const QJsonValue &) {});
 }
@@ -337,12 +315,8 @@ McpClient::CancellableToolCall McpClient::callToolWithProgress(
     CancellableToolCall out;
 
     if (!m_initialized) {
-        auto p = std::make_shared<QPromise<LLMQore::ToolResult>>();
-        p->start();
-        p->setException(std::make_exception_ptr(
-            Rpc::ProtocolError(QStringLiteral("Client not initialized"))));
-        p->finish();
-        out.future = p->future();
+        out.future = LLMQore::failedFuture<LLMQore::ToolResult>(
+            Rpc::ProtocolError(QStringLiteral("Client not initialized")));
         return out;
     }
 

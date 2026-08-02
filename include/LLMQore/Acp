@@ -1,0 +1,19 @@
+// Copyright (C) 2026 Petr Mironychev
+// SPDX-License-Identifier: MIT
+
+#pragma once
+
+#include <LLMQore/JsonRpcSession.hpp>
+#include <LLMQore/RpcExceptions.hpp>
+#include <LLMQore/RpcStdioTransport.hpp>
+#include <LLMQore/RpcTransport.hpp>
+
+#include <LLMQore/AcpAgentConfig.hpp>
+#include <LLMQore/AcpAgentRegistry.hpp>
+#include <LLMQore/AcpClient.hpp>
+#include <LLMQore/AcpFileSystemProvider.hpp>
+#include <LLMQore/AcpPermissionProvider.hpp>
+#include <LLMQore/AcpTerminalProvider.hpp>
+#include <LLMQore/AcpTypes.hpp>
+#include <LLMQore/DefaultFileSystemProvider.hpp>
+#include <LLMQore/TerminalManager.hpp>

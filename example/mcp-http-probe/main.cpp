@@ -73,19 +73,16 @@ int main(int argc, char *argv[])
         parser.showHelp(1);
 
     const QString specStr = parser.value(specOpt);
-    HttpTransportConfig cfg;
-    cfg.endpoint = QUrl(positional.first());
-    if (specStr == QLatin1String("2024-11-05")) {
-        cfg.spec = McpHttpSpec::V2024_11_05;
-    } else if (specStr == QLatin1String("2025-03-26")
-               || specStr == QLatin1String("2025-06-18")
-               || specStr == QLatin1String("2025-11-25")
-               || specStr == QLatin1String("latest")) {
-        cfg.spec = McpHttpSpec::V2025_03_26;
-    } else {
-        qCritical().noquote() << "Unknown --spec value:" << specStr;
+    static const QStringList knownSpecs{
+        "2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25", "latest"};
+    if (!knownSpecs.contains(specStr)) {
+        qCritical().noquote() << "Unknown --spec value:" << specStr
+                              << "\nSupported:" << knownSpecs.join(", ");
         return 1;
     }
+    HttpTransportConfig cfg;
+    cfg.endpoint = QUrl(positional.first());
+    cfg.spec = Mcp::parseHttpSpec(specStr);
 
     const QString toolToCall = positional.size() > 1 ? positional.at(1) : QString();
 

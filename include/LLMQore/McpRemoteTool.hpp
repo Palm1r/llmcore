@@ -21,13 +21,13 @@ class LLMQORE_EXPORT McpRemoteTool : public LLMQore::BaseTool
 {
     Q_OBJECT
 public:
-    McpRemoteTool(McpClient *client, ToolInfo info, QObject *parent = nullptr);
-
     McpRemoteTool(
         McpClient *client,
         const QString &serverName,
         ToolInfo info,
         QObject *parent = nullptr);
+
+    static QString composeId(const QString &serverName, const QString &toolName);
 
     QString id() const override;
     QString displayName() const override;
@@ -39,6 +39,7 @@ public:
 
     const ToolInfo &info() const { return m_info; }
     const QString &serverName() const { return m_serverName; }
+    McpClient *client() const { return m_client; }
 
 private:
     QPointer<McpClient> m_client;

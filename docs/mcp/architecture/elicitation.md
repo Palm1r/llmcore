@@ -8,11 +8,11 @@ Server → client direction for collecting structured information from end user.
 - Register the provider on McpClient -- this installs the handler and declares `elicitation` capability.
 - Without provider → `MethodNotFound` (-32601).
 - Reply actions: `ElicitAction::Accept` / `Decline` / `Cancel`. `content` only on accept (serialiser enforces).
-- Refuse with `McpRemoteError(ErrorCode::InvalidParams, reason)` from future when no UI available. User "no" → `Decline`.
+- Refuse with `Rpc::RemoteError(ErrorCode::InvalidParams, reason)` from future when no UI available. User "no" → `Decline`.
 
 ## Server side
 
-- McpServer short-circuits with McpProtocolError when not initialized or client lacks `elicitation` capability.
+- McpServer short-circuits with Rpc::ProtocolError when not initialized or client lacks `elicitation` capability.
 - Sends a normal session request. Default timeout: 300 s (vs 120 s for sampling) -- human typing into form.
 
 ## Flow over HTTP

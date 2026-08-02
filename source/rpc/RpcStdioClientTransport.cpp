@@ -49,8 +49,6 @@ void StdioClientTransport::start()
         this,
         &StdioClientTransport::onProcessFinished);
 
-    setState(State::Connecting);
-
     QString program = m_config.program;
     QStringList arguments = m_config.arguments;
 
@@ -76,13 +74,10 @@ void StdioClientTransport::start()
     if (!m_process->waitForStarted(m_config.startupTimeoutMs)) {
         const QString reason = QString("Failed to start '%1': %2").arg(program, m_process->errorString());
         qCWarning(llmRpcLog).noquote() << reason;
-        setState(State::Failed);
         emit errorOccurred(reason);
         emit closed();
         return;
     }
-
-    setState(State::Connected);
 }
 
 void StdioClientTransport::stop()
@@ -103,14 +98,12 @@ void StdioClientTransport::stop()
     m_impl->stdoutFramer.clear();
     m_impl->stderrFramer.clear();
 
-    setState(State::Disconnected);
     emit closed();
 }
 
 bool StdioClientTransport::isOpen() const
 {
-    return m_process && m_process->state() == QProcess::Running
-        && state() == State::Connected;
+    return m_process && m_process->state() == QProcess::Running;
 }
 
 void StdioClientTransport::send(const QJsonObject &message)
@@ -168,7 +161,6 @@ void StdioClientTransport::onProcessFinished(int exitCode, QProcess::ExitStatus 
     qCInfo(llmRpcLog).noquote() << QString("child process exited code=%1 status=%2")
                                        .arg(exitCode)
                                        .arg(static_cast<int>(status));
-    setState(State::Disconnected);
     emit closed();
 }
 

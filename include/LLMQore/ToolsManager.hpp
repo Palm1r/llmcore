@@ -22,6 +22,7 @@
 
 namespace LLMQore::Mcp {
 class McpClient;
+class McpToolBinder;
 struct ToolInfo;
 }
 
@@ -67,7 +68,6 @@ public:
     void loadMcpServers(const QJsonObject &config);
     void addMcpClient(Mcp::McpClient *client);
     void removeMcpClient(Mcp::McpClient *client);
-    void removeAllTools();
 
     QJsonArray getToolsDefinitions() const;
     QString displayName(const QString &toolName) const;
@@ -78,9 +78,6 @@ public:
         const QString &toolName,
         const QJsonObject &input);
     void cleanupRequest(const QString &requestId);
-
-    void setToolExecutionDelay(int delayMs);
-    int toolExecutionDelay() const;
 
     // Asked before a tool runs. Only consulted for tools that declare
     // ToolSafety::Mutating -- a read-only tool has nothing to approve.
@@ -125,11 +122,8 @@ private:
     const ToolDialect &m_dialect;
     QHash<QString, ToolRound> m_toolRounds;
     ExecutionGate m_executionGate;
-    int m_toolExecutionDelayMs = 0;
 
-    void registerMcpTools(Mcp::McpClient *client);
-
-    QHash<Mcp::McpClient *, QStringList> m_mcpClientTools;
+    Mcp::McpToolBinder *m_binder = nullptr;
 };
 
 } // namespace LLMQore

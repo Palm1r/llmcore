@@ -4,6 +4,7 @@
 #include <LLMQore/McpHttpServerTransport.hpp>
 
 #include <LLMQore/HttpRequestParser.hpp>
+#include <LLMQore/JsonRpcSession.hpp>
 #include <LLMQore/Log.hpp>
 #include <LLMQore/SSEParser.hpp>
 
@@ -27,15 +28,6 @@ struct PendingRequestEntry
     QPointer<QTcpSocket> socket;
     QTimer *timeoutTimer = nullptr;
 };
-
-QString jsonRpcIdToString(const QJsonValue &idValue)
-{
-    if (idValue.isString())
-        return idValue.toString();
-    if (idValue.isDouble())
-        return QString::number(static_cast<qint64>(idValue.toDouble()));
-    return {};
-}
 
 QByteArray sseEventForMessage(const QJsonObject &msg)
 {
@@ -214,40 +206,48 @@ struct McpHttpServerTransport::Impl
             respondWithStatus(client, 400, "Bad Request");
             return;
         }
-        const bool hasId = msg.contains("id") && !msg.value("id").isNull();
-        const bool hasMethod = msg.contains("method");
-
-        if (hasMethod && hasId) {
-            const QString idStr = jsonRpcIdToString(msg.value("id"));
-            if (!idStr.isEmpty()) {
-                PendingRequestEntry entry;
-                entry.socket = QPointer<QTcpSocket>(client);
-                entry.timeoutTimer = new QTimer(q);
-                entry.timeoutTimer->setSingleShot(true);
-                entry.timeoutTimer->setInterval(config.pendingResponseTimeoutMs);
-                QObject::connect(entry.timeoutTimer, &QTimer::timeout, q, [this, idStr]() {
-                    auto it = pendingByRequestId.find(idStr);
-                    if (it == pendingByRequestId.end())
-                        return;
-                    QTcpSocket *sock = it.value().socket.data();
-                    if (it.value().timeoutTimer)
-                        it.value().timeoutTimer->deleteLater();
-                    pendingByRequestId.erase(it);
-                    qCWarning(llmMcpLog).noquote()
-                        << QString("Pending JSON-RPC request id=%1 timed out, closing socket")
-                               .arg(idStr);
-                    if (sock && sock->state() == QAbstractSocket::ConnectedState) {
-                        writeStatus(
-                            sock,
-                            504,
-                            "Gateway Timeout",
-                            HeaderList{h("Content-Length", "0"), h("Connection", "close")});
-                        sock->disconnectFromHost();
-                    }
-                });
-                entry.timeoutTimer->start();
-                pendingByRequestId.insert(idStr, entry);
+        if (Rpc::classify(msg) == Rpc::MessageKind::Request) {
+            const QString idStr = Rpc::idToString(msg.value("id"));
+            if (idStr.isEmpty()) {
+                qCWarning(llmMcpLog).noquote()
+                    << "Rejecting JSON-RPC request with non-string/non-number id";
+                respondWithStatus(client, 400, "Bad Request");
+                return;
             }
+            if (pendingByRequestId.contains(idStr)) {
+                qCWarning(llmMcpLog).noquote()
+                    << QString("Rejecting JSON-RPC request with duplicate pending id=%1")
+                           .arg(idStr);
+                respondWithStatus(client, 400, "Bad Request");
+                return;
+            }
+            PendingRequestEntry entry;
+            entry.socket = QPointer<QTcpSocket>(client);
+            entry.timeoutTimer = new QTimer(q);
+            entry.timeoutTimer->setSingleShot(true);
+            entry.timeoutTimer->setInterval(config.pendingResponseTimeoutMs);
+            QObject::connect(entry.timeoutTimer, &QTimer::timeout, q, [this, idStr]() {
+                auto it = pendingByRequestId.find(idStr);
+                if (it == pendingByRequestId.end())
+                    return;
+                QTcpSocket *sock = it.value().socket.data();
+                if (it.value().timeoutTimer)
+                    it.value().timeoutTimer->deleteLater();
+                pendingByRequestId.erase(it);
+                qCWarning(llmMcpLog).noquote()
+                    << QString("Pending JSON-RPC request id=%1 timed out, closing socket")
+                           .arg(idStr);
+                if (sock && sock->state() == QAbstractSocket::ConnectedState) {
+                    writeStatus(
+                        sock,
+                        504,
+                        "Gateway Timeout",
+                        HeaderList{h("Content-Length", "0"), h("Connection", "close")});
+                    sock->disconnectFromHost();
+                }
+            });
+            entry.timeoutTimer->start();
+            pendingByRequestId.insert(idStr, entry);
             emit q->messageReceived(msg);
             return;
         }
@@ -357,18 +357,15 @@ void McpHttpServerTransport::start()
 {
     if (m_impl->open)
         return;
-    setState(State::Connecting);
     if (!m_impl->server->listen(m_impl->config.address, m_impl->config.port)) {
         emit errorOccurred(
             QString("Failed to listen on %1:%2: %3")
                 .arg(m_impl->config.address.toString())
                 .arg(m_impl->config.port)
                 .arg(m_impl->server->errorString()));
-        setState(State::Failed);
         return;
     }
     m_impl->open = true;
-    setState(State::Connected);
     qCDebug(llmMcpLog).noquote()
         << QString("MCP HTTP server listening on %1:%2%3")
                .arg(m_impl->server->serverAddress().toString())
@@ -401,7 +398,6 @@ void McpHttpServerTransport::stop()
     if (m_impl->server->isListening())
         m_impl->server->close();
 
-    setState(State::Disconnected);
     emit closed();
 }
 
@@ -419,7 +415,7 @@ void McpHttpServerTransport::send(const QJsonObject &message)
 
     if (message.contains("id") && !message.value("id").isNull()
         && (message.contains("result") || message.contains("error"))) {
-        const QString idStr = jsonRpcIdToString(message.value("id"));
+        const QString idStr = Rpc::idToString(message.value("id"));
         auto it = m_impl->pendingByRequestId.find(idStr);
         if (it != m_impl->pendingByRequestId.end()) {
             QTcpSocket *client = it.value().socket.data();

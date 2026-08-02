@@ -26,15 +26,15 @@ commands.
 LLMQore already ships two stacks (see [`../mcp/architecture.md`](../mcp/architecture.md)):
 
 1. **LLM provider stack** — `BaseClient` + per-provider subclass, streaming, tool loop.
-2. **MCP stack** — JSON-RPC over `McpTransport`/`McpSession`, client and server.
+2. **MCP stack** — JSON-RPC over `Rpc::Transport`/`JsonRpcSession`, client and server.
 
 The ACP host is a **third stack** that *reuses the JSON-RPC plumbing of the MCP stack*
 but is otherwise independent:
 
 - **Transport + framing are shared.** ACP, like MCP-over-stdio, is newline-delimited
   JSON-RPC 2.0 over a child process's stdin/stdout. The existing
-  `McpStdioClientTransport` + `McpLineFramer` already do exactly this.
-- **The JSON-RPC dispatcher is shared.** `McpSession` is a generic request/response/
+  `Rpc::StdioClientTransport` + `Rpc::LineFramer` already do exactly this.
+- **The JSON-RPC dispatcher is shared.** `JsonRpcSession` is a generic request/response/
   notification engine; we extract its protocol-agnostic core as `Rpc::JsonRpcSession`
   (see [`architecture/transport-and-session.md`](architecture/transport-and-session.md)).
 - **The provider stack is NOT involved.** Unlike the MCP client — which binds remote

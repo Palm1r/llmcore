@@ -29,7 +29,6 @@ public:
     QJsonObject toProviderFormat() const;
     QJsonArray createToolResultParts(const QHash<QString, ToolResult> &toolResults) const;
 
-    QString finishReason() const { return m_finishReason; }
     QString stopReason() const override { return m_finishReason; }
     bool isErrorFinishReason() const;
     QString getErrorMessage() const;

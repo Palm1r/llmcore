@@ -17,7 +17,7 @@ TEST(GoogleMessage, InitialState)
     EXPECT_TRUE(msg.getCurrentBlocks().isEmpty());
     EXPECT_TRUE(msg.getCurrentToolUseContent().isEmpty());
     EXPECT_TRUE(msg.getCurrentThinkingContent().isEmpty());
-    EXPECT_TRUE(msg.finishReason().isEmpty());
+    EXPECT_TRUE(msg.stopReason().isEmpty());
 }
 
 TEST(GoogleMessage, HandleContentDelta)
@@ -512,7 +512,7 @@ TEST(GoogleMessage, StartNewContinuation)
     msg.startNewContinuation();
     EXPECT_EQ(msg.state(), MessageState::Building);
     EXPECT_TRUE(msg.getCurrentBlocks().isEmpty());
-    EXPECT_TRUE(msg.finishReason().isEmpty());
+    EXPECT_TRUE(msg.stopReason().isEmpty());
 }
 
 TEST(GoogleMessage, ImagePayload_InlineData)

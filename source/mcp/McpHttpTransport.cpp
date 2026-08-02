@@ -81,8 +81,6 @@ struct McpHttpTransport::Impl
                 qCDebug(llmMcpLog).noquote()
                     << QString("MCP POST endpoint resolved: %1").arg(ep.toString());
 
-                q->setState(State::Connected);
-
                 auto queued = std::move(pendingSends);
                 pendingSends.clear();
                 for (const QJsonObject &msg : queued)
@@ -112,7 +110,6 @@ struct McpHttpTransport::Impl
         }
         if (open) {
             open = false;
-            q->setState(State::Disconnected);
             emit q->closed();
         }
     }
@@ -147,7 +144,6 @@ struct McpHttpTransport::Impl
     void startV2025()
     {
         open = true;
-        q->setState(State::Connected);
     }
 
     void postV2025(const QJsonObject &message)
@@ -246,10 +242,8 @@ void McpHttpTransport::start()
         return;
     if (!m_impl->config.endpoint.isValid()) {
         emit errorOccurred(QStringLiteral("Invalid endpoint"));
-        setState(State::Failed);
         return;
     }
-    setState(State::Connecting);
     switch (m_impl->config.spec) {
     case McpHttpSpec::V2025_03_26:
         m_impl->startV2025();
@@ -276,7 +270,6 @@ void McpHttpTransport::stop()
     m_impl->v2024PostEndpoint.clear();
     m_impl->pendingSends.clear();
 
-    setState(State::Disconnected);
     emit closed();
 }
 

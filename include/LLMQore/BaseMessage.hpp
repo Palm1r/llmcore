@@ -27,14 +27,6 @@ public:
 
     virtual QString stopReason() const { return {}; }
 
-    ContentBlock *blockAt(int index) const
-    {
-        if (index < 0 || index >= m_currentBlocks.size())
-            return nullptr;
-        return m_currentBlocks[index];
-    }
-    int blockCount() const { return m_currentBlocks.size(); }
-
     QList<ToolUseContent *> getCurrentToolUseContent() const;
     QList<ThinkingContent *> getCurrentThinkingContent() const;
 

@@ -11,10 +11,10 @@ sequenceDiagram
     participant TM as ToolsManager
     participant MRT as McpRemoteTool
     participant MC as McpClient
-    participant MCS as McpSession (client)
-    participant MT as McpTransport (client)
-    participant MT2 as McpTransport (server)
-    participant MSS as McpSession (server)
+    participant MCS as JsonRpcSession (client)
+    participant MT as Rpc::Transport (client)
+    participant MT2 as Rpc::Transport (server)
+    participant MSS as JsonRpcSession (server)
     participant MS as McpServer
     participant Tool as BaseTool (server)
 

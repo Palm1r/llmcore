@@ -11,7 +11,6 @@ and file locations.
 | Shared JSON-RPC session (`Rpc`) | [`include/LLMQore/JsonRpcSession.hpp`](../../include/LLMQore/JsonRpcSession.hpp) | [`source/rpc/JsonRpcSession.cpp`](../../source/rpc/JsonRpcSession.cpp) |
 | Shared transport + framing (`Rpc`) | [`RpcTransport.hpp`](../../include/LLMQore/RpcTransport.hpp), [`RpcStdioTransport.hpp`](../../include/LLMQore/RpcStdioTransport.hpp), [`RpcPipeTransport.hpp`](../../include/LLMQore/RpcPipeTransport.hpp) | `source/rpc/*.cpp` |
 | Shared JSON-RPC errors (`Rpc`) | [`include/LLMQore/RpcExceptions.hpp`](../../include/LLMQore/RpcExceptions.hpp) | — |
-| MCP session (compat subclass) | [`include/LLMQore/McpSession.hpp`](../../include/LLMQore/McpSession.hpp) | — (header-only) |
 | ACP wire types | [`include/LLMQore/AcpTypes.hpp`](../../include/LLMQore/AcpTypes.hpp) | [`source/acp/AcpTypes.cpp`](../../source/acp/AcpTypes.cpp) |
 | Host driver | [`include/LLMQore/AcpClient.hpp`](../../include/LLMQore/AcpClient.hpp) | [`source/acp/AcpClient.cpp`](../../source/acp/AcpClient.cpp) |
 | Permission provider (interface) | [`include/LLMQore/AcpPermissionProvider.hpp`](../../include/LLMQore/AcpPermissionProvider.hpp) | — |
@@ -39,14 +38,14 @@ ACP stacks both build on it.
 - `Rpc::ErrorCode` + the exception hierarchy `Rpc::JsonRpcException`, `RemoteError`,
   `TransportError`, `TimeoutError`, `CancelledError`, `ProtocolError`.
 
-ACP (`AcpClient`, `AcpAgentConfig`, the providers) references `Rpc::` names directly.
-The MCP stack keeps its historical spellings via thin compatibility aliases so **no MCP
-source or test changed**:
+Both stacks reference the `Rpc::` names directly — the historical `Mcp::McpTransport`
+/ `Mcp::McpSession` / `Mcp::McpStdioClientTransport` spellings were removed in the #27
+refactor with no compatibility aliases. The renames were:
 
-| MCP name | is now an alias of |
+| Removed MCP name | replaced by |
 |---|---|
 | `Mcp::McpTransport` | `Rpc::Transport` |
-| `Mcp::McpSession` | subclass of `Rpc::JsonRpcSession` |
+| `Mcp::McpSession` | `Rpc::JsonRpcSession` |
 | `Mcp::McpStdioClientTransport` / `StdioLaunchConfig` | `Rpc::StdioClientTransport` / `Rpc::StdioLaunchConfig` |
 | `Mcp::McpPipeTransport` | `Rpc::PipeTransport` |
 | `Mcp::McpRemoteError` / `McpException` / … | `Rpc::RemoteError` / `Rpc::JsonRpcException` / … |

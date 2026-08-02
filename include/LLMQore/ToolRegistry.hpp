@@ -3,8 +3,6 @@
 
 #pragma once
 
-#include <functional>
-
 #include <QList>
 #include <QMap>
 #include <QObject>
@@ -31,7 +29,7 @@ struct LLMQORE_EXPORT ToolSnapshot
 
 // Thread contract: ToolRegistry (and its subclass ToolsManager) lives on
 // the thread of its QObject parent. All mutating methods (addTool,
-// removeTool, removeAllTools, removeToolsIf) and the raw-pointer accessor
+// removeTool, removeAllTools) and the raw-pointer accessor
 // (registeredTools) MUST be called from that thread. External consumers
 // that only need display metadata should prefer toolsSnapshot(), which
 // is the only method safe to call once the registry has been handed out
@@ -45,7 +43,6 @@ public:
     void addTool(BaseTool *tool);
     void removeTool(const QString &name);
     void removeAllTools();
-    void removeToolsIf(std::function<bool(const BaseTool *)> predicate);
     BaseTool *tool(const QString &name) const;
 
     // Internal / owning-thread only. Returns raw pointers into the

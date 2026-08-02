@@ -5,7 +5,7 @@ Two parallel stacks that meet in `ToolRegistry` / `ToolsManager`:
 1. **LLM provider stack** — `BaseClient` subclass per provider
    (Claude, OpenAI, OpenAI Responses, Google Gemini, Ollama, llama.cpp),
    `BaseMessage` streaming parser, `HttpClient` + `SSEParser`, `ToolsManager`.
-2. **MCP stack** — `McpTransport` + `McpSession` + `McpClient` /
+2. **MCP stack** — `Rpc::Transport` + `JsonRpcSession` + `McpClient` /
    `McpServer`, provider abstractions, `McpToolBinder` glue that exposes
    remote MCP tools as local `BaseTool` instances.
 
@@ -23,8 +23,8 @@ flowchart TD
     end
     subgraph Mcp["MCP"]
         MC["McpClient / McpServer"]
-        MS["McpSession"]
-        MT["McpTransport<br/>stdio · pipe · http"]
+        MS["JsonRpcSession"]
+        MT["Rpc::Transport<br/>stdio · pipe · http"]
         MTB["McpToolBinder<br/>McpRemoteTool"]
     end
 
@@ -67,7 +67,7 @@ flowchart TD
 | [`mcp/architecture/http-transport.md`](mcp/architecture/http-transport.md) | `McpHttpServerTransport` internals, piggyback buffer. |
 | [`mcp/architecture/sampling.md`](mcp/architecture/sampling.md) | `setSamplingClient`, `requestFinalized` plumbing. |
 | [`mcp/architecture/elicitation.md`](mcp/architecture/elicitation.md) | `elicitation/create` flow. |
-| [`mcp/architecture/exceptions.md`](mcp/architecture/exceptions.md) | `McpException` hierarchy. |
+| [`mcp/architecture/exceptions.md`](mcp/architecture/exceptions.md) | `Rpc::JsonRpcException` hierarchy. |
 
 ### ACP host stack
 

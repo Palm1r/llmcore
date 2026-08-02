@@ -239,27 +239,6 @@ QString OllamaMessage::stripMarkdownCodeFence(const QString &content) const
     return content.trimmed();
 }
 
-bool OllamaMessage::isLikelyToolCallJson(const QString &content) const
-{
-    QString trimmed = content.trimmed();
-
-    if (trimmed.startsWith('{')) {
-        if (trimmed.contains("\"name\"") && trimmed.contains("\"arguments\"")) {
-            QJsonParseError parseError;
-            QJsonDocument doc = QJsonDocument::fromJson(trimmed.toUtf8(), &parseError);
-
-            if (parseError.error == QJsonParseError::NoError && doc.isObject()) {
-                QJsonObject obj = doc.object();
-                if (obj.contains("name") && obj.contains("arguments")) {
-                    return true;
-                }
-            }
-        }
-    }
-
-    return false;
-}
-
 QJsonObject OllamaMessage::toProviderFormat() const
 {
     QJsonObject message;

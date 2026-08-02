@@ -12,6 +12,32 @@
 
 namespace LLMQore::Rpc {
 
+MessageKind classify(const QJsonObject &message)
+{
+    const bool hasId = message.contains(QLatin1String("id"))
+        && !message.value(QLatin1String("id")).isNull();
+    const bool hasMethod = message.contains(QLatin1String("method"));
+    const bool hasResultOrError = message.contains(QLatin1String("result"))
+        || message.contains(QLatin1String("error"));
+
+    if (hasMethod && hasId)
+        return MessageKind::Request;
+    if (hasMethod)
+        return MessageKind::Notification;
+    if (hasResultOrError)
+        return MessageKind::Response;
+    return MessageKind::Invalid;
+}
+
+QString idToString(const QJsonValue &id)
+{
+    if (id.isString())
+        return id.toString();
+    if (id.isDouble())
+        return QString::number(static_cast<qint64>(id.toDouble()));
+    return {};
+}
+
 namespace {
 
 void logWire(const char *direction, const QJsonObject &message)
@@ -55,13 +81,8 @@ JsonRpcSession::JsonRpcSession(Transport *transport, QObject *parent)
 
     setNotificationHandler(
         QLatin1String(Method::Cancelled), [this](const QJsonObject &params) {
-            const QJsonValue idVal = params.value("requestId");
-            QString id;
-            if (idVal.isString())
-                id = idVal.toString();
-            else if (idVal.isDouble())
-                id = QString::number(static_cast<qint64>(idVal.toDouble()));
-            else
+            const QString id = idToString(params.value("requestId"));
+            if (id.isEmpty())
                 return;
             const QString reason = params.value("reason").toString();
 
@@ -86,12 +107,7 @@ JsonRpcSession::JsonRpcSession(Transport *transport, QObject *parent)
 
     setNotificationHandler(
         QLatin1String(Method::Progress), [this](const QJsonObject &params) {
-            const QJsonValue tokVal = params.value("progressToken");
-            QString token;
-            if (tokVal.isString())
-                token = tokVal.toString();
-            else if (tokVal.isDouble())
-                token = QString::number(static_cast<qint64>(tokVal.toDouble()));
+            const QString token = idToString(params.value("progressToken"));
             const double progress = params.value("progress").toDouble();
             const double total = params.value("total").toDouble();
             const QString message = params.value("message").toString();
@@ -319,43 +335,37 @@ void JsonRpcSession::onMessageReceived(const QJsonObject &message)
         return;
     }
 
-    const bool hasId = message.contains("id") && !message.value("id").isNull();
-    const bool hasMethod = message.contains("method");
-    const bool hasResultOrError = message.contains("result") || message.contains("error");
-
-    if (hasMethod && hasId) {
+    switch (classify(message)) {
+    case MessageKind::Request:
         dispatchRequest(message);
-    } else if (hasMethod) {
+        break;
+    case MessageKind::Notification:
         dispatchNotification(message);
-    } else if (hasResultOrError) {
+        break;
+    case MessageKind::Response:
         dispatchResponse(message);
-    } else {
+        break;
+    case MessageKind::Invalid:
         qCWarning(llmRpcLog).noquote() << "Dropping unclassifiable JSON-RPC message";
+        sendError(
+            message.value("id"),
+            Rpc::ErrorCode::InvalidRequest,
+            QStringLiteral("Invalid Request"));
         emit protocolError(QStringLiteral("Unclassifiable JSON-RPC message"));
+        break;
     }
 }
 
 void JsonRpcSession::dispatchRequest(const QJsonObject &message)
 {
     const QJsonValue idValue = message.value("id");
-    QString idStr;
-    if (idValue.isString())
-        idStr = idValue.toString();
-    else if (idValue.isDouble())
-        idStr = QString::number(static_cast<qint64>(idValue.toDouble()));
+    const QString idStr = idToString(idValue);
 
     const QString method = message.value("method").toString();
     const QJsonObject params = message.value("params").toObject();
 
     const QJsonObject meta = params.value("_meta").toObject();
-    const QJsonValue tokVal = meta.value("progressToken");
-    QString progressToken;
-    if (tokVal.isString())
-        progressToken = tokVal.toString();
-    else if (tokVal.isDouble())
-        progressToken = QString::number(static_cast<qint64>(tokVal.toDouble()));
-
-    m_currentProgressToken = progressToken;
+    m_currentProgressToken = idToString(meta.value("progressToken"));
     if (!idStr.isEmpty())
         m_inFlightIncomingIds.insert(idStr);
 
@@ -448,13 +458,8 @@ void JsonRpcSession::dispatchRequest(const QJsonObject &message)
 
 void JsonRpcSession::dispatchResponse(const QJsonObject &message)
 {
-    const QJsonValue idValue = message.value("id");
-    QString id;
-    if (idValue.isString()) {
-        id = idValue.toString();
-    } else if (idValue.isDouble()) {
-        id = QString::number(static_cast<qint64>(idValue.toDouble()));
-    } else {
+    const QString id = idToString(message.value("id"));
+    if (id.isEmpty()) {
         qCDebug(llmRpcLog).noquote()
             << "Dropping response with null/missing id (non-spec-compliant server)";
         return;

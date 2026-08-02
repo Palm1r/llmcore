@@ -38,8 +38,8 @@ flowchart TD
 
     subgraph MCP["MCP stack (optional)"]
         MC["McpClient / McpServer"]
-        MCPS["McpSession<br/><small>JSON-RPC dispatcher</small>"]
-        MT["McpTransport<br/><small>stdio · pipe · http</small>"]
+        MCPS["JsonRpcSession<br/><small>JSON-RPC dispatcher</small>"]
+        MT["Rpc::Transport<br/><small>stdio · pipe · http</small>"]
         MTB["McpToolBinder<br/>McpRemoteTool"]
     end
 
@@ -104,10 +104,10 @@ Each `source/clients/<vendor>/` holds the `*Client.cpp` + `*Message.{hpp,cpp}` p
 
 ## Invariants
 
-- **Provider clients never talk to `McpSession` directly.** MCP tools appear as ordinary `BaseTool` instances in `ToolRegistry`/`ToolsManager` via `McpRemoteTool`. The provider layer is unaware of their origin.
+- **Provider clients never talk to `JsonRpcSession` directly.** MCP tools appear as ordinary `BaseTool` instances in `ToolRegistry`/`ToolsManager` via `McpRemoteTool`. The provider layer is unaware of their origin.
 - **`HttpClient` knows nothing about LLMs, JSON, or MCP.** It is a pure HTTP transport. Only DNS, timeout, SSL, abort, and connection-refused failures surface as transport errors; all HTTP status codes are passed through as response values.
 - **`HttpTransport` is the only way a provider client reaches the network.** `BaseClient` never touches `QNetworkAccessManager` or `QNetworkReply`; it holds an `HttpTransport *` supplied at construction (defaulting to a private `HttpClient`) and consumes streams through the abstract `HttpStreamHandle`. Substituting a transport is therefore enough to drive any provider client end to end without a socket.
-- **`McpTransport` is the only byte-level boundary** on the MCP side. Everything above it operates on parsed JSON objects.
+- **`Rpc::Transport` is the only byte-level boundary** on the MCP side. Everything above it operates on parsed JSON objects.
 - **`McpServer` depends on `ToolRegistry`, not `ToolsManager`** -- no `ToolDialect` needed for MCP servers.
 - **One `ToolsManager` holds tools from multiple sources** (local and MCP), and they are indistinguishable to the continuation payload builder.
 - **The SSE parser is spec-compliant and shared** across all providers except Ollama, which uses a JSON-lines framer instead.

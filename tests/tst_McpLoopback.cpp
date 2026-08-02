@@ -28,38 +28,14 @@
 #include <LLMQore/JsonRpcSession.hpp>
 #include "clients/claude/ClaudeMessage.hpp"
 #include "clients/openai/OpenAIMessage.hpp"
+#include "TestHelpers.hpp"
+#include <LLMQore/ToolRegistry.hpp>
 #include <LLMQore/ToolsManager.hpp>
 
 using namespace LLMQore;
 using namespace LLMQore::Mcp;
 
 namespace {
-
-template<typename T>
-T waitForFuture(const QFuture<T> &future, int timeoutMs = 5000)
-{
-    if (future.isFinished())
-        return future.result();
-    QEventLoop loop;
-    QFutureWatcher<T> watcher;
-    QObject::connect(&watcher, &QFutureWatcher<T>::finished, &loop, &QEventLoop::quit);
-    watcher.setFuture(future);
-    QTimer::singleShot(timeoutMs, &loop, &QEventLoop::quit);
-    loop.exec();
-    return future.result();
-}
-
-void waitForVoidFuture(const QFuture<void> &future, int timeoutMs = 5000)
-{
-    if (future.isFinished())
-        return;
-    QEventLoop loop;
-    QFutureWatcher<void> watcher;
-    QObject::connect(&watcher, &QFutureWatcher<void>::finished, &loop, &QEventLoop::quit);
-    watcher.setFuture(future);
-    QTimer::singleShot(timeoutMs, &loop, &QEventLoop::quit);
-    loop.exec();
-}
 
 class EchoTool : public BaseTool
 {
@@ -643,8 +619,39 @@ TEST_F(McpLoopbackTest, ToolsChangedNotificationRefreshesTools)
     QTimer::singleShot(300, &loop, &QEventLoop::quit);
     loop.exec();
 
-    EXPECT_GE(changedSpy.count(), 1);
+    EXPECT_GE(changedSpy.size(), 1);
     EXPECT_EQ(manager.registeredTools().size(), 2);
+
+    delete serverTransport;
+    delete clientTransport;
+}
+
+TEST_F(McpLoopbackTest, RegistryToolAdditionSendsListChangedNotification)
+{
+    auto [serverTransport, clientTransport] = Rpc::PipeTransport::createPair();
+
+    McpServer server(serverTransport, McpServerConfig{});
+    ToolRegistry registry;
+    server.setToolRegistry(&registry);
+
+    McpClient client(clientTransport);
+    server.start();
+    waitForFuture(client.connectAndInitialize());
+
+    QSignalSpy changedSpy(&client, &McpClient::toolsChanged);
+
+    registry.addTool(new EchoTool);
+
+    QEventLoop loop;
+    QTimer::singleShot(2000, &loop, &QEventLoop::quit);
+    QObject::connect(&client, &McpClient::toolsChanged, &loop, &QEventLoop::quit);
+    loop.exec();
+
+    EXPECT_GE(changedSpy.size(), 1);
+
+    const QList<ToolInfo> tools = waitForFuture(client.listTools());
+    ASSERT_EQ(tools.size(), 1);
+    EXPECT_EQ(tools.first().name, "echo");
 
     delete serverTransport;
     delete clientTransport;
@@ -699,7 +706,7 @@ TEST_F(McpLoopbackTest, LogMessageNotificationFromServerToClient)
     QObject::connect(&client, &McpClient::logMessage, &loop, &QEventLoop::quit);
     loop.exec();
 
-    ASSERT_GE(spy.count(), 1);
+    ASSERT_GE(spy.size(), 1);
     const auto args = spy.takeFirst();
     EXPECT_EQ(args.at(0).toString(), "info");
     EXPECT_EQ(args.at(1).toString(), "test");
@@ -916,7 +923,7 @@ TEST_F(McpLoopbackTest, ProgressNotificationsDeliveredToCallback)
             steps->append({p, t, m});
         });
 
-    const LLMQore::ToolResult result = waitForFuture(call.future, 8000);
+    const LLMQore::ToolResult result = waitForFuture(call.future, std::chrono::seconds(8));
     EXPECT_FALSE(result.isError);
     EXPECT_EQ(result.asText(), "counted 3");
 

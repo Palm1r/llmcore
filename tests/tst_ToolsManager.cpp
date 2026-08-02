@@ -87,6 +87,24 @@ TEST_F(ToolsManagerTest, AddAndRetrieveTool)
     EXPECT_EQ(mgr.registeredTools().size(), 1);
 }
 
+TEST_F(ToolsManagerTest, ToolsSnapshotDetachesFromLiveTools)
+{
+    ToolsManager mgr(OpenAIMessage::toolDialect());
+    mgr.addTool(new FakeTool("read_file", "Read File"));
+
+    const QList<ToolSnapshot> snapshot = mgr.toolsSnapshot();
+    ASSERT_EQ(snapshot.size(), 1);
+    EXPECT_EQ(snapshot.first().id, "read_file");
+    EXPECT_EQ(snapshot.first().displayName, "Read File");
+
+    mgr.removeTool("read_file");
+    EXPECT_EQ(mgr.registeredTools().size(), 0);
+
+    EXPECT_EQ(snapshot.first().id, "read_file");
+    EXPECT_EQ(snapshot.first().displayName, "Read File");
+    EXPECT_EQ(snapshot.first().description, "A fake tool for testing");
+}
+
 TEST_F(ToolsManagerTest, AddNullTool)
 {
     ToolsManager mgr(OpenAIMessage::toolDialect());

@@ -5,13 +5,8 @@
 #include <LLMQore/FutureUtils.hpp>
 #include <LLMQore/Log.hpp>
 #include <LLMQore/McpClient.hpp>
-#include <LLMQore/McpProvisioning.hpp>
-#include <LLMQore/McpRemoteTool.hpp>
-#include <LLMQore/RpcStdioTransport.hpp>
+#include <LLMQore/McpToolBinder.hpp>
 #include <LLMQore/ToolsManager.hpp>
-#include <LLMQore/Version.hpp>
-#include <QSet>
-#include <QTimer>
 
 namespace LLMQore {
 
@@ -19,6 +14,7 @@ ToolsManager::ToolsManager(const ToolDialect &dialect, QObject *parent)
     : ToolRegistry(parent)
     , m_toolHandler(new ToolHandler(this))
     , m_dialect(dialect)
+    , m_binder(new Mcp::McpToolBinder(this, this))
 {
     initConnections();
 }
@@ -29,115 +25,24 @@ void ToolsManager::initConnections()
     connect(m_toolHandler, &ToolHandler::toolFailed, this, &ToolsManager::onToolErrored);
 }
 
-void ToolsManager::removeAllTools()
-{
-    ToolRegistry::removeAllTools();
-    m_mcpClientTools.clear();
-}
-
 void ToolsManager::addMcpServer(const Mcp::ServerEndpoint &endpoint)
 {
-    Rpc::Transport *transport = Mcp::makeTransport(endpoint, this);
-    if (!transport)
-        return;
-
-    auto *client = new Mcp::McpClient(
-        transport,
-        Mcp::Implementation{endpoint.name, QStringLiteral(LLMQORE_VERSION_STRING)},
-        this);
-
-    const QString name = endpoint.name;
-
-    (void)LLMQore::compat(client->connectAndInitialize())
-        .then(this, [this, client](const Mcp::InitializeResult &) { addMcpClient(client); })
-        .onFailed(this, [name](const std::exception &e) {
-            qCWarning(llmToolsLog).noquote()
-                << QString("Failed to connect MCP server '%1': %2")
-                       .arg(name, QString::fromUtf8(e.what()));
-        });
+    m_binder->addServer(endpoint);
 }
 
 void ToolsManager::loadMcpServers(const QJsonObject &config)
 {
-    const QJsonObject servers = config["mcpServers"].toObject();
-    for (auto it = servers.begin(); it != servers.end(); ++it) {
-        const QJsonObject server = it.value().toObject();
-        Mcp::ServerEndpoint endpoint;
-        endpoint.name = it.key();
-
-        if (server.contains("url")) {
-            endpoint.url = QUrl(server["url"].toString());
-            endpoint.httpSpec = server["spec"].toString();
-            const QJsonObject headers = server["headers"].toObject();
-            for (auto h = headers.begin(); h != headers.end(); ++h)
-                endpoint.headers.insert(h.key(), h.value().toString());
-        } else {
-            endpoint.command = server["command"].toString();
-            const QJsonArray args = server["args"].toArray();
-            for (const auto &arg : args)
-                endpoint.arguments.append(arg.toString());
-            const QJsonObject envObj = server["env"].toObject();
-            if (!envObj.isEmpty()) {
-                for (auto e = envObj.begin(); e != envObj.end(); ++e)
-                    endpoint.env.insert(e.key(), e.value().toString());
-            }
-            endpoint.workingDirectory = server["workingDirectory"].toString();
-        }
-
-        addMcpServer(endpoint);
-    }
+    m_binder->loadServers(config);
 }
 
 void ToolsManager::addMcpClient(Mcp::McpClient *client)
 {
-    if (!client) {
-        qCWarning(llmToolsLog).noquote() << "Attempted to add null McpClient";
-        return;
-    }
-
-    connect(client, &Mcp::McpClient::toolsChanged, this, [this, client]() {
-        registerMcpTools(client);
-    });
-
-    connect(client, &QObject::destroyed, this, [this, client]() {
-        removeMcpClient(client);
-    });
-
-    registerMcpTools(client);
+    m_binder->addClient(client);
 }
 
 void ToolsManager::removeMcpClient(Mcp::McpClient *client)
 {
-    const QStringList names = m_mcpClientTools.take(client);
-    for (const QString &name : names)
-        removeTool(name);
-}
-
-void ToolsManager::registerMcpTools(Mcp::McpClient *client)
-{
-    (void)LLMQore::compat(client->listTools())
-        .then(this, [this, client](const QList<Mcp::ToolInfo> &tools) {
-            QSet<QString> incoming;
-            incoming.reserve(tools.size());
-            for (const Mcp::ToolInfo &t : tools)
-                incoming.insert(t.name);
-
-            const QStringList previous = m_mcpClientTools.value(client);
-            for (const QString &old : previous) {
-                if (!incoming.contains(old))
-                    removeTool(old);
-            }
-
-            QStringList registered;
-            registered.reserve(tools.size());
-            for (const Mcp::ToolInfo &info : tools) {
-                if (m_tools.contains(info.name))
-                    removeTool(info.name);
-                addTool(new Mcp::McpRemoteTool(client, info));
-                registered.append(info.name);
-            }
-            m_mcpClientTools[client] = std::move(registered);
-        });
+    m_binder->removeClient(client);
 }
 
 QString ToolsManager::displayName(const QString &toolName) const
@@ -354,13 +259,7 @@ void ToolsManager::finalizePendingTool(
 
     emit toolExecutionResult(requestId, toolId, pendingTool.name, pendingTool.resultText);
 
-    if (m_toolExecutionDelayMs > 0 && !queue.queue.isEmpty()) {
-        QTimer::singleShot(m_toolExecutionDelayMs, this, [this, requestId]() {
-            executeNextTool(requestId);
-        });
-    } else {
-        executeNextTool(requestId);
-    }
+    executeNextTool(requestId);
 }
 
 QHash<QString, ToolResult> ToolsManager::getToolResults(const QString &requestId) const
@@ -376,16 +275,6 @@ QHash<QString, ToolResult> ToolsManager::getToolResults(const QString &requestId
     }
 
     return results;
-}
-
-void ToolsManager::setToolExecutionDelay(int delayMs)
-{
-    m_toolExecutionDelayMs = delayMs;
-}
-
-int ToolsManager::toolExecutionDelay() const
-{
-    return m_toolExecutionDelayMs;
 }
 
 } // namespace LLMQore

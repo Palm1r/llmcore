@@ -37,71 +37,13 @@ BridgeConfig loadConfig(const QString &path)
     if (root.contains("host"))
         cfg.address = QHostAddress(root["host"].toString());
 
-    const QStringList names = serversObj.keys();
-    for (const QString &name : names) {
-        const QJsonObject entry = serversObj[name].toObject();
-
-        LLMQore::Mcp::ServerEndpoint upstream;
-        upstream.name = name;
-
-        // "enable" is optional; default true. Explicit false skips the entry.
-        if (entry.contains("enable") && !entry["enable"].toBool(true)) {
-            qInfo().noquote() << "Skipping disabled server:" << name;
-            continue;
-        }
-
-        const QString typeStr = entry["type"].toString().toLower();
-        // `"sse"` and `"http"` both mean «MCP over HTTP» — which wire spec
-        // is actually spoken is selected by `"httpSpec"` below, not by the
-        // `"type"` string. Historically we also accepted `"streamable-http"`
-        // as a synonym of `"http"`; it was a pure alias and has been
-        // dropped to keep the config surface honest.
-        if (typeStr == "sse" || typeStr == "http") {
-            upstream.url = QUrl(entry["url"].toString());
-            if (!upstream.url.isValid()) {
-                qWarning().noquote() << "Skipping" << name << "— invalid url.";
-                continue;
-            }
-            if (entry.contains("headers")) {
-                const QJsonObject hdrs = entry["headers"].toObject();
-                for (auto it = hdrs.begin(); it != hdrs.end(); ++it)
-                    upstream.headers.insert(it.key(), it.value().toString());
-            }
-
-            // `"type"` selects the transport family (stdio vs HTTP). The
-            // HTTP wire spec is *separately* chosen via `"httpSpec"` and
-            // has to be set by the user when the default (Latest, currently
-            // Streamable HTTP 2025-03-26) doesn't match the upstream.
-            //
-            // Concretely: servers that advertise a `/sse` URL usually speak
-            // the legacy 2024-11-05 transport (split GET /sse + POST
-            // /messages). For those, the user must write:
-            //     "httpSpec": "2024-11-05"
-            // Without it, initialize round-trips to a spec the server
-            // doesn't recognise and hangs until the client timeout.
-            if (entry.contains("httpSpec"))
-                upstream.httpSpec = entry["httpSpec"].toString();
-        } else {
-            // Default: stdio. Accept explicit "stdio" too.
-            upstream.command = entry["command"].toString();
-            if (upstream.command.isEmpty()) {
-                qWarning().noquote() << "Skipping" << name << "— no command.";
-                continue;
-            }
-
-            const QJsonArray argsArray = entry["args"].toArray();
-            for (const QJsonValue &v : argsArray)
-                upstream.arguments << v.toString();
-
-            if (entry.contains("env")) {
-                const QJsonObject envObj = entry["env"].toObject();
-                for (auto it = envObj.begin(); it != envObj.end(); ++it)
-                    upstream.env.insert(it.key(), it.value().toString());
-            }
-        }
-
-        cfg.upstreams.append(upstream);
-    }
+    // Servers that advertise a `/sse` URL usually speak the legacy
+    // 2024-11-05 transport (split GET /sse + POST /messages). For those,
+    // the user must write:
+    //     "spec": "2024-11-05"
+    // Without it, initialize round-trips to a spec the server doesn't
+    // recognise and hangs until the client timeout.
+    cfg.upstreams = LLMQore::Mcp::parseServerMap(root);
 
     return cfg;
 }

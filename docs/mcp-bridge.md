@@ -86,8 +86,7 @@ The bridge config uses the same `mcpServers` schema as Claude Desktop and other 
       "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
     },
     "qtcreator": {
-      "type": "sse",
-      "url": "http://127.0.0.1:3001/sse"
+            "url": "http://127.0.0.1:3001/sse"
     }
   }
 }
@@ -111,10 +110,9 @@ Common fields for every entry:
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `type` | string | `"stdio"` | Upstream transport: `"stdio"`, `"sse"`, or `"http"` |
 | `enable` | bool | `true` | Set to `false` to skip this entry without removing it |
 
-**stdio entries** (`type: "stdio"`, the default) — bridge launches the upstream as a child process and talks over stdin/stdout:
+**stdio entries** (no `url`, the default) — bridge launches the upstream as a child process and talks over stdin/stdout:
 
 | Field | Type | Description |
 |---|---|---|
@@ -131,43 +129,42 @@ Minimal template:
 }
 ```
 
-`type` is omitted — it defaults to `"stdio"`. `url` / `httpSpec` / `headers` don't apply here.
+No `url` — entries without one are launched as stdio commands. `url` / `spec` / `headers` don't apply here.
 
-**HTTP/SSE entries** (`type: "sse"` or `"http"`) — upstream is already running on the network; bridge connects to its URL. `"sse"` and `"http"` are treated identically; the actual wire revision is chosen by `httpSpec`, not by `type`:
+**HTTP/SSE entries** (with a `url`) — upstream is already running on the network; bridge connects to its URL. The transport family is selected by the presence of `url`; the wire revision is chosen by `spec`:
 
 | Field | Type | Description |
 |---|---|---|
 | `url` | string | Upstream endpoint URL (required) |
 | `headers` | object | Additional HTTP headers sent with every request |
-| `httpSpec` | string | MCP HTTP spec revision the upstream speaks. One of `"2024-11-05"`, `"2025-03-26"`, `"2025-06-18"`, `"2025-11-25"`, or `"latest"`. Empty / omitted = latest. |
+| `spec` | string | MCP HTTP spec revision the upstream speaks. One of `"2024-11-05"`, `"2025-03-26"`, `"2025-06-18"`, `"2025-11-25"`, or `"latest"`. Empty / omitted = latest. `httpSpec` is accepted as a deprecated synonym (logged with a warning). |
 
 Minimal template:
 
 ```json
 "my-http-server": {
-  "type": "http",
   "url": "http://127.0.0.1:29180/mcp",
-  "httpSpec": "2025-11-25"   // Streamable HTTP (single /mcp endpoint)
+  "spec": "2025-11-25"   // Streamable HTTP (single /mcp endpoint)
 }
 ```
 
-`type` is required (otherwise the entry is treated as stdio and `command` will be missing). `command` / `args` / `env` don't apply here.
+`url` is required — without it the entry is treated as stdio and `command` will be missing. `command` / `args` / `env` don't apply here.
 
 **Quick rule of thumb**
 
 | Upstream is… | Required fields | Notes |
 |---|---|---|
-| a command you want the bridge to launch | `command` (+ `args`, `env`) | Don't set `type` — stdio is the default. `httpSpec` doesn't apply. |
-| a server already running on a URL | `type` + `url` | `httpSpec` optional (defaults to latest); set it if the upstream speaks an older revision. |
+| a command you want the bridge to launch | `command` (+ `args`, `env`) | No `url` — stdio is the default. `spec` doesn't apply. |
+| a server already running on a URL | `url` | `spec` optional (defaults to latest); set it if the upstream speaks an older revision. |
 
 ---
 
-The `type` field selects the transport family (HTTP vs stdio). `httpSpec` is the single knob that picks the wire-protocol revision inside the HTTP family:
+The presence of `url` selects the transport family (HTTP vs stdio). `spec` is the single knob that picks the wire-protocol revision inside the HTTP family:
 
-- `"2024-11-05"` — legacy SSE transport (separate `/sse` + `POST /messages` endpoints). Conventionally written as `type: "sse"` for readability.
-- `"2025-03-26"`, `"2025-06-18"`, `"2025-11-25"` (and `"latest"`) — Streamable HTTP transport (single `/mcp` endpoint). Conventionally written as `type: "http"`.
+- `"2024-11-05"` — legacy SSE transport (separate `/sse` + `POST /messages` endpoints).
+- `"2025-03-26"`, `"2025-06-18"`, `"2025-11-25"` (and `"latest"`) — Streamable HTTP transport (single `/mcp` endpoint).
 
-`"sse"` and `"http"` are interchangeable in code — use whichever names the upstream's actual shape best. If you don't set `httpSpec`, the bridge speaks the latest known revision. Match it to whatever the upstream MCP server expects — mismatched revisions show up as immediate `Transport closed` after the initial HTTP request.
+If you don't set `spec`, the bridge speaks the latest known revision. Match it to whatever the upstream MCP server expects — mismatched revisions show up as immediate `Transport closed` after the initial HTTP request.
 
 ## Common configurations
 
@@ -218,9 +215,8 @@ Claude Desktop only speaks stdio, but your MCP server lives inside a Qt/Electron
 {
   "mcpServers": {
     "myapp": {
-      "type": "http",
       "url": "http://127.0.0.1:29180/mcp",
-      "httpSpec": "2025-11-25"   // Streamable HTTP (single /mcp endpoint)
+      "spec": "2025-11-25"   // Streamable HTTP (single /mcp endpoint)
     }
   }
 }
@@ -244,14 +240,12 @@ Run the bridge as an HTTP endpoint and put any combination of stdio and HTTP ups
       "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
     },
     "qtcreator": {
-      "type": "sse",
       "url": "http://127.0.0.1:3001/sse",
-      "httpSpec": "2024-11-05"   // legacy split: GET /sse + POST /messages
+      "spec": "2024-11-05"   // legacy split: GET /sse + POST /messages
     },
     "myapp": {
-      "type": "http",
       "url": "http://127.0.0.1:29180/mcp",
-      "httpSpec": "2025-11-25"   // Streamable HTTP (single /mcp endpoint)
+      "spec": "2025-11-25"   // Streamable HTTP (single /mcp endpoint)
     }
   }
 }

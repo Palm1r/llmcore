@@ -92,6 +92,7 @@ target_sources(LLMQore PRIVATE
     ${PROJECT_SOURCE_DIR}/include/LLMQore/McpStdioServerTransport.hpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/McpHttpTransport.hpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/McpProvisioning.hpp
+    ${PROJECT_SOURCE_DIR}/include/LLMQore/McpToolBinder.hpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/BaseResourceProvider.hpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/BasePromptProvider.hpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/BaseRootsProvider.hpp
@@ -104,11 +105,13 @@ target_sources(LLMQore PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/mcp/McpStdioServerTransport.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/mcp/McpHttpTransport.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/mcp/McpProvisioning.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/mcp/McpToolBinder.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/mcp/McpHttpServerTransport.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/mcp/BaseResourceProvider.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/mcp/BasePromptProvider.cpp
 
     # --- ACP (Agent Client Protocol, host side) ---
+    ${PROJECT_SOURCE_DIR}/include/LLMQore/Acp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/AcpTypes.hpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/AcpPermissionProvider.hpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/AcpFileSystemProvider.hpp

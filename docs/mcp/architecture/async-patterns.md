@@ -30,7 +30,7 @@ flowchart LR
         direction TB
         C1["source future"]
         C2["handle success"]
-        C3["catch McpException"]
+        C3["catch Rpc::JsonRpcException"]
         C4["catch std::exception"]
         C5["QFuture~T~"]
         C1 --> C2 --> C3 --> C4 --> C5
@@ -68,7 +68,7 @@ flowchart LR
 
 2. **Guarded method** — all initialized-only operations go through an initialization check first.
 
-3. **Typed failure recovery** — used by handshake and remote tool execution. First handler catches MCP-specific exceptions (preserves concrete type); second catches generic exceptions and normalises to McpException.
+3. **Typed failure recovery** — used by handshake and remote tool execution. First handler catches MCP-specific exceptions (preserves concrete type); second catches generic exceptions and normalises to Rpc::JsonRpcException.
 
 4. **Parallel collect** — McpServer collects from all providers in parallel, merges into a single JSON array. Used for `resources/list`, `resources/templates/list`, `prompts/list`, `completion/complete`.
 

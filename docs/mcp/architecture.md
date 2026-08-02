@@ -3,9 +3,9 @@
 Two parallel stacks meeting in `ToolRegistry` / `ToolsManager`:
 
 1. **LLM provider stack** — `BaseClient` + per-provider subclass, `BaseMessage` parser, `HttpClient`/SSE, `ToolsManager`.
-2. **MCP stack** — `McpTransport` + `McpSession` + `McpClient`/`McpServer`, provider abstractions (`BasePromptProvider`, `BaseResourceProvider`, `BaseRootsProvider`, `BaseElicitationProvider`), bridge classes (`McpRemoteTool`, `McpToolBinder`). Sampling uses `BaseClient` directly via `setSamplingClient()` — no separate provider abstraction.
+2. **MCP stack** — `Rpc::Transport` + `JsonRpcSession` + `McpClient`/`McpServer`, provider abstractions (`BasePromptProvider`, `BaseResourceProvider`, `BaseRootsProvider`, `BaseElicitationProvider`), bridge classes (`McpRemoteTool`, `McpToolBinder`). Sampling uses `BaseClient` directly via `setSamplingClient()` — no separate provider abstraction.
 
-Stacks are independent: use as LLM client without MCP, or run `McpServer` without `BaseClient`. `McpServer` depends only on `ToolRegistry` (the lightweight base class), not on `ToolsManager`. `McpToolBinder` is the glue registering remote tools into `ToolsManager`.
+Stacks are independent: use as LLM client without MCP, or run `McpServer` without `BaseClient`. `McpServer` depends only on `ToolRegistry` (the lightweight base class), not on `ToolsManager`. `McpToolBinder` is the glue registering remote tools into a `ToolRegistry` — `ToolsManager` delegates its `addMcpServer`/`addMcpClient`/`loadMcpServers` to a binder, and mcp-bridge feeds one from its upstream list.
 
 | Topic | Doc |
 |---|---|
@@ -50,10 +50,10 @@ flowchart TD
     end
 
     subgraph MCP["MCP stack"]
-        MCPS["McpSession<br/><small>JSON-RPC dispatcher</small>"]
+        MCPS["JsonRpcSession<br/><small>JSON-RPC dispatcher</small>"]
         MC["McpClient"]
         MS["McpServer"]
-        MT["McpTransport<br/><small>(abstract)</small>"]
+        MT["Rpc::Transport<br/><small>(abstract)</small>"]
         MRT["McpRemoteTool"]
         MTB["McpToolBinder"]
         BPP["BasePromptProvider"]
@@ -63,8 +63,8 @@ flowchart TD
     end
 
     subgraph Transports["Transport implementations"]
-        Pipe["McpPipeTransport<br/><small>in-process pair, tests</small>"]
-        StdioC["McpStdioClientTransport<br/><small>launches child process</small>"]
+        Pipe["Rpc::PipeTransport<br/><small>in-process pair, tests</small>"]
+        StdioC["Rpc::StdioClientTransport<br/><small>launches child process</small>"]
         StdioS["McpStdioServerTransport<br/><small>reads stdin/stdout</small>"]
         Http["McpHttpTransport<br/><small>client, 2024-11-05 + 2025-03-26</small>"]
         HttpS["McpHttpServerTransport<br/><small>server, QTcpServer + HTTP/1.1</small>"]
@@ -101,8 +101,8 @@ flowchart TD
 
 ## Invariants
 
-- **Provider clients never talk to `McpSession` directly.** MCP tools are `McpRemoteTool` instances in `ToolRegistry`/`ToolsManager`.
-- **`McpTransport` is the only byte-level boundary.** Rest works on `QJsonObject`.
-- **`BaseClient` owns HTTP side; `McpSession` owns JSON-RPC side.** No shared code/types.
+- **Provider clients never talk to `JsonRpcSession` directly.** MCP tools are `McpRemoteTool` instances in `ToolRegistry`/`ToolsManager`.
+- **`Rpc::Transport` is the only byte-level boundary.** Rest works on `QJsonObject`.
+- **`BaseClient` owns HTTP side; `JsonRpcSession` owns JSON-RPC side.** No shared code/types.
 - **`McpServer` depends on `ToolRegistry`, not `ToolsManager`** — no `ToolDialect` needed for MCP servers.
 - **One `ToolsManager` holds tools from multiple sources** — indistinguishable to `buildContinuationPayload`.

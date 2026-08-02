@@ -4,25 +4,24 @@ ACP and MCP-over-stdio are the same wire mechanics: newline-delimited JSON-RPC 2
 over a child process. Rather than duplicate that, we extract the protocol-agnostic
 core of the MCP stack into a shared `LLMQore::Rpc` layer that both stacks sit on.
 
-## What is already generic
+## What is generic
 
-[`McpSession`](../../../include/LLMQore/McpSession.hpp) is, today, a generic JSON-RPC
-dispatcher: `sendRequest`/`sendNotification`, request/notification handler maps, a
-pending-request table with timeouts, and `sendResponse`/`sendError`. Only a thin slice
-is MCP-specific:
+[`Rpc::JsonRpcSession`](../../../include/LLMQore/JsonRpcSession.hpp) is a generic
+JSON-RPC dispatcher: `sendRequest`/`sendNotification`, request/notification handler
+maps, a pending-request table with timeouts, and `sendResponse`/`sendError`. It also
+carries the `notifications/cancelled` / `notifications/progress` handlers and the
+`_meta.progressToken` convention — generic JSON-RPC patterns that MCP standardised
+and an ACP agent simply never triggers.
 
-- two notification handlers registered in its constructor —
-  `notifications/cancelled` and `notifications/progress`;
-- the `_meta.progressToken` convention used by progress reporting.
-
-[`McpTransport`](../../../include/LLMQore/McpTransport.hpp) is already fully
+[`Rpc::Transport`](../../../include/LLMQore/RpcTransport.hpp) is fully
 protocol-agnostic: `start/stop/isOpen/send(QJsonObject)` plus `messageReceived`,
-`stateChanged`, `closed`, `stderrLine`. [`McpStdioClientTransport`](../../../source/mcp/McpStdioClientTransport.cpp)
+`errorOccurred`, `closed`. [`Rpc::StdioClientTransport`](../../../source/rpc/RpcStdioClientTransport.cpp)
 launches a child process, frames stdout with
-[`McpLineFramer`](../../../source/mcp/McpLineFramer.hpp), and writes
-`QJsonDocument(...).toJson(Compact) + "\n"`. None of that is MCP-aware.
+[`Rpc::LineFramer`](../../../include/LLMQore/RpcLineFramer.hpp), writes
+`QJsonDocument(...).toJson(Compact) + "\n"`, and surfaces child stderr via its own
+`stderrLine` signal. None of that is MCP-aware.
 
-## Target layering
+## Layering
 
 ```mermaid
 flowchart TD
@@ -36,8 +35,7 @@ flowchart TD
     end
 
     subgraph Mcp["LLMQore::Mcp"]
-        MS["McpSession : JsonRpcSession<br/><small>+ cancelled/progress notifications</small>"]
-        MC["McpClient / McpServer"]
+        MC["McpClient / McpServer<br/><small>use JsonRpcSession directly</small>"]
     end
 
     subgraph Acp["LLMQore::Acp"]
@@ -49,8 +47,7 @@ flowchart TD
     T <|-- PIPE
     SC --> LF
     JS --> T
-    MS --> JS
-    MC --> MS
+    MC --> JS
     AC --> JS
 ```
 
@@ -63,11 +60,11 @@ flowchart TD
 2. **`Rpc::JsonRpcSession`** is the full generic dispatcher. Progress
    (`notifications/progress`) and cancel-by-id (`notifications/cancelled`) stayed in the
    base — generic JSON-RPC patterns an ACP agent never triggers.
-3. **The MCP stack keeps its spellings via compatibility aliases**:
-   `Mcp::McpTransport = Rpc::Transport`, `Mcp::McpSession : Rpc::JsonRpcSession`,
-   `Mcp::McpStdioClientTransport = Rpc::StdioClientTransport`,
-   `Mcp::McpPipeTransport = Rpc::PipeTransport`, plus the exception / `ErrorCode` aliases.
-   No MCP source or test changed; the `tst_Mcp*` suite stayed green throughout.
+3. **The MCP stack was ported to the `Rpc::` spellings directly** — the historical
+   `Mcp::McpTransport` / `Mcp::McpSession` / `Mcp::McpStdioClientTransport` names were
+   removed in the #27 refactor with no compatibility aliases; `McpClient` and
+   `McpServer` own an `Rpc::JsonRpcSession` and register the MCP notification handlers
+   themselves. The `tst_Mcp*` suite stayed green throughout.
 4. **`AcpClient` uses `Rpc::JsonRpcSession` directly** — ACP has no progress token and its
    cancellation is `session/cancel` (a session-scoped notification), so it needs none of
    the MCP-specific helpers.
@@ -81,7 +78,8 @@ and inherit `Rpc::Transport`.
 The agent launch + framing already handles the cases ACP needs:
 
 - `QProcess` with separate stdout/stderr channels; **stderr is surfaced** line-by-line
-  via `stderrLine()` — useful for showing agent diagnostics in the host.
+  via `Rpc::StdioClientTransport::stderrLine()` — useful for showing agent diagnostics
+  in the host.
 - Windows wrapping of `npx`/`npm`/`pnpm`/`yarn`/`uvx` and `.cmd`/`.bat` via
   `cmd.exe /c` — directly relevant since several ACP agents ship as npm shims.
 - Graceful stop (`closeWriteChannel` → `waitForFinished` → `kill`).

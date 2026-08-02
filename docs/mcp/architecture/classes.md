@@ -2,29 +2,29 @@
 
 ```mermaid
 classDiagram
-    class McpTransport {
+    class RpcTransport["Rpc::Transport"] {
         <<abstract>>
         // transport lifecycle + message I/O
     }
 
-    class McpPipeTransport
-    class McpStdioClientTransport
+    class RpcPipeTransport["Rpc::PipeTransport"]
+    class RpcStdioClientTransport["Rpc::StdioClientTransport"]
     class McpStdioServerTransport
     class McpHttpTransport
     class McpHttpServerTransport
 
-    McpTransport <|-- McpPipeTransport
-    McpTransport <|-- McpStdioClientTransport
-    McpTransport <|-- McpStdioServerTransport
-    McpTransport <|-- McpHttpTransport
-    McpTransport <|-- McpHttpServerTransport
+    RpcTransport <|-- RpcPipeTransport
+    RpcTransport <|-- RpcStdioClientTransport
+    RpcTransport <|-- McpStdioServerTransport
+    RpcTransport <|-- McpHttpTransport
+    RpcTransport <|-- McpHttpServerTransport
 
-    class McpSession {
+    class JsonRpcSession["Rpc::JsonRpcSession"] {
         // request dispatch + handler registration
         // cancellation + progress reporting
     }
 
-    McpSession --> McpTransport : uses
+    JsonRpcSession --> RpcTransport : uses
 
     class McpClient {
         // handshake + capability negotiation
@@ -39,8 +39,8 @@ classDiagram
         // logging + sampling + elicitation
     }
 
-    McpClient --> McpSession : owns
-    McpServer --> McpSession : owns
+    McpClient --> JsonRpcSession : owns
+    McpServer --> JsonRpcSession : owns
     McpClient --> BaseRootsProvider : optional
     McpClient --> BaseClient : optional (sampling)
     McpClient --> BaseElicitationProvider : optional
@@ -55,19 +55,27 @@ classDiagram
 
     class McpRemoteTool {
         // delegates execution to McpClient
+        // id prefixed with server name
     }
 
     BaseTool <|-- McpRemoteTool
     McpRemoteTool --> McpClient : uses
 
     class McpToolBinder {
-        // discovers remote tools, registers into ToolsManager
-        bound(int)
-        failed(QString)
+        // connect, list, wrap, diff-resync
+        // reconnect with backoff for owned servers
+        addServer(ServerEndpoint) bool
+        loadServers(QJsonObject) int
+        addClient(McpClient*, serverName, autoReconnect)
+        removeClient(McpClient*)
+        serverInitialized(name, InitializeResult)
+        serverInitFailed(name, error)
+        toolsSynced(name, toolCount)
+        serverDisconnected(name)
     }
 
-    McpToolBinder --> McpClient : listens to toolsChanged
-    McpToolBinder --> ToolsManager : registers McpRemoteTool into
+    McpToolBinder --> McpClient : owns or observes
+    McpToolBinder --> ToolRegistry : registers McpRemoteTool into
 
     class BasePromptProvider {
         <<abstract>>
@@ -96,7 +104,7 @@ classDiagram
 
 ## Ownership rules
 
-- **`McpSession`** — owned by `McpClient` or `McpServer`. Never outlives owner.
-- **`McpTransport`** — passed via constructor, NOT reparented. Caller owns lifetime.
-- **`McpRemoteTool`** — parented to `ToolRegistry` (via `addTool`). Dies with registry or on `McpToolBinder` refresh.
+- **`Rpc::JsonRpcSession`** — owned by `McpClient` or `McpServer`. Never outlives owner.
+- **`Rpc::Transport`** — passed via constructor, NOT reparented. Caller owns lifetime.
+- **`McpRemoteTool`** — parented to `ToolRegistry` (via `addTool`). Dies with registry or on `McpToolBinder` resync. Its id is `<server>_<tool>` when the binder knows the server name, so two servers exposing the same tool never collide.
 - **Providers** (`BasePromptProvider`, `BaseResourceProvider`, `BaseRootsProvider`, `BaseElicitationProvider`) and sampling `BaseClient` — held as `QPointer`. Caller owns, must outlive server/client.

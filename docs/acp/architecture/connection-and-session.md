@@ -91,4 +91,4 @@ set of MCP servers to use — two LLMQore stacks meeting at one config object.
   outstanding-prompt slot. The same agent process serves all of them.
 - **Shutdown order:** `AcpClient::shutdown()` → stop transport → transport closes the
   agent's stdin, waits, then kills. Any pending `prompt`/request promises are failed
-  with a transport-closed error (same pattern as `McpSession::abortPending`).
+  with a transport-closed error (same pattern as `JsonRpcSession::abortPending`).

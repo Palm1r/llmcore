@@ -7,7 +7,7 @@
 
 using namespace LLMQore;
 
-TEST(McpLineFramerTest, SingleCompleteLine)
+TEST(RpcLineFramerTest, SingleCompleteLine)
 {
     Rpc::LineFramer framer;
     const auto lines = framer.append("{\"a\":1}\n");
@@ -16,7 +16,7 @@ TEST(McpLineFramerTest, SingleCompleteLine)
     EXPECT_FALSE(framer.hasIncompleteData());
 }
 
-TEST(McpLineFramerTest, MultipleLinesSingleChunk)
+TEST(RpcLineFramerTest, MultipleLinesSingleChunk)
 {
     Rpc::LineFramer framer;
     const auto lines = framer.append("{\"a\":1}\n{\"b\":2}\n{\"c\":3}\n");
@@ -26,7 +26,7 @@ TEST(McpLineFramerTest, MultipleLinesSingleChunk)
     EXPECT_EQ(lines.at(2), QByteArray("{\"c\":3}"));
 }
 
-TEST(McpLineFramerTest, PartialLineAcrossCalls)
+TEST(RpcLineFramerTest, PartialLineAcrossCalls)
 {
     Rpc::LineFramer framer;
     auto lines = framer.append("{\"a\":");
@@ -38,7 +38,7 @@ TEST(McpLineFramerTest, PartialLineAcrossCalls)
     EXPECT_FALSE(framer.hasIncompleteData());
 }
 
-TEST(McpLineFramerTest, HandlesCrLf)
+TEST(RpcLineFramerTest, HandlesCrLf)
 {
     Rpc::LineFramer framer;
     const auto lines = framer.append("{\"a\":1}\r\n{\"b\":2}\r\n");
@@ -47,7 +47,7 @@ TEST(McpLineFramerTest, HandlesCrLf)
     EXPECT_EQ(lines.at(1), QByteArray("{\"b\":2}"));
 }
 
-TEST(McpLineFramerTest, SkipsEmptyLines)
+TEST(RpcLineFramerTest, SkipsEmptyLines)
 {
     Rpc::LineFramer framer;
     const auto lines = framer.append("\n\n{\"a\":1}\n\n");
@@ -55,7 +55,7 @@ TEST(McpLineFramerTest, SkipsEmptyLines)
     EXPECT_EQ(lines.first(), QByteArray("{\"a\":1}"));
 }
 
-TEST(McpLineFramerTest, ClearResetsBuffer)
+TEST(RpcLineFramerTest, ClearResetsBuffer)
 {
     Rpc::LineFramer framer;
     framer.append("{\"partial");
@@ -65,21 +65,21 @@ TEST(McpLineFramerTest, ClearResetsBuffer)
     EXPECT_EQ(framer.currentBuffer(), QByteArray());
 }
 
-TEST(McpLineFramerTest, InitialState)
+TEST(RpcLineFramerTest, InitialState)
 {
     Rpc::LineFramer framer;
     EXPECT_FALSE(framer.hasIncompleteData());
     EXPECT_EQ(framer.currentBuffer(), QByteArray());
 }
 
-TEST(McpLineFramerTest, EmptyInputYieldsNoLines)
+TEST(RpcLineFramerTest, EmptyInputYieldsNoLines)
 {
     Rpc::LineFramer framer;
     EXPECT_TRUE(framer.append(QByteArray()).isEmpty());
     EXPECT_FALSE(framer.hasIncompleteData());
 }
 
-TEST(McpLineFramerTest, IncompleteTailIsReadableThroughCurrentBuffer)
+TEST(RpcLineFramerTest, IncompleteTailIsReadableThroughCurrentBuffer)
 {
     Rpc::LineFramer framer;
     const auto lines = framer.append("a\nb\npartial");
@@ -90,7 +90,7 @@ TEST(McpLineFramerTest, IncompleteTailIsReadableThroughCurrentBuffer)
     EXPECT_EQ(framer.currentBuffer(), QByteArray("partial"));
 }
 
-TEST(McpLineFramerTest, MultipleChunksAccumulateIntoOneLine)
+TEST(RpcLineFramerTest, MultipleChunksAccumulateIntoOneLine)
 {
     Rpc::LineFramer framer;
     framer.append("{\"");
@@ -100,7 +100,7 @@ TEST(McpLineFramerTest, MultipleChunksAccumulateIntoOneLine)
     EXPECT_EQ(lines.first(), QByteArray("{\"key\":\"val\"}"));
 }
 
-TEST(McpLineFramerTest, DropsUnterminatedRunawayBuffer)
+TEST(RpcLineFramerTest, DropsUnterminatedRunawayBuffer)
 {
     Rpc::LineFramer framer;
     framer.setMaxBufferBytes(1024);
@@ -112,7 +112,7 @@ TEST(McpLineFramerTest, DropsUnterminatedRunawayBuffer)
     EXPECT_EQ(lines, (QByteArrayList{"a", "b"}));
 }
 
-TEST(McpLineFramerTest, MultiByteUtf8SurvivesEverySplitPoint)
+TEST(RpcLineFramerTest, MultiByteUtf8SurvivesEverySplitPoint)
 {
     const QByteArray whole = QStringLiteral("{\"response\":\"Привет 你好 🙂\"}\n").toUtf8();
 
@@ -127,7 +127,7 @@ TEST(McpLineFramerTest, MultiByteUtf8SurvivesEverySplitPoint)
     }
 }
 
-TEST(McpLineFramerTest, Utf8MultibyteSplitAcrossChunks)
+TEST(RpcLineFramerTest, Utf8MultibyteSplitAcrossChunks)
 {
     Rpc::LineFramer framer;
     // "héllo" = h (0x68) é (0xC3 0xA9) l l o
