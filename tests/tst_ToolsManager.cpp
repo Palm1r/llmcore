@@ -82,7 +82,7 @@ protected:
 TEST_F(ToolsManagerTest, AddAndRetrieveTool)
 {
     ToolsManager mgr(OpenAIMessage::toolDialect());
-    auto *tool = new FakeTool("read_file", "Read File");
+    auto tool = new FakeTool("read_file", "Read File");
     mgr.addTool(tool);
 
     EXPECT_EQ(mgr.tool("read_file"), tool);
@@ -281,7 +281,7 @@ TEST_F(ToolsManagerTest, GetToolsDefinitions_GoogleStripsUnsupportedSchemaKeys)
 TEST_F(ToolsManagerTest, GetToolsDefinitions_DisabledToolExcluded)
 {
     ToolsManager mgr(ClaudeMessage::toolDialect());
-    auto *tool = new FakeTool("t1", "T1");
+    auto tool = new FakeTool("t1", "T1");
     tool->setEnabled(false);
     mgr.addTool(tool);
 
@@ -442,7 +442,7 @@ namespace {
 ToolResult structuredResult()
 {
     ToolResult r;
-    r.content = {ToolContent::makeText("rendered")};
+    r.content = {TextContent{"rendered"}};
     r.structuredContent = QJsonObject{{"celsius", 21}};
     return r;
 }
@@ -482,7 +482,7 @@ TEST(ToolResultText, PlainResultIsUnchanged)
 TEST(ToolResultText, HasOnlyTextIsFalseWhenABlockIsBinary)
 {
     ToolResult r;
-    r.content = {ToolContent::makeText("a"), ToolContent::makeImage("bytes", "image/png")};
+    r.content = {TextContent{"a"}, ImageContent::fromBytes("bytes", "image/png")};
     EXPECT_FALSE(r.hasOnlyText());
 
     EXPECT_TRUE(ToolResult::text("a").hasOnlyText());

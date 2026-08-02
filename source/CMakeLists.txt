@@ -2,6 +2,7 @@ target_sources(LLMQore PRIVATE
     ${PROJECT_SOURCE_DIR}/include/LLMQore/ContentBlocks.hpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/BaseMessage.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/core/BaseMessage.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/Conversation.cpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/Log.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/core/Log.cpp
     ${PROJECT_SOURCE_DIR}/include/LLMQore/BaseClient.hpp

@@ -13,6 +13,8 @@
 #include <LLMQore/Log.hpp>
 #include <LLMQore/SSEParser.hpp>
 
+#include "core/ThreadAffinity.hpp"
+
 namespace LLMQore {
 
 namespace {
@@ -53,6 +55,7 @@ ClaudeClient::ClaudeClient(
 RequestID ClaudeClient::sendMessage(
     const QJsonObject &payload, const QString &endpoint, RequestMode mode)
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     QJsonObject request = payload;
     request["stream"] = (mode == RequestMode::Streaming);
 
@@ -69,10 +72,40 @@ RequestID ClaudeClient::ask(const QString &prompt, RequestMode mode)
 {
     QJsonObject payload;
     payload["model"] = m_model;
-    payload["max_tokens"] = 4096;
+    payload["max_tokens"] = kDefaultMaxTokens;
     payload["messages"] = QJsonArray{QJsonObject{{"role", "user"}, {"content", prompt}}};
 
     return sendMessage(payload, {}, mode);
+}
+
+QJsonObject ClaudeClient::buildConversationPayload(const Conversation &conversation) const
+{
+    QJsonObject payload;
+    payload["model"] = m_model;
+
+    const std::optional<ModelInfo> known = cachedModel(m_model);
+    const bool hasLimit = known && known->maxOutputTokens && *known->maxOutputTokens > 0;
+    payload["max_tokens"] = hasLimit ? *known->maxOutputTokens : kDefaultMaxTokens;
+
+    if (!conversation.system().isEmpty())
+        payload["system"] = conversation.system();
+
+    QJsonArray messages;
+    for (const Turn &turn : conversation.turns()) {
+        QJsonArray content;
+        for (const TurnContent &block : turn.content)
+            content.append(ClaudeMessage::serializeTurnContent(block));
+
+        messages.append(
+            QJsonObject{
+                {"role",
+                 turn.role == TurnRole::Assistant ? QStringLiteral("assistant")
+                                                  : QStringLiteral("user")},
+                {"content", content}});
+    }
+    payload["messages"] = messages;
+
+    return payload;
 }
 
 const ToolDialect &ClaudeClient::toolDialect() const
@@ -85,14 +118,47 @@ const UsageSchema &ClaudeClient::usageSchema() const
     return kClaudeUsage;
 }
 
-QFuture<QList<QString>> ClaudeClient::listModels(const QString &endpoint)
+QFuture<QList<ModelInfo>> ClaudeClient::listModels(const QString &endpoint)
 {
     QUrl url = endpointUrl(endpoint, QStringLiteral("/v1/models"));
     QUrlQuery query;
     query.addQueryItem("limit", "1000");
     url.setQuery(query);
 
-    return fetchModelList(url);
+    return fetchModelList(
+        url,
+        QStringLiteral("data"),
+        QStringLiteral("id"),
+        {},
+        [](const QJsonObject &entry, ModelInfo &info) {
+            info.displayName = entry.value("display_name").toString();
+
+            const auto positiveInt = [&entry](const QString &key) -> std::optional<int> {
+                const QJsonValue value = entry.value(key);
+                if (!value.isDouble())
+                    return std::nullopt;
+                const int number = value.toInt(0);
+                if (number <= 0)
+                    return std::nullopt;
+                return number;
+            };
+
+            info.maxOutputTokens = positiveInt(QStringLiteral("max_tokens"));
+            info.maxInputTokens = positiveInt(QStringLiteral("max_input_tokens"));
+
+            const QJsonObject capabilities = entry.value("capabilities").toObject();
+            if (capabilities.isEmpty())
+                return;
+
+            const auto supported = [&capabilities](const QString &key) {
+                return capabilities.value(key).toObject().value("supported").toBool();
+            };
+
+            info.supportsImageInput = supported(QStringLiteral("image_input"));
+            info.supportsThinking = supported(QStringLiteral("thinking"));
+            info.supportsToolCalls = supported(QStringLiteral("tool_use"));
+            info.supportsStructuredOutputs = supported(QStringLiteral("structured_outputs"));
+        });
 }
 
 QString ClaudeClient::parseHttpError(const HttpResponse &response) const
@@ -221,17 +287,8 @@ void ClaudeClient::processBufferedResponse(const RequestID &id, const QByteArray
                 addChunk(id, text);
             }
         } else if (blockType == "thinking") {
-            QString thinking = block["thinking"].toString();
-            if (!thinking.isEmpty()) {
-                message->handleContentBlockDelta(
-                    i, QStringLiteral("thinking_delta"), QJsonObject{{"thinking", thinking}});
-            }
-            if (block.contains("signature")) {
-                message->handleContentBlockDelta(
-                    i,
-                    QStringLiteral("signature_delta"),
-                    QJsonObject{{"signature", block["signature"].toString()}});
-            }
+            // handleContentBlockStart already took `thinking` and `signature` off the
+            // complete block. Replaying them as deltas would append the text twice.
             notifyPendingThinkingBlocks(id);
         } else if (blockType == "redacted_thinking") {
             notifyPendingThinkingBlocks(id);

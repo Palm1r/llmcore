@@ -13,6 +13,8 @@
 #include <LLMQore/Log.hpp>
 #include <LLMQore/SSEParser.hpp>
 
+#include "core/ThreadAffinity.hpp"
+
 namespace LLMQore {
 
 namespace {
@@ -51,6 +53,36 @@ OpenAIClient::OpenAIClient(
     setHeaders({{QStringLiteral("Content-Type"), QStringLiteral("application/json")}});
 }
 
+QJsonObject OpenAIClient::buildConversationPayload(const Conversation &conversation) const
+{
+    QJsonObject payload;
+    payload["model"] = m_model;
+
+    QJsonArray messages;
+    if (!conversation.system().isEmpty())
+        messages.append(QJsonObject{{"role", "system"}, {"content", conversation.system()}});
+
+    for (const Turn &turn : conversation.turns()) {
+        if (turn.role == TurnRole::Tool) {
+            for (const TurnContent &block : turn.content) {
+                if (const auto *result = std::get_if<ToolResultContent>(&block)) {
+                    messages.append(
+                        QJsonObject{
+                            {"role", "tool"},
+                            {"tool_call_id", result->toolUseId},
+                            {"content", toolResultText(toToolResult(*result))}});
+                }
+            }
+            continue;
+        }
+
+        messages.append(OpenAIMessage::serializeTurn(turn.role, turn.content));
+    }
+
+    payload["messages"] = messages;
+    return payload;
+}
+
 const ToolDialect &OpenAIClient::toolDialect() const
 {
     return OpenAIMessage::toolDialect();
@@ -64,6 +96,7 @@ const UsageSchema &OpenAIClient::usageSchema() const
 RequestID OpenAIClient::sendMessage(
     const QJsonObject &payload, const QString &endpoint, RequestMode mode)
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     QJsonObject request = payload;
     request["stream"] = (mode == RequestMode::Streaming);
 
@@ -91,7 +124,7 @@ RequestID OpenAIClient::ask(const QString &prompt, RequestMode mode)
     return sendMessage(payload, {}, mode);
 }
 
-QFuture<QList<QString>> OpenAIClient::listModels(const QString &endpoint)
+QFuture<QList<ModelInfo>> OpenAIClient::listModels(const QString &endpoint)
 {
     return fetchModelList(endpointUrl(endpoint, QStringLiteral("/models")));
 }
@@ -162,9 +195,9 @@ void OpenAIClient::processStreamChunk(const RequestID &id, const QJsonObject &ch
             int index = toolCall["index"].toInt();
             QJsonObject function = toolCall["function"].toObject();
 
-            if (toolCall.contains("id"))
-                message->handleToolCallStart(index, toolCall["id"].toString(),
-                                             function["name"].toString());
+            const QString toolCallId = toolCall["id"].toString();
+            if (!toolCallId.isEmpty())
+                message->handleToolCallStart(index, toolCallId, function["name"].toString());
 
             if (function.contains("arguments"))
                 message->handleToolCallDelta(index, function["arguments"].toString());

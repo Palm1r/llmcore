@@ -93,37 +93,33 @@ GoogleMessage::GoogleMessage(QObject *parent)
 
 void GoogleMessage::handleContentDelta(const QString &text)
 {
-    if (m_currentBlocks.isEmpty() || !dynamic_cast<TextContent *>(m_currentBlocks.last())) {
-        addCurrentContent<TextContent>();
-    }
+    if (m_currentBlocks.isEmpty() || !std::holds_alternative<TextContent>(m_currentBlocks.last()))
+        addCurrentContent(TextContent{});
 
-    if (auto textContent = dynamic_cast<TextContent *>(m_currentBlocks.last())) {
-        textContent->appendText(text);
-    }
+    if (auto *textContent = blockAt<TextContent>(m_currentBlocks.size() - 1))
+        textContent->text += text;
 }
 
 void GoogleMessage::handleThoughtDelta(const QString &text)
 {
-    if (m_currentBlocks.isEmpty() || !dynamic_cast<ThinkingContent *>(m_currentBlocks.last())) {
-        addCurrentContent<ThinkingContent>();
-    }
+    if (m_currentBlocks.isEmpty()
+        || !std::holds_alternative<ThinkingContent>(m_currentBlocks.last()))
+        addCurrentContent(ThinkingContent{});
 
-    if (auto thinkingContent = dynamic_cast<ThinkingContent *>(m_currentBlocks.last())) {
-        thinkingContent->appendThinking(text);
-    }
+    if (auto *thinkingContent = blockAt<ThinkingContent>(m_currentBlocks.size() - 1))
+        thinkingContent->thinking += text;
 }
 
 void GoogleMessage::handleThoughtSignature(const QString &signature)
 {
-    for (int i = m_currentBlocks.size() - 1; i >= 0; --i) {
-        if (auto thinkingContent = dynamic_cast<ThinkingContent *>(m_currentBlocks[i])) {
-            thinkingContent->setSignature(signature);
-            return;
-        }
+    const int existing = lastIndexOfBlock<ThinkingContent>();
+    if (existing >= 0) {
+        blockAt<ThinkingContent>(existing)->signature = signature;
+        return;
     }
 
-    auto thinkingContent = addCurrentContent<ThinkingContent>();
-    thinkingContent->setSignature(signature);
+    const int created = addCurrentContent(ThinkingContent{});
+    blockAt<ThinkingContent>(created)->signature = signature;
 }
 
 void GoogleMessage::handleFunctionCallStart(const QString &name)
@@ -152,7 +148,7 @@ void GoogleMessage::handleFunctionCallComplete()
     }
 
     QString id = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    addCurrentContent<ToolUseContent>(id, m_currentFunctionName, args);
+    addCurrentContent(ToolUseContent{id, m_currentFunctionName, args});
 
     m_currentFunctionName.clear();
     m_pendingFunctionArgs.clear();
@@ -166,73 +162,113 @@ void GoogleMessage::handleFinishReason(const QString &reason)
 
 QJsonObject GoogleMessage::toProviderFormat() const
 {
+    return serializeTurn(TurnRole::Assistant, m_currentBlocks);
+}
+
+QJsonObject GoogleMessage::serializeTurn(TurnRole role, const QList<TurnContent> &blocks)
+{
     QJsonObject content;
-    content["role"] = "model";
+    content["role"] = role == TurnRole::Assistant ? QStringLiteral("model")
+                                                  : QStringLiteral("user");
 
     QJsonArray parts;
 
     QString lastThoughtSignature;
 
-    for (const auto *block : m_currentBlocks) {
-        if (!block)
-            continue;
+    for (const TurnContent &block : blocks) {
+        std::visit(
+            detail::overloaded{
+                [&](const TextContent &c) { parts.append(QJsonObject{{"text", c.text}}); },
+                [&](const ImageContent &c) {
+                    if (c.isUrl()) {
+                        parts.append(
+                            QJsonObject{
+                                {"fileData",
+                                 QJsonObject{
+                                     {"mimeType", c.mimeType},
+                                     {"fileUri", c.url().toString()}}}});
+                        return;
+                    }
+                    parts.append(
+                        QJsonObject{
+                            {"inlineData",
+                             QJsonObject{
+                                 {"mimeType",
+                                  c.mimeType.isEmpty() ? QStringLiteral("image/png")
+                                                       : c.mimeType},
+                                 {"data", c.base64()}}}});
+                },
+                [&](const AudioContent &c) {
+                    parts.append(
+                        QJsonObject{
+                            {"inlineData",
+                             QJsonObject{
+                                 {"mimeType",
+                                  c.mimeType.isEmpty() ? QStringLiteral("audio/wav")
+                                                       : c.mimeType},
+                                 {"data", QString::fromUtf8(c.data.toBase64())}}}});
+                },
+                [&](const ToolUseContent &c) {
+                    QJsonObject functionCall;
+                    functionCall["name"] = c.name;
+                    functionCall["args"] = c.input;
 
-        if (const auto *text = dynamic_cast<const TextContent *>(block)) {
-            parts.append(QJsonObject{{"text", text->text()}});
-        } else if (const auto *tool = dynamic_cast<const ToolUseContent *>(block)) {
-            QJsonObject functionCall;
-            functionCall["name"] = tool->name();
-            functionCall["args"] = tool->input();
+                    QJsonObject part;
+                    part["functionCall"] = functionCall;
+                    if (!lastThoughtSignature.isEmpty())
+                        part["thoughtSignature"] = lastThoughtSignature;
+                    parts.append(part);
+                },
+                [&](const ToolResultContent &) {},
+                [&](const ThinkingContent &c) {
+                    QJsonObject thinkingPart;
+                    thinkingPart["text"] = c.thinking;
+                    thinkingPart["thought"] = true;
+                    parts.append(thinkingPart);
 
-            QJsonObject part;
-            part["functionCall"] = functionCall;
-            if (!lastThoughtSignature.isEmpty())
-                part["thoughtSignature"] = lastThoughtSignature;
-            parts.append(part);
-        } else if (const auto *thinking = dynamic_cast<const ThinkingContent *>(block)) {
-            QJsonObject thinkingPart;
-            thinkingPart["text"] = thinking->thinking();
-            thinkingPart["thought"] = true;
-            parts.append(thinkingPart);
-
-            if (!thinking->signature().isEmpty()) {
-                lastThoughtSignature = thinking->signature();
-                QJsonObject signaturePart;
-                signaturePart["thoughtSignature"] = thinking->signature();
-                parts.append(signaturePart);
-            }
-        }
+                    if (!c.signature.isEmpty()) {
+                        lastThoughtSignature = c.signature;
+                        QJsonObject signaturePart;
+                        signaturePart["thoughtSignature"] = c.signature;
+                        parts.append(signaturePart);
+                    }
+                },
+                [&](const RedactedThinkingContent &) {}},
+            block);
     }
 
     content["parts"] = parts;
     return content;
 }
 
-namespace {
-
-QJsonObject toInlineDataPart(const ToolContent &block)
+QJsonObject GoogleMessage::toInlineDataPart(const ToolContent &block)
 {
     QString mime;
     QByteArray bytes;
-    switch (block.type) {
-    case ToolContent::Image:
-        mime = block.mimeType.isEmpty() ? QStringLiteral("image/png") : block.mimeType;
-        bytes = block.data;
-        break;
-    case ToolContent::Audio:
-        mime = block.mimeType.isEmpty() ? QStringLiteral("audio/wav") : block.mimeType;
-        bytes = block.data;
-        break;
-    case ToolContent::Resource:
-        if (!block.resourceBlob.isEmpty()) {
-            mime = block.mimeType.isEmpty() ? QStringLiteral("application/octet-stream")
-                                            : block.mimeType;
-            bytes = block.resourceBlob;
-        }
-        break;
-    default:
-        break;
-    }
+
+    std::visit(
+        detail::overloaded{
+            [&](const TextContent &) {},
+            [&](const ImageContent &c) {
+                if (c.isUrl())
+                    return;
+                mime = c.mimeType.isEmpty() ? QStringLiteral("image/png") : c.mimeType;
+                bytes = c.bytes();
+            },
+            [&](const AudioContent &c) {
+                mime = c.mimeType.isEmpty() ? QStringLiteral("audio/wav") : c.mimeType;
+                bytes = c.data;
+            },
+            [&](const ResourceContent &c) {
+                if (!c.isBlob() || c.blob().isEmpty())
+                    return;
+                mime = c.mimeType.isEmpty() ? QStringLiteral("application/octet-stream")
+                                            : c.mimeType;
+                bytes = c.blob();
+            },
+            [&](const ResourceLinkContent &) {}},
+        block);
+
     if (bytes.isEmpty())
         return QJsonObject{};
 
@@ -245,26 +281,28 @@ QJsonObject toInlineDataPart(const ToolContent &block)
     };
 }
 
+namespace {
+
 QString buildGeminiResponseText(const ToolResult &r)
 {
     QStringList chunks;
     for (const ToolContent &block : r.content) {
-        switch (block.type) {
-        case ToolContent::Text:
-            if (!block.text.isEmpty())
-                chunks.append(block.text);
-            break;
-        case ToolContent::Resource:
-            if (!block.resourceText.isEmpty())
-                chunks.append(block.resourceText);
-            break;
-        case ToolContent::ResourceLink:
-            chunks.append(QString("[resource link: %1]").arg(block.uri));
-            break;
-        case ToolContent::Image:
-        case ToolContent::Audio:
-            break;
-        }
+        std::visit(
+            detail::overloaded{
+                [&](const TextContent &c) {
+                    if (!c.text.isEmpty())
+                        chunks.append(c.text);
+                },
+                [&](const ImageContent &) {},
+                [&](const AudioContent &) {},
+                [&](const ResourceContent &c) {
+                    if (!c.isBlob() && !c.text().isEmpty())
+                        chunks.append(c.text());
+                },
+                [&](const ResourceLinkContent &c) {
+                    chunks.append(QString("[resource link: %1]").arg(c.uri));
+                }},
+            block);
     }
     return chunks.join('\n');
 }
@@ -277,7 +315,7 @@ QJsonArray GoogleMessage::createToolResultParts(
     return mapToolResults(
         toolResults, [](const ToolUseContent &use, const ToolResult &r, QJsonArray &parts) {
         QJsonObject functionResponse;
-        functionResponse["name"] = use.name();
+        functionResponse["name"] = use.name;
 
         if (r.hasOnlyText()) {
             functionResponse["response"] = QJsonObject{{"result", toolResultText(r)}};
@@ -285,17 +323,28 @@ QJsonArray GoogleMessage::createToolResultParts(
             return;
         }
 
-        const QString textPart = buildGeminiResponseText(r);
-        functionResponse["response"]
-            = QJsonObject{{"result", textPart.isEmpty() ? QString() : textPart}};
-        parts.append(QJsonObject{{"functionResponse", functionResponse}});
+        functionResponse["response"] = QJsonObject{{"result", buildGeminiResponseText(r)}};
 
+        QJsonArray media;
         for (const ToolContent &block : r.content) {
             const QJsonObject inlinePart = toInlineDataPart(block);
             if (!inlinePart.isEmpty())
-                parts.append(inlinePart);
+                media.append(inlinePart);
         }
+        if (!media.isEmpty())
+            functionResponse["parts"] = media;
+
+        parts.append(QJsonObject{{"functionResponse", functionResponse}});
         });
+}
+
+QString GoogleMessage::toolResultTurnRole(const QJsonArray &parts)
+{
+    for (const QJsonValue &part : parts) {
+        if (part.toObject().value("functionResponse").toObject().contains("parts"))
+            return QStringLiteral("user");
+    }
+    return QStringLiteral("function");
 }
 
 void GoogleMessage::startNewContinuation()
@@ -337,7 +386,7 @@ QString GoogleMessage::getErrorMessage() const
 void GoogleMessage::updateStateFromFinishReason()
 {
     if (m_finishReason == "STOP" || m_finishReason == "MAX_TOKENS") {
-        m_state = getCurrentToolUseContent().isEmpty() ? MessageState::Complete
+        m_state = currentToolUseContent().isEmpty() ? MessageState::Complete
                                                        : MessageState::RequiresToolExecution;
     } else {
         m_state = MessageState::Complete;

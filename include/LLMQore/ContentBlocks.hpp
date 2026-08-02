@@ -3,157 +3,156 @@
 
 #pragma once
 
-#include <QHash>
-#include <QJsonArray>
-#include <QJsonDocument>
+#include <variant>
+
+#include <QByteArray>
 #include <QJsonObject>
+#include <QList>
+#include <QMetaType>
 #include <QString>
+#include <QUrl>
 
 namespace LLMQore {
 
 enum class MessageState { Building, Complete, RequiresToolExecution, Final };
 
-class ContentBlock
+struct TextContent
 {
-public:
-    ContentBlock() = default;
-    virtual ~ContentBlock() = default;
-
-    ContentBlock(const ContentBlock &) = delete;
-    ContentBlock &operator=(const ContentBlock &) = delete;
-
-    virtual QString type() const = 0;
+    QString text;
 };
 
-class TextContent : public ContentBlock
+struct ImageContent
 {
-public:
-    explicit TextContent(const QString &text = QString())
-        : m_text(text)
-    {}
+    std::variant<QByteArray, QUrl> source;
+    QString mimeType;
 
-    QString type() const override { return "text"; }
-    QString text() const { return m_text; }
-    void appendText(const QString &text) { m_text += text; }
-    void setText(const QString &text) { m_text = text; }
+    static ImageContent fromBytes(const QByteArray &bytes, const QString &mimeType = {})
+    {
+        return ImageContent{bytes, mimeType};
+    }
+    static ImageContent fromBase64(const QString &base64, const QString &mimeType = {})
+    {
+        return ImageContent{QByteArray::fromBase64(base64.toUtf8()), mimeType};
+    }
+    static ImageContent fromUrl(const QUrl &url, const QString &mimeType = {})
+    {
+        return ImageContent{url, mimeType};
+    }
 
-private:
-    QString m_text;
+    bool isUrl() const noexcept { return std::holds_alternative<QUrl>(source); }
+
+    QByteArray bytes() const
+    {
+        const auto *data = std::get_if<QByteArray>(&source);
+        return data ? *data : QByteArray{};
+    }
+    QString base64() const { return QString::fromUtf8(bytes().toBase64()); }
+    QUrl url() const
+    {
+        const auto *link = std::get_if<QUrl>(&source);
+        return link ? *link : QUrl{};
+    }
 };
 
-class ImageContent : public ContentBlock
+struct AudioContent
 {
-public:
-    enum class ImageSourceType { Base64, Url };
-
-    ImageContent(
-        const QString &data,
-        const QString &mediaType,
-        ImageSourceType sourceType = ImageSourceType::Base64)
-        : m_data(data)
-        , m_mediaType(mediaType)
-        , m_sourceType(sourceType)
-    {}
-
-    QString type() const override { return "image"; }
-    QString data() const { return m_data; }
-    QString mediaType() const { return m_mediaType; }
-    ImageSourceType sourceType() const { return m_sourceType; }
-
-private:
-    QString m_data;
-    QString m_mediaType;
-    ImageSourceType m_sourceType;
+    QByteArray data;
+    QString mimeType;
 };
 
-class ToolUseContent : public ContentBlock
+struct ToolUseContent
 {
-public:
-    ToolUseContent(const QString &id, const QString &name, const QJsonObject &input = QJsonObject())
-        : m_id(id)
-        , m_name(name)
-        , m_input(input)
-    {}
-
-    QString type() const override { return "tool_use"; }
-    QString id() const { return m_id; }
-    QString name() const { return m_name; }
-    QJsonObject input() const { return m_input; }
-    void setInput(const QJsonObject &input) { m_input = input; }
-
-private:
-    QString m_id;
-    QString m_name;
-    QJsonObject m_input;
+    QString id;
+    QString name;
+    QJsonObject input;
 };
 
-class ToolResultContent : public ContentBlock
+struct ThinkingContent
 {
-public:
-    ToolResultContent(const QString &toolUseId, const QString &result)
-        : m_toolUseId(toolUseId)
-        , m_result(result)
-    {}
-
-    QString type() const override { return "tool_result"; }
-    QString toolUseId() const { return m_toolUseId; }
-    QString result() const { return m_result; }
-
-private:
-    QString m_toolUseId;
-    QString m_result;
+    QString thinking;
+    QString signature;
+    QString itemId;
+    QString encryptedContent;
 };
 
-class ThinkingContent : public ContentBlock
+struct RedactedThinkingContent
 {
-public:
-    explicit ThinkingContent(
-        const QString &thinking = QString(), const QString &signature = QString())
-        : m_thinking(thinking)
-        , m_signature(signature)
-    {}
-
-    QString type() const override { return "thinking"; }
-    QString thinking() const { return m_thinking; }
-    QString signature() const { return m_signature; }
-    void appendThinking(const QString &text) { m_thinking += text; }
-
-    bool isNotified() const noexcept { return m_notified; }
-    void markNotified() noexcept { m_notified = true; }
-    void setThinking(const QString &text) { m_thinking = text; }
-    void setSignature(const QString &signature) { m_signature = signature; }
-
-private:
-    QString m_thinking;
-    QString m_signature;
-    bool m_notified = false;
+    QString signature;
 };
 
-class RedactedThinkingContent : public ContentBlock
+struct ResourceContent
 {
-public:
-    explicit RedactedThinkingContent(const QString &signature = QString())
-        : m_signature(signature)
-    {}
+    QString uri;
+    std::variant<QString, QByteArray> contents;
+    QString mimeType;
 
-    QString type() const override { return "redacted_thinking"; }
-    QString signature() const { return m_signature; }
-    void setSignature(const QString &signature) { m_signature = signature; }
+    static ResourceContent fromText(
+        const QString &uri, const QString &text, const QString &mimeType = {})
+    {
+        return ResourceContent{uri, text, mimeType};
+    }
+    static ResourceContent fromBlob(
+        const QString &uri, const QByteArray &blob, const QString &mimeType = {})
+    {
+        return ResourceContent{uri, blob, mimeType};
+    }
 
-    bool isNotified() const noexcept { return m_notified; }
-    void markNotified() noexcept { m_notified = true; }
+    bool isBlob() const noexcept { return std::holds_alternative<QByteArray>(contents); }
 
-private:
-    QString m_signature;
-    bool m_notified = false;
+    QString text() const
+    {
+        const auto *value = std::get_if<QString>(&contents);
+        return value ? *value : QString{};
+    }
+    QByteArray blob() const
+    {
+        const auto *value = std::get_if<QByteArray>(&contents);
+        return value ? *value : QByteArray{};
+    }
 };
 
-template<typename T, typename... Args>
-T *addContentBlock(QList<ContentBlock *> &blocks, Args &&...args)
+struct ResourceLinkContent
 {
-    T *content = new T(std::forward<Args>(args)...);
-    blocks.append(content);
-    return content;
-}
+    QString uri;
+    QString name;
+    QString description;
+    QString mimeType;
+};
+
+using ToolContent = std::
+    variant<TextContent, ImageContent, AudioContent, ResourceContent, ResourceLinkContent>;
+
+struct ToolResultContent
+{
+    QString toolUseId;
+    QString name;
+    QList<ToolContent> content;
+    bool isError = false;
+    QJsonObject structuredContent;
+};
+
+using TurnContent = std::variant<
+    TextContent,
+    ImageContent,
+    AudioContent,
+    ToolUseContent,
+    ToolResultContent,
+    ThinkingContent,
+    RedactedThinkingContent>;
+
+namespace detail {
+
+template<typename... Ts>
+struct overloaded : Ts...
+{
+    using Ts::operator()...;
+};
+template<typename... Ts>
+overloaded(Ts...) -> overloaded<Ts...>;
+
+} // namespace detail
 
 } // namespace LLMQore
+
+Q_DECLARE_METATYPE(LLMQore::TurnContent)
+Q_DECLARE_METATYPE(LLMQore::ToolContent)

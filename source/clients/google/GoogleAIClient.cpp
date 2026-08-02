@@ -12,6 +12,8 @@
 #include <LLMQore/Log.hpp>
 #include <LLMQore/SSEParser.hpp>
 
+#include "core/ThreadAffinity.hpp"
+
 namespace LLMQore {
 
 namespace {
@@ -51,6 +53,7 @@ GoogleAIClient::GoogleAIClient(
 RequestID GoogleAIClient::sendMessage(
     const QJsonObject &payload, const QString &endpoint, RequestMode mode)
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     RequestID id = createRequest();
 
     QString resolved = endpoint;
@@ -78,6 +81,61 @@ RequestID GoogleAIClient::ask(const QString &prompt, RequestMode mode)
     return sendMessage(payload, {}, mode);
 }
 
+QJsonObject GoogleAIClient::buildConversationPayload(const Conversation &conversation) const
+{
+    QJsonObject payload;
+
+    if (!conversation.system().isEmpty()) {
+        payload["systemInstruction"] = QJsonObject{
+            {"parts", QJsonArray{QJsonObject{{"text", conversation.system()}}}}};
+    }
+
+    QJsonArray contents;
+    for (const Turn &turn : conversation.turns()) {
+        QJsonArray parts;
+
+        if (turn.role == TurnRole::Tool) {
+            for (const TurnContent &block : turn.content) {
+                const auto *result = std::get_if<ToolResultContent>(&block);
+                if (!result)
+                    continue;
+
+                const ToolResult toolResult = toToolResult(*result);
+                QJsonObject functionResponse = {
+                    {"name", result->name},
+                    {"response", QJsonObject{{"result", toolResultText(toolResult)}}}};
+
+                if (!toolResult.hasOnlyText()) {
+                    QJsonArray media;
+                    for (const ToolContent &part : toolResult.content) {
+                        const QJsonObject inlinePart = GoogleMessage::toInlineDataPart(part);
+                        if (!inlinePart.isEmpty())
+                            media.append(inlinePart);
+                    }
+                    if (!media.isEmpty())
+                        functionResponse["parts"] = media;
+                }
+
+                parts.append(QJsonObject{{"functionResponse", functionResponse}});
+            }
+            if (!parts.isEmpty())
+                contents.append(
+                    QJsonObject{
+                        {"role", GoogleMessage::toolResultTurnRole(parts)}, {"parts", parts}});
+            continue;
+        }
+
+        const QJsonObject serialized = GoogleMessage::serializeTurn(turn.role, turn.content);
+        if (serialized.value("parts").toArray().isEmpty())
+            continue;
+
+        contents.append(serialized);
+    }
+
+    payload["contents"] = contents;
+    return payload;
+}
+
 const ToolDialect &GoogleAIClient::toolDialect() const
 {
     return GoogleMessage::toolDialect();
@@ -88,7 +146,7 @@ const UsageSchema &GoogleAIClient::usageSchema() const
     return kGoogleUsage;
 }
 
-QFuture<QList<QString>> GoogleAIClient::listModels(const QString &endpoint)
+QFuture<QList<ModelInfo>> GoogleAIClient::listModels(const QString &endpoint)
 {
     return fetchModelList(
         endpointUrl(endpoint, QStringLiteral("/models")),
@@ -270,9 +328,11 @@ QJsonObject GoogleAIClient::buildContinuationPayload(
 
     contents.append(googleMsg->toProviderFormat());
 
+    const QJsonArray toolResultParts = googleMsg->createToolResultParts(toolResults);
+
     QJsonObject functionMessage;
-    functionMessage["role"] = "function";
-    functionMessage["parts"] = googleMsg->createToolResultParts(toolResults);
+    functionMessage["role"] = GoogleMessage::toolResultTurnRole(toolResultParts);
+    functionMessage["parts"] = toolResultParts;
     contents.append(functionMessage);
 
     request["contents"] = contents;

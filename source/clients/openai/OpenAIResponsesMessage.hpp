@@ -4,6 +4,7 @@
 #pragma once
 
 #include <LLMQore/BaseMessage.hpp>
+#include <LLMQore/OpenAIResponsesClient.hpp>
 #include <LLMQore/ToolDialect.hpp>
 #include <LLMQore/ToolResult.hpp>
 
@@ -15,7 +16,6 @@ class OpenAIResponsesMessage : public BaseMessage
 public:
     explicit OpenAIResponsesMessage(QObject *parent = nullptr);
 
-    // How this provider spells tool schemas on the way out.
     static const ToolDialect &toolDialect();
 
     void handleContentDelta(const QString &text);
@@ -25,12 +25,17 @@ public:
     void handleReasoningStart(const QString &itemId);
     void handleReasoningDelta(const QString &itemId, const QString &text);
     void handleReasoningComplete(const QString &itemId);
+    void handleReasoningEncryptedContent(const QString &itemId, const QString &encryptedContent);
     void handleStatus(const QString &status);
 
     QString stopReason() const override { return m_status; }
 
-    QList<QJsonObject> toItemsFormat() const;
+    [[nodiscard]] static QList<QJsonObject> serializeTurn(
+        TurnRole role, const QList<TurnContent> &blocks, ReasoningPersistence reasoning);
+
+    QList<QJsonObject> toItemsFormat(ReasoningPersistence reasoning) const;
     QJsonArray createToolResultItems(const QHash<QString, ToolResult> &toolResults) const;
+    static QJsonObject toResponsesInnerBlock(const ToolContent &block);
 
     QString accumulatedText() const;
 
@@ -42,11 +47,11 @@ public:
 private:
     QString m_status;
     QHash<QString, QString> m_pendingToolArguments;
-    QHash<QString, ToolUseContent *> m_toolCalls;
-    QHash<QString, ThinkingContent *> m_thinkingBlocks;
+    QHash<QString, int> m_toolCalls;
+    QHash<QString, int> m_thinkingBlocks;
 
     void updateStateFromStatus();
-    TextContent *getOrCreateTextItem();
+    int getOrCreateTextItemIndex();
 };
 
 } // namespace LLMQore

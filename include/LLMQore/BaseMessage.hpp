@@ -7,6 +7,8 @@
 
 #include <QHash>
 #include <QJsonArray>
+#include <QObject>
+#include <QSet>
 
 #include <LLMQore/LLMQore_global.h>
 
@@ -14,6 +16,12 @@
 #include <LLMQore/ToolResult.hpp>
 
 namespace LLMQore {
+
+struct LLMQORE_EXPORT PendingThinkingNotification
+{
+    QString thinking;
+    QString signature;
+};
 
 class LLMQORE_EXPORT BaseMessage : public QObject
 {
@@ -23,12 +31,14 @@ public:
     ~BaseMessage() override;
 
     MessageState state() const { return m_state; }
-    const QList<ContentBlock *> &getCurrentBlocks() const { return m_currentBlocks; }
+    const QList<TurnContent> &currentBlocks() const { return m_currentBlocks; }
 
     virtual QString stopReason() const { return {}; }
 
-    QList<ToolUseContent *> getCurrentToolUseContent() const;
-    QList<ThinkingContent *> getCurrentThinkingContent() const;
+    QList<ToolUseContent> currentToolUseContent() const;
+    QList<ThinkingContent> currentThinkingContent() const;
+
+    QList<PendingThinkingNotification> takePendingThinkingNotifications();
 
     virtual void startNewContinuation();
 
@@ -38,18 +48,50 @@ protected:
     [[nodiscard]] QJsonArray mapToolResults(
         const QHash<QString, ToolResult> &toolResults, const ToolResultEmitter &emitFor) const;
 
-    [[nodiscard]] static QString toolResultText(const ToolResult &result);
-
     MessageState m_state = MessageState::Building;
-    QList<ContentBlock *> m_currentBlocks;
+    QList<TurnContent> m_currentBlocks;
 
-    TextContent *getOrCreateTextContent();
+    int getOrCreateTextContentIndex();
+    void appendTextDelta(const QString &delta);
 
-    template<typename T, typename... Args>
-    T *addCurrentContent(Args &&...args)
+    void removeBlocksIf(const std::function<bool(const TurnContent &)> &predicate);
+    void clearBlocks();
+
+    template<typename T>
+    int addCurrentContent(T &&content)
     {
-        return addContentBlock<T>(m_currentBlocks, std::forward<Args>(args)...);
+        m_currentBlocks.append(TurnContent{std::forward<T>(content)});
+        return m_currentBlocks.size() - 1;
     }
+
+    template<typename T>
+    [[nodiscard]] T *blockAt(int index)
+    {
+        if (index < 0 || index >= m_currentBlocks.size())
+            return nullptr;
+        return std::get_if<T>(&m_currentBlocks[index]);
+    }
+
+    template<typename T>
+    [[nodiscard]] const T *blockAt(int index) const
+    {
+        if (index < 0 || index >= m_currentBlocks.size())
+            return nullptr;
+        return std::get_if<T>(&m_currentBlocks[index]);
+    }
+
+    template<typename T>
+    [[nodiscard]] int lastIndexOfBlock() const
+    {
+        for (int i = m_currentBlocks.size() - 1; i >= 0; --i) {
+            if (std::holds_alternative<T>(m_currentBlocks[i]))
+                return i;
+        }
+        return -1;
+    }
+
+private:
+    QSet<int> m_notifiedThinking;
 };
 
 } // namespace LLMQore

@@ -3,6 +3,7 @@
 
 #include <LLMQore/ToolResult.hpp>
 
+#include <QJsonDocument>
 #include <QJsonValue>
 #include <QMetaType>
 #include <QStringList>
@@ -10,8 +11,12 @@
 namespace LLMQore {
 
 namespace {
+
+constexpr auto kImageLinkMetaKey = "io.llmqore/image-link";
+
 const int _toolResultMetaType = []() {
     qRegisterMetaType<LLMQore::ToolContent>("LLMQore::ToolContent");
+    qRegisterMetaType<LLMQore::TurnContent>("LLMQore::TurnContent");
     qRegisterMetaType<LLMQore::ToolResult>("LLMQore::ToolResult");
     qRegisterMetaType<LLMQoreToolResultHash>("LLMQoreToolResultHash");
     qRegisterMetaType<LLMQoreToolResultHash>("QHash<QString,ToolResult>");
@@ -19,160 +24,137 @@ const int _toolResultMetaType = []() {
 }();
 } // namespace
 
-ToolContent ToolContent::makeText(const QString &text)
+QJsonObject toolContentToJson(const ToolContent &content)
 {
-    ToolContent c;
-    c.type = Text;
-    c.text = text;
-    return c;
+    return std::visit(
+        detail::overloaded{
+            [](const TextContent &c) -> QJsonObject {
+                return QJsonObject{{"type", "text"}, {"text", c.text}};
+            },
+            [](const ImageContent &c) -> QJsonObject {
+                if (c.isUrl()) {
+                    QJsonObject obj = {
+                        {"type", "resource_link"},
+                        {"uri", c.url().toString()},
+                        {"_meta", QJsonObject{{kImageLinkMetaKey, true}}}};
+                    if (!c.mimeType.isEmpty())
+                        obj.insert("mimeType", c.mimeType);
+                    return obj;
+                }
+                QJsonObject obj = {{"type", "image"}, {"data", c.base64()}};
+                if (!c.mimeType.isEmpty())
+                    obj.insert("mimeType", c.mimeType);
+                return obj;
+            },
+            [](const AudioContent &c) -> QJsonObject {
+                QJsonObject obj = {
+                    {"type", "audio"}, {"data", QString::fromUtf8(c.data.toBase64())}};
+                if (!c.mimeType.isEmpty())
+                    obj.insert("mimeType", c.mimeType);
+                return obj;
+            },
+            [](const ResourceContent &c) -> QJsonObject {
+                QJsonObject resource = {{"uri", c.uri}};
+                if (c.isBlob())
+                    resource.insert("blob", QString::fromUtf8(c.blob().toBase64()));
+                else if (!c.text().isEmpty())
+                    resource.insert("text", c.text());
+                if (!c.mimeType.isEmpty())
+                    resource.insert("mimeType", c.mimeType);
+                return QJsonObject{{"type", "resource"}, {"resource", resource}};
+            },
+            [](const ResourceLinkContent &c) -> QJsonObject {
+                QJsonObject obj = {{"type", "resource_link"}, {"uri", c.uri}};
+                if (!c.name.isEmpty())
+                    obj.insert("name", c.name);
+                if (!c.description.isEmpty())
+                    obj.insert("description", c.description);
+                if (!c.mimeType.isEmpty())
+                    obj.insert("mimeType", c.mimeType);
+                return obj;
+            }},
+        content);
 }
 
-ToolContent ToolContent::makeImage(const QByteArray &data, const QString &mimeType)
+ToolContent toolContentFromJson(const QJsonObject &obj)
 {
-    ToolContent c;
-    c.type = Image;
-    c.data = data;
-    c.mimeType = mimeType;
-    return c;
-}
-
-ToolContent ToolContent::makeAudio(const QByteArray &data, const QString &mimeType)
-{
-    ToolContent c;
-    c.type = Audio;
-    c.data = data;
-    c.mimeType = mimeType;
-    return c;
-}
-
-ToolContent ToolContent::makeResourceText(
-    const QString &uri, const QString &text, const QString &mimeType)
-{
-    ToolContent c;
-    c.type = Resource;
-    c.uri = uri;
-    c.resourceText = text;
-    c.mimeType = mimeType;
-    return c;
-}
-
-ToolContent ToolContent::makeResourceBlob(
-    const QString &uri, const QByteArray &blob, const QString &mimeType)
-{
-    ToolContent c;
-    c.type = Resource;
-    c.uri = uri;
-    c.resourceBlob = blob;
-    c.mimeType = mimeType;
-    return c;
-}
-
-ToolContent ToolContent::makeResourceLink(
-    const QString &uri,
-    const QString &name,
-    const QString &description,
-    const QString &mimeType)
-{
-    ToolContent c;
-    c.type = ResourceLink;
-    c.uri = uri;
-    c.name = name;
-    c.description = description;
-    c.mimeType = mimeType;
-    return c;
-}
-
-QJsonObject ToolContent::toJson() const
-{
-    switch (type) {
-    case Text:
-        return QJsonObject{{"type", "text"}, {"text", text}};
-
-    case Image: {
-        QJsonObject obj{{"type", "image"}, {"data", QString::fromUtf8(data.toBase64())}};
-        if (!mimeType.isEmpty())
-            obj.insert("mimeType", mimeType);
-        return obj;
-    }
-    case Audio: {
-        QJsonObject obj{{"type", "audio"}, {"data", QString::fromUtf8(data.toBase64())}};
-        if (!mimeType.isEmpty())
-            obj.insert("mimeType", mimeType);
-        return obj;
-    }
-    case Resource: {
-        QJsonObject resource{{"uri", uri}};
-        if (!resourceText.isEmpty())
-            resource.insert("text", resourceText);
-        else if (!resourceBlob.isEmpty())
-            resource.insert("blob", QString::fromUtf8(resourceBlob.toBase64()));
-        if (!mimeType.isEmpty())
-            resource.insert("mimeType", mimeType);
-        return QJsonObject{{"type", "resource"}, {"resource", resource}};
-    }
-    case ResourceLink: {
-        QJsonObject obj{{"type", "resource_link"}, {"uri", uri}};
-        if (!name.isEmpty())
-            obj.insert("name", name);
-        if (!description.isEmpty())
-            obj.insert("description", description);
-        if (!mimeType.isEmpty())
-            obj.insert("mimeType", mimeType);
-        return obj;
-    }
-    }
-    return QJsonObject{{"type", "text"}, {"text", QString()}};
-}
-
-ToolContent ToolContent::fromJson(const QJsonObject &obj)
-{
-    ToolContent c;
     const QString type = obj.value("type").toString();
 
-    if (type == QLatin1String("text")) {
-        c.type = Text;
-        c.text = obj.value("text").toString();
-    } else if (type == QLatin1String("image")) {
-        c.type = Image;
-        c.data = QByteArray::fromBase64(obj.value("data").toString().toUtf8());
-        c.mimeType = obj.value("mimeType").toString();
-    } else if (type == QLatin1String("audio")) {
-        c.type = Audio;
-        c.data = QByteArray::fromBase64(obj.value("data").toString().toUtf8());
-        c.mimeType = obj.value("mimeType").toString();
-    } else if (type == QLatin1String("resource")) {
-        c.type = Resource;
-        const QJsonObject res = obj.value("resource").toObject();
-        c.uri = res.value("uri").toString();
-        c.mimeType = res.value("mimeType").toString();
-        if (res.contains("text"))
-            c.resourceText = res.value("text").toString();
-        if (res.contains("blob"))
-            c.resourceBlob = QByteArray::fromBase64(res.value("blob").toString().toUtf8());
-    } else if (type == QLatin1String("resource_link")) {
-        c.type = ResourceLink;
-        c.uri = obj.value("uri").toString();
-        c.name = obj.value("name").toString();
-        c.description = obj.value("description").toString();
-        c.mimeType = obj.value("mimeType").toString();
-    } else {
-        c.type = Text;
-        c.text = QString("[unsupported content type: %1]").arg(type);
+    if (type == QLatin1String("text"))
+        return TextContent{obj.value("text").toString()};
+
+    if (type == QLatin1String("image")) {
+        return ImageContent::fromBase64(
+            obj.value("data").toString(), obj.value("mimeType").toString());
     }
-    return c;
+
+    if (type == QLatin1String("audio")) {
+        return AudioContent{
+            QByteArray::fromBase64(obj.value("data").toString().toUtf8()),
+            obj.value("mimeType").toString()};
+    }
+
+    if (type == QLatin1String("resource")) {
+        const QJsonObject res = obj.value("resource").toObject();
+        const QString uri = res.value("uri").toString();
+        const QString mimeType = res.value("mimeType").toString();
+        if (res.contains("blob")) {
+            return ResourceContent::fromBlob(
+                uri, QByteArray::fromBase64(res.value("blob").toString().toUtf8()), mimeType);
+        }
+        return ResourceContent::fromText(uri, res.value("text").toString(), mimeType);
+    }
+
+    if (type == QLatin1String("resource_link")) {
+        if (obj.value("_meta").toObject().value(kImageLinkMetaKey).toBool()) {
+            return ImageContent::fromUrl(
+                QUrl(obj.value("uri").toString()), obj.value("mimeType").toString());
+        }
+        return ResourceLinkContent{
+            obj.value("uri").toString(),
+            obj.value("name").toString(),
+            obj.value("description").toString(),
+            obj.value("mimeType").toString()};
+    }
+
+    return TextContent{QString("[unsupported content type: %1]").arg(type)};
+}
+
+QString toolContentAsText(const ToolContent &content)
+{
+    return std::visit(
+        detail::overloaded{
+            [](const TextContent &c) -> QString { return c.text; },
+            [](const ImageContent &c) -> QString {
+                return QString("[image: %1]")
+                    .arg(c.mimeType.isEmpty() ? QStringLiteral("unknown") : c.mimeType);
+            },
+            [](const AudioContent &c) -> QString {
+                return QString("[audio: %1]")
+                    .arg(c.mimeType.isEmpty() ? QStringLiteral("unknown") : c.mimeType);
+            },
+            [](const ResourceContent &c) -> QString {
+                if (!c.isBlob() && !c.text().isEmpty())
+                    return c.text();
+                return QString("[resource: %1]").arg(c.uri);
+            },
+            [](const ResourceLinkContent &c) -> QString {
+                return QString("[resource link: %1]").arg(c.uri);
+            }},
+        content);
 }
 
 ToolResult ToolResult::text(const QString &text)
 {
     ToolResult r;
-    r.content.append(ToolContent::makeText(text));
+    r.content.append(TextContent{text});
     return r;
 }
 
 ToolResult ToolResult::error(const QString &message)
 {
     ToolResult r;
-    r.content.append(ToolContent::makeText(message));
+    r.content.append(TextContent{message});
     r.isError = true;
     return r;
 }
@@ -186,37 +168,15 @@ QString ToolResult::asText() const
 {
     QStringList parts;
     parts.reserve(content.size());
-    for (const ToolContent &block : content) {
-        switch (block.type) {
-        case ToolContent::Text:
-            parts.append(block.text);
-            break;
-        case ToolContent::Image:
-            parts.append(QString("[image: %1]").arg(
-                block.mimeType.isEmpty() ? QStringLiteral("unknown") : block.mimeType));
-            break;
-        case ToolContent::Audio:
-            parts.append(QString("[audio: %1]").arg(
-                block.mimeType.isEmpty() ? QStringLiteral("unknown") : block.mimeType));
-            break;
-        case ToolContent::Resource:
-            if (!block.resourceText.isEmpty())
-                parts.append(block.resourceText);
-            else
-                parts.append(QString("[resource: %1]").arg(block.uri));
-            break;
-        case ToolContent::ResourceLink:
-            parts.append(QString("[resource link: %1]").arg(block.uri));
-            break;
-        }
-    }
+    for (const ToolContent &block : content)
+        parts.append(toolContentAsText(block));
     return parts.join(QLatin1Char('\n'));
 }
 
 bool ToolResult::hasOnlyText() const
 {
     for (const ToolContent &block : content) {
-        if (block.type != ToolContent::Text)
+        if (!std::holds_alternative<TextContent>(block))
             return false;
     }
     return true;
@@ -231,7 +191,7 @@ QJsonObject ToolResult::toJson() const
 {
     QJsonArray arr;
     for (const ToolContent &block : content)
-        arr.append(block.toJson());
+        arr.append(toolContentToJson(block));
 
     QJsonObject obj{{"content", arr}};
     if (isError)
@@ -241,12 +201,44 @@ QJsonObject ToolResult::toJson() const
     return obj;
 }
 
+ToolResult toToolResult(const ToolResultContent &content)
+{
+    ToolResult result;
+    result.content = content.content;
+    result.isError = content.isError;
+    result.structuredContent = content.structuredContent;
+    return result;
+}
+
+ToolResultContent makeToolResultContent(
+    const QString &toolUseId, const QString &name, const ToolResult &result)
+{
+    ToolResultContent content;
+    content.toolUseId = toolUseId;
+    content.name = name;
+    content.content = result.content;
+    content.isError = result.isError;
+    content.structuredContent = result.structuredContent;
+    return content;
+}
+
+QString toolResultText(const ToolResult &result)
+{
+    const QString text = result.asText();
+    if (result.structuredContent.isEmpty())
+        return text;
+
+    const QString json = QString::fromUtf8(
+        QJsonDocument(result.structuredContent).toJson(QJsonDocument::Compact));
+    return text.isEmpty() ? json : text + QLatin1Char('\n') + json;
+}
+
 ToolResult ToolResult::fromJson(const QJsonObject &obj)
 {
     ToolResult r;
     const QJsonArray arr = obj.value("content").toArray();
     for (const QJsonValue &v : arr)
-        r.content.append(ToolContent::fromJson(v.toObject()));
+        r.content.append(toolContentFromJson(v.toObject()));
     r.isError = obj.value("isError").toBool();
     r.structuredContent = obj.value("structuredContent").toObject();
     return r;

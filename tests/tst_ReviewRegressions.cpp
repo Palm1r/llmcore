@@ -174,18 +174,18 @@ TEST(ReviewRegression, OllamaThinkingAfterToolCallDoesNotReuseFreedBlock)
     OllamaMessage msg;
 
     msg.handleThinkingDelta(QStringLiteral("first thought"));
-    ASSERT_EQ(msg.getCurrentThinkingContent().size(), 1);
+    ASSERT_EQ(msg.currentThinkingContent().size(), 1);
 
     msg.handleContentDelta(R"({"name":"echo","arguments":{"value":"7"}})");
     msg.handleDone(true);
-    ASSERT_EQ(msg.getCurrentToolUseContent().size(), 1);
-    EXPECT_TRUE(msg.getCurrentThinkingContent().isEmpty())
+    ASSERT_EQ(msg.currentToolUseContent().size(), 1);
+    EXPECT_TRUE(msg.currentThinkingContent().isEmpty())
         << "the tool-call path deletes every accumulated block";
 
     msg.handleThinkingDelta(QStringLiteral("second thought"));
 
-    ASSERT_EQ(msg.getCurrentThinkingContent().size(), 1);
-    EXPECT_EQ(msg.getCurrentThinkingContent().front()->thinking(),
+    ASSERT_EQ(msg.currentThinkingContent().size(), 1);
+    EXPECT_EQ(msg.currentThinkingContent().front().thinking,
               QStringLiteral("second thought"))
         << "a stale m_currentThinkingContent would append into freed memory";
 }
@@ -292,13 +292,19 @@ TEST(ReviewRegression, GoogleSseStreamIsUnaffectedByTheErrorSniffer)
 
 namespace {
 
-QList<QString> resolveModels(FakeHttpTransport &transport, QFuture<QList<QString>> future,
+QStringList resolveModels(FakeHttpTransport &transport, QFuture<QList<ModelInfo>> future,
                              int statusCode, const QByteArray &body)
 {
     transport.respondToLast(statusCode, body);
     for (int i = 0; i < 16 && !future.isFinished(); ++i)
         QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
-    return future.isFinished() ? future.result() : QList<QString>{};
+
+    QStringList ids;
+    if (!future.isFinished())
+        return ids;
+    for (const ModelInfo &info : future.result())
+        ids.append(info.id);
+    return ids;
 }
 
 } // namespace
@@ -315,7 +321,7 @@ TEST(ListModels, OpenAIReadsDataIdPairs)
 
     const auto models = resolveModels(
         transport, future, 200, R"({"data":[{"id":"gpt-a"},{"id":"gpt-b"},{"noid":1}]})");
-    EXPECT_EQ(models, (QList<QString>{"gpt-a", "gpt-b"}));
+    EXPECT_EQ(models, (QStringList{"gpt-a", "gpt-b"}));
 }
 
 TEST(ListModels, OllamaReadsModelsNamePairs)
@@ -329,7 +335,7 @@ TEST(ListModels, OllamaReadsModelsNamePairs)
 
     const auto models = resolveModels(
         transport, future, 200, R"({"models":[{"name":"llama3"},{"name":"qwen"}]})");
-    EXPECT_EQ(models, (QList<QString>{"llama3", "qwen"}));
+    EXPECT_EQ(models, (QStringList{"llama3", "qwen"}));
 }
 
 TEST(ListModels, GoogleStripsThePublisherPrefix)
@@ -343,7 +349,7 @@ TEST(ListModels, GoogleStripsThePublisherPrefix)
     const auto models = resolveModels(
         transport, future, 200,
         R"({"models":[{"name":"models/gemini-2.0"},{"name":"bare-name"}]})");
-    EXPECT_EQ(models, (QList<QString>{"gemini-2.0", "bare-name"}));
+    EXPECT_EQ(models, (QStringList{"gemini-2.0", "bare-name"}));
 }
 
 TEST(ListModels, ClaudeAsksForTheFullPage)
@@ -356,7 +362,7 @@ TEST(ListModels, ClaudeAsksForTheFullPage)
     EXPECT_EQ(transport.bufferedRequest(0).url().query(), QStringLiteral("limit=1000"));
 
     const auto models = resolveModels(transport, future, 200, R"({"data":[{"id":"claude-x"}]})");
-    EXPECT_EQ(models, (QList<QString>{"claude-x"}));
+    EXPECT_EQ(models, (QStringList{"claude-x"}));
 }
 
 TEST(ListModels, MistralKeepsTheV1Prefix)
@@ -369,7 +375,7 @@ TEST(ListModels, MistralKeepsTheV1Prefix)
     EXPECT_EQ(transport.bufferedRequest(0).url(), QUrl("http://fake.local/v1/models"));
 
     const auto models = resolveModels(transport, future, 200, R"({"data":[{"id":"mistral-a"}]})");
-    EXPECT_EQ(models, (QList<QString>{"mistral-a"}));
+    EXPECT_EQ(models, (QStringList{"mistral-a"}));
 }
 
 TEST(ListModels, LlamaCppKeepsTheV1Prefix)
@@ -382,7 +388,7 @@ TEST(ListModels, LlamaCppKeepsTheV1Prefix)
     EXPECT_EQ(transport.bufferedRequest(0).url(), QUrl("http://fake.local/v1/models"));
 
     const auto models = resolveModels(transport, future, 200, R"({"data":[{"id":"qwen.gguf"}]})");
-    EXPECT_EQ(models, (QList<QString>{"qwen.gguf"}));
+    EXPECT_EQ(models, (QStringList{"qwen.gguf"}));
 }
 
 TEST(ListModels, OpenAIResponsesReadsDataIdPairs)
@@ -395,7 +401,7 @@ TEST(ListModels, OpenAIResponsesReadsDataIdPairs)
     EXPECT_EQ(transport.bufferedRequest(0).url(), QUrl("http://fake.local/v1/models"));
 
     const auto models = resolveModels(transport, future, 200, R"({"data":[{"id":"gpt-5"}]})");
-    EXPECT_EQ(models, (QList<QString>{"gpt-5"}));
+    EXPECT_EQ(models, (QStringList{"gpt-5"}));
 }
 
 TEST(ListModels, HttpErrorYieldsAnEmptyList)
@@ -418,7 +424,7 @@ TEST(ListModels, CustomEndpointOverridesTheProviderDefault)
     EXPECT_EQ(transport.bufferedRequest(0).url(), QUrl("http://fake.local/v1/custom/models"));
 
     const auto models = resolveModels(transport, future, 200, R"({"data":[{"id":"m"}]})");
-    EXPECT_EQ(models, (QList<QString>{"m"}));
+    EXPECT_EQ(models, (QStringList{"m"}));
 }
 
 // --- parseHttpError is one shared shape with per-provider annotations ---

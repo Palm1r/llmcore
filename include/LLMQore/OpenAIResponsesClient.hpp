@@ -15,6 +15,8 @@ namespace LLMQore {
 
 class OpenAIResponsesMessage;
 
+enum class ReasoningPersistence { Off, Replay };
+
 class LLMQORE_EXPORT OpenAIResponsesClient : public BaseClient
 {
     Q_OBJECT
@@ -35,8 +37,15 @@ public:
         RequestMode mode = RequestMode::Streaming) override;
     RequestID ask(
         const QString &prompt, RequestMode mode = RequestMode::Streaming) override;
+    using BaseClient::ask;
 
-    QFuture<QList<QString>> listModels(const QString &endpoint = {}) override;
+    QFuture<QList<ModelInfo>> listModels(const QString &endpoint = {}) override;
+    QJsonObject buildConversationPayload(const Conversation &conversation) const override;
+
+    using ReasoningPersistence = LLMQore::ReasoningPersistence;
+
+    void setReasoningPersistence(ReasoningPersistence mode);
+    [[nodiscard]] ReasoningPersistence reasoningPersistence() const noexcept;
 
 protected:
     [[nodiscard]] const ToolDialect &toolDialect() const override;
@@ -56,6 +65,7 @@ private:
     static QString extractReasoningText(const QJsonObject &item);
 
     QHash<RequestID, QHash<QString, QString>> m_itemIdToCallId;
+    ReasoningPersistence m_reasoningPersistence = ReasoningPersistence::Off;
 };
 
 } // namespace LLMQore

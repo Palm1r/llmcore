@@ -27,8 +27,13 @@ if(QT_VERSION_MAJOR GREATER_EQUAL 6)
     qt_add_executable(example-chat
         main.cpp
         MessageModel.hpp
+        ChatSession.hpp
         ChatController.hpp
         ChatController.cpp
+        LlmChatController.hpp
+        LlmChatController.cpp
+        AcpChatController.hpp
+        AcpChatController.cpp
         ExampleTools.hpp
     )
 

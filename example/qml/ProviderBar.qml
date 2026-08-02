@@ -52,10 +52,10 @@ RowLayout {
         id: modelCombo
 
         Layout.preferredWidth: 200
-        model: bar.controller.modelList
+        model: bar.controller.session.modelList
         editable: true
-        enabled: !bar.controller.loadingModels
-        displayText: bar.controller.loadingModels ? qsTr("Loading\u2026") : currentText
+        enabled: !bar.controller.session.loadingModels
+        displayText: bar.controller.session.loadingModels ? qsTr("Loading\u2026") : currentText
     }
 
     function providerName()  { return providerCombo.currentText }

@@ -14,25 +14,25 @@ TEST(ClaudeMessage, InitialState)
 {
     ClaudeMessage msg;
     EXPECT_EQ(msg.state(), MessageState::Building);
-    EXPECT_TRUE(msg.getCurrentBlocks().isEmpty());
-    EXPECT_TRUE(msg.getCurrentToolUseContent().isEmpty());
-    EXPECT_TRUE(msg.getCurrentThinkingContent().isEmpty());
-    EXPECT_TRUE(msg.getCurrentRedactedThinkingContent().isEmpty());
+    EXPECT_TRUE(msg.currentBlocks().isEmpty());
+    EXPECT_TRUE(msg.currentToolUseContent().isEmpty());
+    EXPECT_TRUE(msg.currentThinkingContent().isEmpty());
+    EXPECT_TRUE(msg.currentRedactedThinkingContent().isEmpty());
 }
 
 TEST(ClaudeMessage, HandleTextBlock)
 {
     ClaudeMessage msg;
     msg.handleContentBlockStart(0, "text", {});
-    EXPECT_EQ(msg.getCurrentBlocks().size(), 1);
-    EXPECT_EQ(msg.getCurrentBlocks()[0]->type(), "text");
+    EXPECT_EQ(msg.currentBlocks().size(), 1);
+    EXPECT_TRUE(std::holds_alternative<TextContent>(msg.currentBlocks()[0]));
 
     msg.handleContentBlockDelta(0, "text_delta", QJsonObject{{"text", "Hello "}});
     msg.handleContentBlockDelta(0, "text_delta", QJsonObject{{"text", "world"}});
 
-    auto *textBlock = dynamic_cast<TextContent *>(msg.getCurrentBlocks()[0]);
+    auto *textBlock = std::get_if<TextContent>(&msg.currentBlocks()[0]);
     ASSERT_NE(textBlock, nullptr);
-    EXPECT_EQ(textBlock->text(), "Hello world");
+    EXPECT_EQ(textBlock->text, "Hello world");
 }
 
 TEST(ClaudeMessage, HandleToolUseBlock)
@@ -41,12 +41,12 @@ TEST(ClaudeMessage, HandleToolUseBlock)
     QJsonObject data{{"id", "tool-123"}, {"name", "read_file"}, {"input", QJsonObject{}}};
     msg.handleContentBlockStart(0, "tool_use", data);
 
-    EXPECT_EQ(msg.getCurrentBlocks().size(), 1);
-    EXPECT_EQ(msg.getCurrentToolUseContent().size(), 1);
+    EXPECT_EQ(msg.currentBlocks().size(), 1);
+    EXPECT_EQ(msg.currentToolUseContent().size(), 1);
 
-    auto *toolBlock = msg.getCurrentToolUseContent()[0];
-    EXPECT_EQ(toolBlock->id(), "tool-123");
-    EXPECT_EQ(toolBlock->name(), "read_file");
+    auto toolBlock = msg.currentToolUseContent()[0];
+    EXPECT_EQ(toolBlock.id, "tool-123");
+    EXPECT_EQ(toolBlock.name, "read_file");
 }
 
 TEST(ClaudeMessage, HandleToolUseBlock_StreamedInput)
@@ -59,8 +59,8 @@ TEST(ClaudeMessage, HandleToolUseBlock_StreamedInput)
     msg.handleContentBlockDelta(0, "input_json_delta", QJsonObject{{"partial_json", R"("/tmp/f"})"}});
     msg.handleContentBlockStop(0);
 
-    auto *toolBlock = msg.getCurrentToolUseContent()[0];
-    EXPECT_EQ(toolBlock->input()["path"].toString(), "/tmp/f");
+    auto toolBlock = msg.currentToolUseContent()[0];
+    EXPECT_EQ(toolBlock.input["path"].toString(), "/tmp/f");
 }
 
 TEST(ClaudeMessage, HandleThinkingBlock)
@@ -72,10 +72,10 @@ TEST(ClaudeMessage, HandleThinkingBlock)
     msg.handleContentBlockDelta(0, "thinking_delta", QJsonObject{{"thinking", "Let me think..."}});
     msg.handleContentBlockDelta(0, "signature_delta", QJsonObject{{"signature", "sig123"}});
 
-    auto thinkingBlocks = msg.getCurrentThinkingContent();
+    auto thinkingBlocks = msg.currentThinkingContent();
     EXPECT_EQ(thinkingBlocks.size(), 1);
-    EXPECT_EQ(thinkingBlocks[0]->thinking(), "Let me think...");
-    EXPECT_EQ(thinkingBlocks[0]->signature(), "sig123");
+    EXPECT_EQ(thinkingBlocks[0].thinking, "Let me think...");
+    EXPECT_EQ(thinkingBlocks[0].signature, "sig123");
 }
 
 TEST(ClaudeMessage, HandleRedactedThinkingBlock)
@@ -84,9 +84,9 @@ TEST(ClaudeMessage, HandleRedactedThinkingBlock)
     QJsonObject data{{"signature", "redacted-sig"}};
     msg.handleContentBlockStart(0, "redacted_thinking", data);
 
-    auto redactedBlocks = msg.getCurrentRedactedThinkingContent();
+    auto redactedBlocks = msg.currentRedactedThinkingContent();
     EXPECT_EQ(redactedBlocks.size(), 1);
-    EXPECT_EQ(redactedBlocks[0]->signature(), "redacted-sig");
+    EXPECT_EQ(redactedBlocks[0].signature, "redacted-sig");
 }
 
 TEST(ClaudeMessage, HandleStopReason_EndTurn)
@@ -193,9 +193,9 @@ TEST(ClaudeMessage, CreateToolResultsContentWithImageBlock)
     // tool_result whose `content` is a JSON array (not a bare string),
     // containing a text block and an image block with base64-encoded data.
     ToolResult r;
-    r.content.append(ToolContent::makeText("here is the screenshot"));
+    r.content.append(TextContent{"here is the screenshot"});
     const QByteArray pngBytes = QByteArray("\x89PNG\r\n\x1a\n" "fake", 12);
-    r.content.append(ToolContent::makeImage(pngBytes, "image/png"));
+    r.content.append(ImageContent::fromBytes(pngBytes, "image/png"));
 
     QHash<QString, ToolResult> results;
     results["img"] = r;
@@ -251,14 +251,14 @@ TEST(ClaudeMessage, StartNewContinuation)
 
     msg.startNewContinuation();
     EXPECT_EQ(msg.state(), MessageState::Building);
-    EXPECT_TRUE(msg.getCurrentBlocks().isEmpty());
+    EXPECT_TRUE(msg.currentBlocks().isEmpty());
 }
 
 TEST(ClaudeMessage, HandleContentBlockDelta_OutOfBounds)
 {
     ClaudeMessage msg;
     msg.handleContentBlockDelta(99, "text_delta", QJsonObject{{"text", "orphan"}});
-    EXPECT_TRUE(msg.getCurrentBlocks().isEmpty());
+    EXPECT_TRUE(msg.currentBlocks().isEmpty());
 }
 
 TEST(ClaudeMessage, HandleContentBlockStop_NoToolInput)
@@ -275,12 +275,12 @@ TEST(ClaudeMessage, HandleImageBlock)
     QJsonObject data{{"source", source}};
     msg.handleContentBlockStart(0, "image", data);
 
-    EXPECT_EQ(msg.getCurrentBlocks().size(), 1);
-    auto *imgBlock = dynamic_cast<ImageContent *>(msg.getCurrentBlocks()[0]);
+    EXPECT_EQ(msg.currentBlocks().size(), 1);
+    auto *imgBlock = std::get_if<ImageContent>(&msg.currentBlocks()[0]);
     ASSERT_NE(imgBlock, nullptr);
-    EXPECT_EQ(imgBlock->data(), "abc");
-    EXPECT_EQ(imgBlock->mediaType(), "image/png");
-    EXPECT_EQ(imgBlock->sourceType(), ImageContent::ImageSourceType::Base64);
+    EXPECT_EQ(imgBlock->base64(), QString::fromUtf8(QByteArray::fromBase64(QByteArray("abc")).toBase64()));
+    EXPECT_EQ(imgBlock->mimeType, "image/png");
+    EXPECT_FALSE(imgBlock->isUrl());
 }
 
 TEST(ClaudeMessage, HandleImageBlock_Url)
@@ -290,11 +290,11 @@ TEST(ClaudeMessage, HandleImageBlock_Url)
     QJsonObject data{{"source", source}};
     msg.handleContentBlockStart(0, "image", data);
 
-    EXPECT_EQ(msg.getCurrentBlocks().size(), 1);
-    auto *imgBlock = dynamic_cast<ImageContent *>(msg.getCurrentBlocks()[0]);
+    EXPECT_EQ(msg.currentBlocks().size(), 1);
+    auto *imgBlock = std::get_if<ImageContent>(&msg.currentBlocks()[0]);
     ASSERT_NE(imgBlock, nullptr);
-    EXPECT_EQ(imgBlock->data(), "https://example.com/photo.jpg");
-    EXPECT_EQ(imgBlock->sourceType(), ImageContent::ImageSourceType::Url);
+    EXPECT_EQ(imgBlock->url().toString(), "https://example.com/photo.jpg");
+    EXPECT_TRUE(imgBlock->isUrl());
 }
 
 TEST(ClaudeMessage, HandleImageBlock_JpegMediaType)
@@ -304,9 +304,9 @@ TEST(ClaudeMessage, HandleImageBlock_JpegMediaType)
     QJsonObject data{{"source", source}};
     msg.handleContentBlockStart(0, "image", data);
 
-    auto *imgBlock = dynamic_cast<ImageContent *>(msg.getCurrentBlocks()[0]);
+    auto *imgBlock = std::get_if<ImageContent>(&msg.currentBlocks()[0]);
     ASSERT_NE(imgBlock, nullptr);
-    EXPECT_EQ(imgBlock->mediaType(), "image/jpeg");
+    EXPECT_EQ(imgBlock->mimeType, "image/jpeg");
 }
 
 TEST(ClaudeMessage, ToProviderFormat_WithImage)
@@ -315,7 +315,8 @@ TEST(ClaudeMessage, ToProviderFormat_WithImage)
     msg.handleContentBlockStart(0, "text", {});
     msg.handleContentBlockDelta(0, "text_delta", QJsonObject{{"text", "Here is an image:"}});
 
-    QJsonObject source{{"type", "base64"}, {"data", "imgdata"}, {"media_type", "image/png"}};
+    const QString base64 = QString::fromUtf8(QByteArray("imgdata").toBase64());
+    QJsonObject source = {{"type", "base64"}, {"data", base64}, {"media_type", "image/png"}};
     msg.handleContentBlockStart(1, "image", QJsonObject{{"source", source}});
 
     QJsonObject result = msg.toProviderFormat();
@@ -323,7 +324,7 @@ TEST(ClaudeMessage, ToProviderFormat_WithImage)
     EXPECT_EQ(content.size(), 2);
     EXPECT_EQ(content[0].toObject()["type"].toString(), "text");
     EXPECT_EQ(content[1].toObject()["type"].toString(), "image");
-    EXPECT_EQ(content[1].toObject()["source"].toObject()["data"].toString(), "imgdata");
+    EXPECT_EQ(content[1].toObject()["source"].toObject()["data"].toString(), base64);
 }
 
 TEST(ClaudeMessage, ToProviderFormat_MultipleImages)
@@ -353,8 +354,8 @@ TEST(ClaudeMessage, HandleMixedContent_TextImageToolUse)
     QJsonObject toolData{{"id", "t1"}, {"name", "analyze"}, {"input", QJsonObject{}}};
     msg.handleContentBlockStart(2, "tool_use", toolData);
 
-    EXPECT_EQ(msg.getCurrentBlocks().size(), 3);
-    EXPECT_EQ(msg.getCurrentBlocks()[0]->type(), "text");
-    EXPECT_EQ(msg.getCurrentBlocks()[1]->type(), "image");
-    EXPECT_EQ(msg.getCurrentBlocks()[2]->type(), "tool_use");
+    EXPECT_EQ(msg.currentBlocks().size(), 3);
+    EXPECT_TRUE(std::holds_alternative<TextContent>(msg.currentBlocks()[0]));
+    EXPECT_TRUE(std::holds_alternative<ImageContent>(msg.currentBlocks()[1]));
+    EXPECT_TRUE(std::holds_alternative<ToolUseContent>(msg.currentBlocks()[2]));
 }

@@ -10,6 +10,8 @@
 #include <LLMQore/HttpTransport.hpp>
 #include <LLMQore/Log.hpp>
 
+#include "core/ThreadAffinity.hpp"
+
 namespace LLMQore {
 
 namespace {
@@ -46,6 +48,7 @@ LlamaCppClient::LlamaCppClient(
 RequestID LlamaCppClient::sendMessage(
     const QJsonObject &payload, const QString &endpoint, RequestMode mode)
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     return OpenAIClient::sendMessage(
         payload, endpoint.isEmpty() ? QStringLiteral("/v1/chat/completions") : endpoint, mode);
 }
@@ -60,7 +63,7 @@ RequestID LlamaCppClient::ask(const QString &prompt, RequestMode mode)
     return sendMessage(payload, {}, mode);
 }
 
-QFuture<QList<QString>> LlamaCppClient::listModels(const QString &endpoint)
+QFuture<QList<ModelInfo>> LlamaCppClient::listModels(const QString &endpoint)
 {
     return OpenAIClient::listModels(
         endpoint.isEmpty() ? QStringLiteral("/v1/models") : endpoint);

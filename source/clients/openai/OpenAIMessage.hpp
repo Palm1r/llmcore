@@ -6,6 +6,7 @@
 #include <QJsonValue>
 
 #include <LLMQore/BaseMessage.hpp>
+#include <LLMQore/Conversation.hpp>
 #include <LLMQore/ToolDialect.hpp>
 #include <LLMQore/ToolResult.hpp>
 
@@ -21,13 +22,10 @@ public:
         QString text;
     };
 
-    // Splits an OpenAI-compatible "content" value into reasoning and answer text.
-    // A plain string is answer text; Mistral Magistral sends an array of typed chunks.
     [[nodiscard]] static ContentParts splitContentParts(const QJsonValue &content);
 
     explicit OpenAIMessage(QObject *parent = nullptr);
 
-    // How this provider spells tool schemas on the way out.
     static const ToolDialect &toolDialect();
 
     void handleContentDelta(const QString &content);
@@ -40,6 +38,9 @@ public:
 
     QString stopReason() const override { return m_finishReason; }
 
+    [[nodiscard]] static QJsonObject serializeTurn(
+        TurnRole role, const QList<TurnContent> &blocks);
+
     QJsonObject toProviderFormat() const;
     QJsonArray createToolResultMessages(const QHash<QString, ToolResult> &toolResults) const;
 
@@ -48,11 +49,11 @@ public:
 private:
     QString m_finishReason;
     QHash<int, QString> m_pendingToolArguments;
-    QHash<int, ToolUseContent *> m_toolCallByIndex;
-    ThinkingContent *m_currentThinkingContent = nullptr;
+    QHash<int, int> m_toolCallByIndex;
+    int m_currentThinkingIndex = -1;
 
     void updateStateFromFinishReason();
-    ThinkingContent *getOrCreateThinkingContent();
+    int getOrCreateThinkingContentIndex();
 };
 
 } // namespace LLMQore

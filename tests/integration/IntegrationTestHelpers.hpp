@@ -17,17 +17,15 @@
 
 #include <LLMQore/BaseClient.hpp>
 #include <LLMQore/BaseTool.hpp>
+#include <LLMQore/Conversation.hpp>
+#include <LLMQore/FutureUtils.hpp>
 #include <LLMQore/ToolResult.hpp>
 #include <LLMQore/ToolsManager.hpp>
 
 namespace LLMQore::IntegrationTest {
 
-// Timeout for network requests (30 seconds)
 constexpr int kRequestTimeoutMs = 30000;
-// Timeout for tool continuation (60 seconds, includes tool exec + second request)
 constexpr int kToolContinuationTimeoutMs = 60000;
-
-// --- Environment helpers ---
 
 inline void skipIfNoEnv(const char *envVar)
 {
@@ -68,8 +66,6 @@ inline QProcessEnvironment childEnvironment()
     return environment;
 }
 
-// --- A simple test tool that echoes its input ---
-
 class EchoTool : public BaseTool
 {
     Q_OBJECT
@@ -104,12 +100,6 @@ public:
     }
 };
 
-// --- A tool that returns a tiny PNG as a rich tool-result content block ---
-
-// Small, well-formed 10x10 PNG used as the canonical "image from a tool"
-// payload in integration tests. Kept in sync with the existing
-// ClaudeIntegrationTest.ImageMessage_Base64 asset so multi-provider tests
-// agree on what the model should describe.
 inline constexpr const char *kTinyPngBase64
     = "iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAIAAAACUFjqAAAAEklEQVR4nGP4"
       "z8CAB+GTG8HSALfKY52fTcuYAAAAAElFTkSuQmCC";
@@ -141,14 +131,12 @@ public:
         return QtConcurrent::run([]() -> ToolResult {
             const QByteArray png = QByteArray::fromBase64(QByteArray(kTinyPngBase64));
             ToolResult r;
-            r.content.append(ToolContent::makeText("Here is the sample image:"));
-            r.content.append(ToolContent::makeImage(png, "image/png"));
+            r.content.append(TextContent{"Here is the sample image:"});
+            r.content.append(ImageContent::fromBytes(png, "image/png"));
             return r;
         });
     }
 };
-
-// --- A calculator tool for more complex tool use scenarios ---
 
 class CalculatorTool : public BaseTool
 {
@@ -210,8 +198,6 @@ public:
     }
 };
 
-// --- Result collector for async tests with diagnostics ---
-
 struct TestResult
 {
     bool completed = false;
@@ -220,10 +206,10 @@ struct TestResult
     QString fullText;
     QString errorMessage;
     QStringList chunks;
-    QList<QPair<QString, QString>> thinkingBlocks; // {thinking, signature}
-    QList<QPair<QString, QString>> toolCalls;      // {toolName, result}
+    QList<QPair<QString, QString>> thinkingBlocks;
+    QList<QPair<QString, QString>> toolCalls;
+    Conversation conversation;
 
-    // Returns a diagnostic summary string for use in EXPECT/ASSERT messages
     std::string diagnostics() const
     {
         QString diag;
@@ -249,44 +235,47 @@ struct TestResult
     }
 };
 
-// --- Helper to wire all BaseClient signals to TestResult with logging ---
-//
-// Call this BEFORE sendMessage() — connections established afterwards may
-// miss synchronous failure signals. Connections live until `client` is
-// destroyed, so same-client reuse across tests is fine; tests that create
-// a fresh client per case don't need to disconnect manually.
-inline void wireLoggingSignals(BaseClient *client, TestResult &result, QEventLoop &loop)
+inline void wireLoggingSignals(
+    BaseClient *client, TestResult &result, QEventLoop &loop, QObject *scope = nullptr)
 {
-    QObject::connect(client, &BaseClient::chunkReceived, &loop,
+    if (!scope)
+        scope = &loop;
+
+    QObject::connect(client, &BaseClient::requestFinalized, scope,
+                     [&result](const RequestID &, const CompletionInfo &info) {
+        result.conversation = info.conversation;
+    });
+
+    QObject::connect(client, &BaseClient::chunkReceived, scope,
                      [&result](const RequestID &, const QString &chunk) {
                          result.chunks.append(chunk);
                      });
-    QObject::connect(client, &BaseClient::accumulatedReceived, &loop,
+    QObject::connect(client, &BaseClient::accumulatedReceived, scope,
                      [&result](const RequestID &, const QString &acc) {
                          result.fullText = acc;
                      });
     QObject::connect(
-        client, &BaseClient::thinkingBlockReceived, &loop,
+        client, &BaseClient::thinkingBlockReceived, scope,
         [&result](const RequestID &, const QString &thinking, const QString &signature) {
             result.thinkingBlocks.append({thinking, signature});
         });
-    QObject::connect(client, &BaseClient::toolStarted, &loop,
+    QObject::connect(client, &BaseClient::toolStarted, scope,
                      [&result](const RequestID &, const QString &toolId, const QString &name) {
                          result.toolCalls.append({name, QString("started:%1").arg(toolId)});
                      });
     QObject::connect(
-        client, &BaseClient::toolResultReady, &loop,
+        client, &BaseClient::toolResultReady, scope,
         [&result](const RequestID &, const QString &toolId, const QString &name, const QString &res) {
             result.toolCalls.append({name + "_result", res});
             Q_UNUSED(toolId);
         });
-    QObject::connect(client, &BaseClient::requestCompleted, &loop,
+    QObject::connect(client, &BaseClient::requestCompleted, scope,
                      [&result, &loop](const RequestID &, const QString &fullText) {
                          result.completed = true;
                          result.fullText = fullText;
                          loop.quit();
                      });
-    QObject::connect(client, &BaseClient::requestFailed, &loop,
+    QObject::connect(client, &BaseClient::requestFailed, scope,
                      [&result, &loop](const RequestID &, const QString &error) {
                          result.failed = true;
                          result.errorMessage = error;
@@ -294,18 +283,16 @@ inline void wireLoggingSignals(BaseClient *client, TestResult &result, QEventLoo
                      });
 }
 
-// --- Helper to run event loop with timeout and mark result ---
-
-inline void waitWithTimeout(QEventLoop &loop, TestResult &result, int timeoutMs)
+inline void waitWithTimeout(
+    QEventLoop &loop, TestResult &result, int timeoutMs, QObject *scope = nullptr)
 {
-    QTimer::singleShot(timeoutMs, &loop, [&loop, &result]() {
-        result.timedOut = true;
-        loop.quit();
-    });
+    QTimer::singleShot(timeoutMs, scope ? scope : static_cast<QObject *>(&loop),
+                       [&loop, &result]() {
+                           result.timedOut = true;
+                           loop.quit();
+                       });
     loop.exec();
 }
-
-// --- Test fixture base class ---
 
 class ProviderTestBase : public ::testing::Test
 {
@@ -326,7 +313,6 @@ protected:
         m_app = nullptr;
     }
 
-    // Helper to wait for a signal with timeout
     static bool waitForSignal(QSignalSpy &spy, int timeoutMs = kRequestTimeoutMs)
     {
         if (spy.count() > 0)
@@ -336,5 +322,79 @@ protected:
 
     QCoreApplication *m_app = nullptr;
 };
+
+inline TestResult runConversation(
+    BaseClient *client, const Conversation &conversation, QEventLoop &loop)
+{
+    TestResult result;
+    QObject scope;
+
+    wireLoggingSignals(client, result, loop, &scope);
+    client->ask(conversation);
+    waitWithTimeout(loop, result, kRequestTimeoutMs, &scope);
+
+    return result;
+}
+
+inline void expectMultiTurnAccepted(BaseClient *client)
+{
+    Conversation conversation;
+    conversation.setSystem("Answer with a single word.");
+    conversation.addUser("What is the capital of France?");
+
+    QEventLoop firstLoop;
+    TestResult first = runConversation(client, conversation, firstLoop);
+
+    ASSERT_FALSE(first.timedOut) << "First turn timed out\n" << first.diagnostics();
+    ASSERT_TRUE(first.completed) << first.diagnostics();
+    ASSERT_FALSE(first.failed) << first.diagnostics();
+    ASSERT_FALSE(first.fullText.isEmpty()) << first.diagnostics();
+
+    Conversation carried = first.conversation;
+    ASSERT_EQ(carried.turns().size(), 2)
+        << "assistant turn missing from CompletionInfo::conversation";
+    EXPECT_EQ(carried.turns()[1].role, TurnRole::Assistant);
+
+    carried.addUser("And of Italy?");
+
+    QEventLoop secondLoop;
+    TestResult second = runConversation(client, carried, secondLoop);
+
+    ASSERT_FALSE(second.timedOut) << "Second turn timed out\n" << second.diagnostics();
+    ASSERT_TRUE(second.completed) << "Provider rejected the replayed history\n"
+                                  << second.diagnostics();
+    ASSERT_FALSE(second.failed) << second.diagnostics();
+    EXPECT_FALSE(second.fullText.isEmpty()) << second.diagnostics();
+}
+
+inline void expectAskOnceResolves(BaseClient *client)
+{
+    QEventLoop loop;
+    QObject scope;
+    bool settled = false;
+    CompletionInfo received;
+    QString error;
+
+    LLMQore::compat(client->askOnce("Reply with exactly: ok"))
+        .then(&scope, [&](const CompletionInfo &info) -> int {
+            received = info;
+            settled = true;
+            loop.quit();
+            return 0;
+        })
+        .onFailed(&scope, [&](const std::exception &e) -> int {
+            error = QString::fromUtf8(e.what());
+            settled = true;
+            loop.quit();
+            return 0;
+        });
+
+    QTimer::singleShot(kRequestTimeoutMs, &scope, [&loop]() { loop.quit(); });
+    loop.exec();
+
+    ASSERT_TRUE(settled) << "askOnce future never settled";
+    ASSERT_TRUE(error.isEmpty()) << "askOnce rejected: " << error.toStdString();
+    EXPECT_FALSE(received.fullText.isEmpty());
+}
 
 } // namespace LLMQore::IntegrationTest

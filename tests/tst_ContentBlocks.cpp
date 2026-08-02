@@ -10,157 +10,136 @@
 
 using namespace LLMQore;
 
-TEST(TextContent, Type)
+TEST(TurnContent, DefaultsToText)
 {
-    TextContent tc("hello");
-    EXPECT_EQ(tc.type(), "text");
+    TurnContent block;
+    EXPECT_TRUE(std::holds_alternative<TextContent>(block));
+    EXPECT_TRUE(std::get<TextContent>(block).text.isEmpty());
 }
 
-TEST(TextContent, Text)
+TEST(TurnContent, HoldsEachAlternative)
 {
-    TextContent tc("hello");
-    EXPECT_EQ(tc.text(), "hello");
+    EXPECT_TRUE(std::holds_alternative<TextContent>(TurnContent{TextContent{"hi"}}));
+    EXPECT_TRUE(std::holds_alternative<ImageContent>(
+        TurnContent{ImageContent::fromBytes("bytes", "image/png")}));
+    EXPECT_TRUE(std::holds_alternative<AudioContent>(TurnContent{AudioContent{"pcm", "audio/wav"}}));
+    EXPECT_TRUE(
+        std::holds_alternative<ToolUseContent>(TurnContent{ToolUseContent{"id", "name", {}}}));
+    EXPECT_TRUE(std::holds_alternative<ThinkingContent>(TurnContent{ThinkingContent{}}));
+    EXPECT_TRUE(
+        std::holds_alternative<RedactedThinkingContent>(TurnContent{RedactedThinkingContent{}}));
 }
 
-TEST(TextContent, AppendText)
+TEST(TurnContent, IsCopyable)
 {
-    TextContent tc("hello");
-    tc.appendText(" world");
-    EXPECT_EQ(tc.text(), "hello world");
+    TurnContent original = {TextContent{"hello"}};
+    TurnContent copy = original;
+
+    std::get<TextContent>(original).text = "changed";
+
+    EXPECT_EQ(std::get<TextContent>(copy).text, "hello");
+    EXPECT_EQ(std::get<TextContent>(original).text, "changed");
 }
 
-TEST(TextContent, SetText)
+TEST(TurnContent, ListSurvivesReallocation)
 {
-    TextContent tc("hello");
-    tc.setText("replaced");
-    EXPECT_EQ(tc.text(), "replaced");
+    QList<TurnContent> blocks;
+    blocks.append(TextContent{"first"});
+
+    for (int i = 0; i < 128; ++i)
+        blocks.append(TextContent{QString::number(i)});
+
+    EXPECT_EQ(std::get<TextContent>(blocks.first()).text, "first");
+    EXPECT_EQ(blocks.size(), 129);
 }
 
-TEST(TextContent, Empty)
+TEST(ImageContent, InlineBytesRoundTripThroughBase64)
 {
-    TextContent tc;
-    EXPECT_EQ(tc.text(), QString());
+    const QByteArray raw = QByteArray::fromHex("deadbeef");
+    const ImageContent image = ImageContent::fromBytes(raw, "image/png");
+
+    EXPECT_FALSE(image.isUrl());
+    EXPECT_EQ(image.bytes(), raw);
+    EXPECT_EQ(image.mimeType, "image/png");
+    EXPECT_EQ(ImageContent::fromBase64(image.base64(), "image/png").bytes(), raw);
+    EXPECT_TRUE(image.url().isEmpty());
 }
 
-TEST(ImageContent, Base64)
+TEST(ImageContent, UrlSourceCarriesNoBytes)
 {
-    ImageContent ic("base64data", "image/png", ImageContent::ImageSourceType::Base64);
-    EXPECT_EQ(ic.type(), "image");
-    EXPECT_EQ(ic.data(), "base64data");
-    EXPECT_EQ(ic.mediaType(), "image/png");
-    EXPECT_EQ(ic.sourceType(), ImageContent::ImageSourceType::Base64);
+    const ImageContent image = ImageContent::fromUrl(QUrl("https://example.com/img.png"));
+
+    EXPECT_TRUE(image.isUrl());
+    EXPECT_EQ(image.url().toString(), "https://example.com/img.png");
+    EXPECT_TRUE(image.bytes().isEmpty());
+    EXPECT_TRUE(image.base64().isEmpty());
 }
 
-TEST(ImageContent, Url)
+TEST(ImageContent, Base64FactoryDecodes)
 {
-    ImageContent ic("https://example.com/img.png", "", ImageContent::ImageSourceType::Url);
-    EXPECT_EQ(ic.type(), "image");
-    EXPECT_EQ(ic.data(), "https://example.com/img.png");
-    EXPECT_EQ(ic.sourceType(), ImageContent::ImageSourceType::Url);
+    const ImageContent image = ImageContent::fromBase64("aGVsbG8=", "image/jpeg");
+
+    EXPECT_EQ(image.bytes(), QByteArray("hello"));
+    EXPECT_EQ(image.mimeType, "image/jpeg");
 }
 
-TEST(ImageContent, DefaultSourceTypeIsBase64)
+TEST(ResourceContent, TextAndBlobAreDistinct)
 {
-    ImageContent ic("data123", "image/png");
-    EXPECT_EQ(ic.sourceType(), ImageContent::ImageSourceType::Base64);
+    const ResourceContent text = ResourceContent::fromText("file:///a", "body", "text/plain");
+    EXPECT_FALSE(text.isBlob());
+    EXPECT_EQ(text.text(), "body");
+    EXPECT_TRUE(text.blob().isEmpty());
+
+    const ResourceContent blob
+        = ResourceContent::fromBlob("file:///b", QByteArray("raw"), "application/octet-stream");
+    EXPECT_TRUE(blob.isBlob());
+    EXPECT_EQ(blob.blob(), QByteArray("raw"));
+    EXPECT_TRUE(blob.text().isEmpty());
 }
 
-TEST(ImageContent, LargeBase64Data)
+TEST(ToolContent, HoldsSharedMediaAlternatives)
 {
-    QString largeData(10000, 'A');
-    ImageContent ic(largeData, "image/png", ImageContent::ImageSourceType::Base64);
-    EXPECT_EQ(ic.data(), largeData);
+    EXPECT_TRUE(std::holds_alternative<TextContent>(ToolContent{TextContent{"hi"}}));
+    EXPECT_TRUE(
+        std::holds_alternative<ImageContent>(ToolContent{ImageContent::fromBytes("b", "image/png")}));
+    EXPECT_TRUE(std::holds_alternative<ResourceLinkContent>(
+        ToolContent{ResourceLinkContent{"file:///x", "x", "", ""}}));
 }
 
-TEST(ImageContent, DifferentMediaTypes)
+TEST(Overloaded, DispatchesToMatchingAlternative)
 {
-    ImageContent jpeg("data", "image/jpeg");
-    EXPECT_EQ(jpeg.mediaType(), "image/jpeg");
+    const auto describe = [](const TurnContent &block) {
+        return std::visit(
+            detail::overloaded{
+                [](const TextContent &) -> QString { return "text"; },
+                [](const ImageContent &) -> QString { return "image"; },
+                [](const AudioContent &) -> QString { return "audio"; },
+                [](const ToolUseContent &) -> QString { return "tool_use"; },
+                [](const ToolResultContent &) -> QString { return "tool_result"; },
+                [](const ThinkingContent &) -> QString { return "thinking"; },
+                [](const RedactedThinkingContent &) -> QString { return "redacted_thinking"; }},
+            block);
+    };
 
-    ImageContent webp("data", "image/webp");
-    EXPECT_EQ(webp.mediaType(), "image/webp");
-
-    ImageContent gif("data", "image/gif");
-    EXPECT_EQ(gif.mediaType(), "image/gif");
+    EXPECT_EQ(describe(TextContent{"a"}), "text");
+    EXPECT_EQ(describe(ImageContent::fromBytes("b", "image/png")), "image");
+    EXPECT_EQ(describe(AudioContent{"c", "audio/wav"}), "audio");
+    EXPECT_EQ(describe(ToolUseContent{"id", "n", {}}), "tool_use");
+    EXPECT_EQ(describe(ToolResultContent{"id", "n", {}, false, {}}), "tool_result");
+    EXPECT_EQ(describe(ThinkingContent{}), "thinking");
+    EXPECT_EQ(describe(RedactedThinkingContent{}), "redacted_thinking");
 }
 
-TEST(ToolUseContent, Basic)
+TEST(ThinkingContent, CarriesProviderContinuationTokens)
 {
-    QJsonObject input{{"key", "value"}};
-    ToolUseContent tuc("tool-123", "read_file", input);
-    EXPECT_EQ(tuc.type(), "tool_use");
-    EXPECT_EQ(tuc.id(), "tool-123");
-    EXPECT_EQ(tuc.name(), "read_file");
-    EXPECT_EQ(tuc.input(), input);
-}
+    ThinkingContent thinking;
+    thinking.thinking = "step one";
+    thinking.signature = "sig";
+    thinking.itemId = "rs_123";
+    thinking.encryptedContent = "encrypted";
 
-TEST(ToolUseContent, SetInput)
-{
-    ToolUseContent tuc("id", "name");
-    EXPECT_TRUE(tuc.input().isEmpty());
-    QJsonObject newInput{{"file", "test.cpp"}};
-    tuc.setInput(newInput);
-    EXPECT_EQ(tuc.input(), newInput);
-}
-
-TEST(ToolResultContent, Basic)
-{
-    ToolResultContent trc("tool-1", "file contents here");
-    EXPECT_EQ(trc.type(), "tool_result");
-    EXPECT_EQ(trc.toolUseId(), "tool-1");
-    EXPECT_EQ(trc.result(), "file contents here");
-}
-
-TEST(ThinkingContent, Basic)
-{
-    ThinkingContent tc("I think...", "sig123");
-    EXPECT_EQ(tc.type(), "thinking");
-    EXPECT_EQ(tc.thinking(), "I think...");
-    EXPECT_EQ(tc.signature(), "sig123");
-}
-
-TEST(ThinkingContent, Append)
-{
-    ThinkingContent tc("start");
-    tc.appendThinking(" more");
-    EXPECT_EQ(tc.thinking(), "start more");
-}
-
-TEST(ThinkingContent, SetThinking)
-{
-    ThinkingContent tc("original");
-    tc.setThinking("replaced");
-    EXPECT_EQ(tc.thinking(), "replaced");
-}
-
-TEST(ThinkingContent, SetSignature)
-{
-    ThinkingContent tc("thought");
-    EXPECT_TRUE(tc.signature().isEmpty());
-    tc.setSignature("sig");
-    EXPECT_EQ(tc.signature(), "sig");
-}
-
-TEST(RedactedThinkingContent, Basic)
-{
-    RedactedThinkingContent rtc("sig456");
-    EXPECT_EQ(rtc.type(), "redacted_thinking");
-    EXPECT_EQ(rtc.signature(), "sig456");
-}
-
-TEST(RedactedThinkingContent, SetSignature)
-{
-    RedactedThinkingContent rtc;
-    EXPECT_TRUE(rtc.signature().isEmpty());
-    rtc.setSignature("sig");
-    EXPECT_EQ(rtc.signature(), "sig");
-}
-
-TEST(AddContentBlock, AddsToList)
-{
-    QList<ContentBlock *> blocks;
-    auto *tc = addContentBlock<TextContent>(blocks, "hello");
-    EXPECT_EQ(blocks.size(), 1);
-    EXPECT_EQ(tc->text(), "hello");
-    qDeleteAll(blocks);
+    EXPECT_EQ(thinking.thinking, "step one");
+    EXPECT_EQ(thinking.signature, "sig");
+    EXPECT_EQ(thinking.itemId, "rs_123");
+    EXPECT_EQ(thinking.encryptedContent, "encrypted");
 }

@@ -12,6 +12,8 @@
 #include <LLMQore/RpcLineFramer.hpp>
 #include <LLMQore/Log.hpp>
 
+#include "core/ThreadAffinity.hpp"
+
 namespace LLMQore {
 
 namespace {
@@ -53,6 +55,7 @@ OllamaClient::OllamaClient(
 RequestID OllamaClient::sendMessage(
     const QJsonObject &payload, const QString &endpoint, RequestMode mode)
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     QJsonObject request = payload;
     request["stream"] = (mode == RequestMode::Streaming);
 
@@ -74,6 +77,35 @@ RequestID OllamaClient::ask(const QString &prompt, RequestMode mode)
     return sendMessage(payload, {}, mode);
 }
 
+QJsonObject OllamaClient::buildConversationPayload(const Conversation &conversation) const
+{
+    QJsonObject payload;
+    payload["model"] = m_model;
+
+    QJsonArray messages;
+    if (!conversation.system().isEmpty())
+        messages.append(QJsonObject{{"role", "system"}, {"content", conversation.system()}});
+
+    for (const Turn &turn : conversation.turns()) {
+        if (turn.role == TurnRole::Tool) {
+            for (const TurnContent &block : turn.content) {
+                if (const auto *result = std::get_if<ToolResultContent>(&block)) {
+                    messages.append(
+                        QJsonObject{
+                            {"role", "tool"},
+                            {"content", toolResultText(toToolResult(*result))}});
+                }
+            }
+            continue;
+        }
+
+        messages.append(OllamaMessage::serializeTurn(turn.role, turn.content));
+    }
+
+    payload["messages"] = messages;
+    return payload;
+}
+
 const ToolDialect &OllamaClient::toolDialect() const
 {
     return OllamaMessage::toolDialect();
@@ -84,7 +116,7 @@ const UsageSchema &OllamaClient::usageSchema() const
     return kOllamaUsage;
 }
 
-QFuture<QList<QString>> OllamaClient::listModels(const QString &endpoint)
+QFuture<QList<ModelInfo>> OllamaClient::listModels(const QString &endpoint)
 {
     return fetchModelList(
         endpointUrl(endpoint, QStringLiteral("/api/tags")),

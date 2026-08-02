@@ -338,3 +338,35 @@ TEST(ToolRounds, CancelClearsTheLedger)
 }
 
 #include "tst_ToolRounds.moc"
+
+TEST(ToolRounds, ContinuationDeltaWithEmptyIdDoesNotStartAPhantomCall)
+{
+    LLMQoreTest::FakeHttpTransport transport;
+    OpenAIClient client("http://fake.local/v1", "sk-test", "gpt-test", &transport);
+    auto *tool = new CountingTool(&client);
+    client.tools()->addTool(tool);
+
+    QSignalSpy completed(&client, &BaseClient::requestCompleted);
+
+    const RequestID id = client.ask(QStringLiteral("go"));
+    ASSERT_EQ(transport.streamCount(), 1);
+
+    transport.lastStream()->sendAll(
+        "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\","
+        "\"function\":{\"name\":\"echo\",\"arguments\":\"\"}}]}}]}\n\n"
+        "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"\","
+        "\"function\":{\"name\":\"\",\"arguments\":\"{}\"}}]}}]}\n\n"
+        "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n"
+        "data: [DONE]\n\n");
+
+    ASSERT_TRUE(LLMQoreTest::waitForStreams(transport, 2)) << "the round did not continue";
+
+    const QStringList ids = toolCallIdsOf(transport.streamRequest(1).payload());
+    EXPECT_EQ(ids, (QStringList{"call_1"}))
+        << "a delta whose id is present but empty must extend the open call, not open a new one";
+    EXPECT_EQ(tool->calls, 1);
+
+    transport.lastStream()->sendAll(finalTurn("done"));
+    pump();
+    EXPECT_EQ(completed.count(), 1);
+}

@@ -4,6 +4,7 @@
 #pragma once
 
 #include <LLMQore/BaseMessage.hpp>
+#include <LLMQore/Conversation.hpp>
 #include <LLMQore/ToolDialect.hpp>
 #include <LLMQore/ToolResult.hpp>
 
@@ -15,7 +16,6 @@ class GoogleMessage : public BaseMessage
 public:
     explicit GoogleMessage(QObject *parent = nullptr);
 
-    // How this provider spells tool schemas on the way out.
     static const ToolDialect &toolDialect();
 
     void handleContentDelta(const QString &text);
@@ -26,8 +26,13 @@ public:
     void handleFunctionCallComplete();
     void handleFinishReason(const QString &reason);
 
+    [[nodiscard]] static QJsonObject serializeTurn(
+        TurnRole role, const QList<TurnContent> &blocks);
+
     QJsonObject toProviderFormat() const;
     QJsonArray createToolResultParts(const QHash<QString, ToolResult> &toolResults) const;
+    static QJsonObject toInlineDataPart(const ToolContent &block);
+    static QString toolResultTurnRole(const QJsonArray &parts);
 
     QString stopReason() const override { return m_finishReason; }
     bool isErrorFinishReason() const;

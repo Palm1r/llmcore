@@ -6,12 +6,16 @@
 #include <LLMQore/HttpTransport.hpp>
 #include <LLMQore/SSEParser.hpp>
 
+#include <algorithm>
+
 #include <QJsonArray>
 #include <QJsonDocument>
 
 #include "OpenAIResponsesMessage.hpp"
 #include <LLMQore/FutureUtils.hpp>
 #include <LLMQore/Log.hpp>
+
+#include "core/ThreadAffinity.hpp"
 
 namespace LLMQore {
 
@@ -54,8 +58,12 @@ OpenAIResponsesClient::OpenAIResponsesClient(
 RequestID OpenAIResponsesClient::sendMessage(
     const QJsonObject &payload, const QString &endpoint, RequestMode mode)
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     QJsonObject request = payload;
     request["stream"] = (mode == RequestMode::Streaming);
+
+    if (m_reasoningPersistence == ReasoningPersistence::Replay && !request.contains("store"))
+        request["store"] = false;
 
     RequestID id = createRequest();
     const QString resolved = endpoint.isEmpty() ? QStringLiteral("/responses") : endpoint;
@@ -75,6 +83,52 @@ RequestID OpenAIResponsesClient::ask(const QString &prompt, RequestMode mode)
     return sendMessage(payload, {}, mode);
 }
 
+QJsonObject OpenAIResponsesClient::buildConversationPayload(
+    const Conversation &conversation) const
+{
+    QJsonObject payload;
+    payload["model"] = m_model;
+
+    if (!conversation.system().isEmpty())
+        payload["instructions"] = conversation.system();
+
+    QJsonArray input;
+    for (const Turn &turn : conversation.turns()) {
+        if (turn.role == TurnRole::Tool) {
+            for (const TurnContent &block : turn.content) {
+                const auto *result = std::get_if<ToolResultContent>(&block);
+                if (!result)
+                    continue;
+
+                const ToolResult toolResult = toToolResult(*result);
+
+                QJsonObject item = {
+                    {"type", "function_call_output"}, {"call_id", result->toolUseId}};
+
+                if (toolResult.hasOnlyText()) {
+                    item["output"] = toolResultText(toolResult);
+                } else {
+                    QJsonArray blocks;
+                    for (const ToolContent &part : toolResult.content)
+                        blocks.append(OpenAIResponsesMessage::toResponsesInnerBlock(part));
+                    item["output"] = blocks;
+                }
+
+                input.append(item);
+            }
+            continue;
+        }
+
+        const QList<QJsonObject> items = OpenAIResponsesMessage::serializeTurn(
+            turn.role, turn.content, m_reasoningPersistence);
+        for (const QJsonObject &item : items)
+            input.append(item);
+    }
+
+    payload["input"] = input;
+    return payload;
+}
+
 const ToolDialect &OpenAIResponsesClient::toolDialect() const
 {
     return OpenAIResponsesMessage::toolDialect();
@@ -85,7 +139,7 @@ const UsageSchema &OpenAIResponsesClient::usageSchema() const
     return kResponsesUsage;
 }
 
-QFuture<QList<QString>> OpenAIResponsesClient::listModels(const QString &endpoint)
+QFuture<QList<ModelInfo>> OpenAIResponsesClient::listModels(const QString &endpoint)
 {
     return fetchModelList(endpointUrl(endpoint, QStringLiteral("/models")));
 }
@@ -103,6 +157,17 @@ void OpenAIResponsesClient::cleanupDerivedData(const RequestID &id)
     m_itemIdToCallId.remove(id);
 }
 
+void OpenAIResponsesClient::setReasoningPersistence(ReasoningPersistence mode)
+{
+    m_reasoningPersistence = mode;
+}
+
+OpenAIResponsesClient::ReasoningPersistence
+OpenAIResponsesClient::reasoningPersistence() const noexcept
+{
+    return m_reasoningPersistence;
+}
+
 QJsonObject OpenAIResponsesClient::buildContinuationPayload(
     const QJsonObject &originalPayload,
     BaseMessage *message,
@@ -115,7 +180,7 @@ QJsonObject OpenAIResponsesClient::buildContinuationPayload(
     QJsonObject request = originalPayload;
     QJsonArray input = request["input"].toArray();
 
-    QList<QJsonObject> assistantItems = responsesMsg->toItemsFormat();
+    QList<QJsonObject> assistantItems = responsesMsg->toItemsFormat(m_reasoningPersistence);
     for (const QJsonObject &item : assistantItems)
         input.append(item);
 
@@ -161,8 +226,11 @@ void OpenAIResponsesClient::processSseEvent(
             }
         } else if (itemType == "reasoning") {
             QString itemId = item["id"].toString();
-            if (!itemId.isEmpty())
+            if (!itemId.isEmpty()) {
                 message->handleReasoningStart(itemId);
+                message->handleReasoningEncryptedContent(
+                    itemId, item["encrypted_content"].toString());
+            }
         }
 
     } else if (eventType == "response.reasoning_content.delta") {
@@ -205,6 +273,8 @@ void OpenAIResponsesClient::processSseEvent(
 
             if (!finalItemId.isEmpty()) {
                 message->handleReasoningDelta(finalItemId, reasoningText);
+                message->handleReasoningEncryptedContent(
+                    finalItemId, item["encrypted_content"].toString());
                 message->handleReasoningComplete(finalItemId);
                 notifyPendingThinkingBlocks(id);
             }

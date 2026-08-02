@@ -7,6 +7,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 
+#include <LLMQore/Conversation.hpp>
 #include <LLMQore/Log.hpp>
 
 namespace LLMQore {
@@ -45,47 +46,37 @@ void ClaudeMessage::handleContentBlockStart(
         << QString("handleContentBlockStart index=%1, blockType=%2").arg(index).arg(blockType);
 
     if (blockType == "text") {
-        addCurrentContent<TextContent>();
+        addCurrentContent(TextContent{});
 
     } else if (blockType == "image") {
-        QJsonObject source = data["source"].toObject();
-        QString sourceType = source["type"].toString();
-        QString imageData;
-        QString mediaType;
-        ImageContent::ImageSourceType imgSourceType = ImageContent::ImageSourceType::Base64;
+        const QJsonObject source = data["source"].toObject();
+        const QString sourceType = source["type"].toString();
 
-        if (sourceType == "base64") {
-            imageData = source["data"].toString();
-            mediaType = source["media_type"].toString();
-            imgSourceType = ImageContent::ImageSourceType::Base64;
-        } else if (sourceType == "url") {
-            imageData = source["url"].toString();
-            imgSourceType = ImageContent::ImageSourceType::Url;
+        if (sourceType == "url") {
+            addCurrentContent(ImageContent::fromUrl(QUrl(source["url"].toString())));
+        } else {
+            addCurrentContent(ImageContent::fromBase64(
+                source["data"].toString(), source["media_type"].toString()));
         }
 
-        addCurrentContent<ImageContent>(imageData, mediaType, imgSourceType);
-
     } else if (blockType == "tool_use") {
-        QString toolId = data["id"].toString();
-        QString toolName = data["name"].toString();
-        QJsonObject toolInput = data["input"].toObject();
-
-        addCurrentContent<ToolUseContent>(toolId, toolName, toolInput);
+        addCurrentContent(ToolUseContent{
+            data["id"].toString(), data["name"].toString(), data["input"].toObject()});
         m_pendingToolInputs[index] = "";
 
     } else if (blockType == "thinking") {
-        QString thinking = data["thinking"].toString();
-        QString signature = data["signature"].toString();
+        const QString signature = data["signature"].toString();
         qCDebug(llmClaudeLog).noquote()
             << QString("Creating thinking block with signature length=%1").arg(signature.length());
-        addCurrentContent<ThinkingContent>(thinking, signature);
+        addCurrentContent(ThinkingContent{.thinking = data["thinking"].toString(),
+                                          .signature = signature});
 
     } else if (blockType == "redacted_thinking") {
-        QString signature = data["signature"].toString();
+        const QString signature = data["signature"].toString();
         qCDebug(llmClaudeLog).noquote()
             << QString("Creating redacted_thinking block with signature length=%1")
                    .arg(signature.length());
-        addCurrentContent<RedactedThinkingContent>(signature);
+        addCurrentContent(RedactedThinkingContent{.signature = signature});
     }
 }
 
@@ -97,9 +88,8 @@ void ClaudeMessage::handleContentBlockDelta(
     }
 
     if (deltaType == "text_delta") {
-        if (auto textContent = dynamic_cast<TextContent *>(m_currentBlocks[index])) {
-            textContent->appendText(delta["text"].toString());
-        }
+        if (auto *textContent = blockAt<TextContent>(index))
+            textContent->text += delta["text"].toString();
 
     } else if (deltaType == "input_json_delta") {
         QString partialJson = delta["partial_json"].toString();
@@ -108,22 +98,19 @@ void ClaudeMessage::handleContentBlockDelta(
         }
 
     } else if (deltaType == "thinking_delta") {
-        if (auto thinkingContent = dynamic_cast<ThinkingContent *>(m_currentBlocks[index])) {
-            thinkingContent->appendThinking(delta["thinking"].toString());
-        }
+        if (auto *thinkingContent = blockAt<ThinkingContent>(index))
+            thinkingContent->thinking += delta["thinking"].toString();
 
     } else if (deltaType == "signature_delta") {
-        if (auto thinkingContent = dynamic_cast<ThinkingContent *>(m_currentBlocks[index])) {
-            QString signature = delta["signature"].toString();
-            thinkingContent->setSignature(signature);
+        const QString signature = delta["signature"].toString();
+        if (auto *thinkingContent = blockAt<ThinkingContent>(index)) {
+            thinkingContent->signature = signature;
             qCDebug(llmClaudeLog).noquote()
                 << QString("Set signature for thinking block %1: length=%2")
                        .arg(index)
                        .arg(signature.length());
-        } else if (
-            auto redactedContent = dynamic_cast<RedactedThinkingContent *>(m_currentBlocks[index])) {
-            QString signature = delta["signature"].toString();
-            redactedContent->setSignature(signature);
+        } else if (auto *redactedContent = blockAt<RedactedThinkingContent>(index)) {
+            redactedContent->signature = signature;
             qCDebug(llmClaudeLog).noquote()
                 << QString("Set signature for redacted_thinking block %1: length=%2")
                        .arg(index)
@@ -145,11 +132,8 @@ void ClaudeMessage::handleContentBlockStop(int index)
             }
         }
 
-        if (index < m_currentBlocks.size()) {
-            if (auto toolContent = dynamic_cast<ToolUseContent *>(m_currentBlocks[index])) {
-                toolContent->setInput(inputObject);
-            }
-        }
+        if (auto *toolContent = blockAt<ToolUseContent>(index))
+            toolContent->input = inputObject;
 
         m_pendingToolInputs.remove(index);
     }
@@ -161,45 +145,119 @@ void ClaudeMessage::handleStopReason(const QString &stopReason)
     updateStateFromStopReason();
 }
 
-static QJsonValue serializeBlockClaude(const ContentBlock *block)
+namespace {
+
+QJsonObject toClaudeInnerBlock(const ToolContent &block)
 {
-    if (const auto *text = dynamic_cast<const TextContent *>(block)) {
-        return QJsonObject{{"type", "text"}, {"text", text->text()}};
+    return std::visit(
+        detail::overloaded{
+            [](const TextContent &c) -> QJsonObject {
+                return QJsonObject{{"type", "text"}, {"text", c.text}};
+            },
+            [](const ImageContent &c) -> QJsonObject {
+                if (c.isUrl()) {
+                    return QJsonObject{
+                        {"type", "image"},
+                        {"source", QJsonObject{{"type", "url"}, {"url", c.url().toString()}}}};
+                }
+                const QString mime = c.mimeType.isEmpty() ? QStringLiteral("image/png")
+                                                          : c.mimeType;
+                return QJsonObject{
+                    {"type", "image"},
+                    {"source",
+                     QJsonObject{
+                         {"type", "base64"}, {"media_type", mime}, {"data", c.base64()}}}};
+            },
+            [](const AudioContent &c) -> QJsonObject {
+                return QJsonObject{
+                    {"type", "text"},
+                    {"text",
+                     QString("[audio: %1]")
+                         .arg(c.mimeType.isEmpty() ? QStringLiteral("unknown") : c.mimeType)}};
+            },
+            [](const ResourceContent &c) -> QJsonObject {
+                if (!c.isBlob() && !c.text().isEmpty())
+                    return QJsonObject{{"type", "text"}, {"text", c.text()}};
+                return QJsonObject{
+                    {"type", "text"}, {"text", QString("[resource: %1]").arg(c.uri)}};
+            },
+            [](const ResourceLinkContent &c) -> QJsonObject {
+                return QJsonObject{
+                    {"type", "text"}, {"text", QString("[resource link: %1]").arg(c.uri)}};
+            }},
+        block);
+}
+
+QJsonValue buildClaudeToolResultContent(const ToolResult &r)
+{
+    if (r.content.isEmpty())
+        return QString();
+    if (r.content.size() == 1) {
+        if (const auto *text = std::get_if<TextContent>(&r.content.first()))
+            return text->text;
     }
-    if (const auto *image = dynamic_cast<const ImageContent *>(block)) {
-        QJsonObject source;
-        if (image->sourceType() == ImageContent::ImageSourceType::Base64) {
-            source["type"] = "base64";
-            source["media_type"] = image->mediaType();
-            source["data"] = image->data();
-        } else {
-            source["type"] = "url";
-            source["url"] = image->data();
-        }
-        return QJsonObject{{"type", "image"}, {"source", source}};
-    }
-    if (const auto *tool = dynamic_cast<const ToolUseContent *>(block)) {
-        return QJsonObject{
-            {"type", "tool_use"},
-            {"id", tool->id()},
-            {"name", tool->name()},
-            {"input", tool->input()}};
-    }
-    if (const auto *thinking = dynamic_cast<const ThinkingContent *>(block)) {
-        QJsonObject obj{{"type", "thinking"}, {"thinking", thinking->thinking()}};
-        if (!thinking->signature().isEmpty()) {
-            obj["signature"] = thinking->signature();
-        }
-        return obj;
-    }
-    if (const auto *redacted = dynamic_cast<const RedactedThinkingContent *>(block)) {
-        QJsonObject obj{{"type", "redacted_thinking"}};
-        if (!redacted->signature().isEmpty()) {
-            obj["signature"] = redacted->signature();
-        }
-        return obj;
-    }
-    return {};
+
+    QJsonArray arr;
+    for (const ToolContent &block : r.content)
+        arr.append(toClaudeInnerBlock(block));
+    return arr;
+}
+
+} // namespace
+
+QJsonValue ClaudeMessage::serializeTurnContent(const TurnContent &block)
+{
+    return std::visit(
+        detail::overloaded{
+            [](const TextContent &c) -> QJsonValue {
+                return QJsonObject{{"type", "text"}, {"text", c.text}};
+            },
+            [](const ImageContent &c) -> QJsonValue {
+                QJsonObject source;
+                if (c.isUrl()) {
+                    source["type"] = "url";
+                    source["url"] = c.url().toString();
+                } else {
+                    source["type"] = "base64";
+                    source["media_type"] = c.mimeType.isEmpty() ? QStringLiteral("image/png")
+                                                                : c.mimeType;
+                    source["data"] = c.base64();
+                }
+                return QJsonObject{{"type", "image"}, {"source", source}};
+            },
+            [](const AudioContent &c) -> QJsonValue {
+                return QJsonObject{
+                    {"type", "text"},
+                    {"text",
+                     QString("[audio: %1]")
+                         .arg(c.mimeType.isEmpty() ? QStringLiteral("unknown") : c.mimeType)}};
+            },
+            [](const ToolUseContent &c) -> QJsonValue {
+                return QJsonObject{
+                    {"type", "tool_use"}, {"id", c.id}, {"name", c.name}, {"input", c.input}};
+            },
+            [](const ToolResultContent &c) -> QJsonValue {
+                QJsonObject block = {
+                    {"type", "tool_result"},
+                    {"tool_use_id", c.toolUseId},
+                    {"content", buildClaudeToolResultContent(toToolResult(c))}};
+                if (c.isError)
+                    block.insert("is_error", true);
+                return block;
+            },
+            [](const ThinkingContent &c) -> QJsonValue {
+                QJsonObject obj = {{"type", "thinking"}, {"thinking", c.thinking}};
+                if (!c.signature.isEmpty())
+                    obj["signature"] = c.signature;
+                return obj;
+            },
+            [](const RedactedThinkingContent &c) -> QJsonValue {
+                QJsonObject obj = {{"type", "redacted_thinking"}};
+                if (!c.signature.isEmpty())
+                    obj["signature"] = c.signature;
+                return obj;
+            }},
+        block);
 }
 
 QJsonObject ClaudeMessage::toProviderFormat() const
@@ -209,8 +267,8 @@ QJsonObject ClaudeMessage::toProviderFormat() const
 
     QJsonArray content;
 
-    for (const auto *block : m_currentBlocks) {
-        content.append(serializeBlockClaude(block));
+    for (const TurnContent &block : m_currentBlocks) {
+        content.append(serializeTurnContent(block));
     }
 
     message["content"] = content;
@@ -221,56 +279,6 @@ QJsonObject ClaudeMessage::toProviderFormat() const
     return message;
 }
 
-namespace {
-
-QJsonObject toClaudeInnerBlock(const ToolContent &block)
-{
-    switch (block.type) {
-    case ToolContent::Text:
-        return QJsonObject{{"type", "text"}, {"text", block.text}};
-    case ToolContent::Image: {
-        const QString mime = block.mimeType.isEmpty() ? QStringLiteral("image/png")
-                                                      : block.mimeType;
-        return QJsonObject{
-            {"type", "image"},
-            {"source",
-             QJsonObject{
-                 {"type", "base64"},
-                 {"media_type", mime},
-                 {"data", QString::fromUtf8(block.data.toBase64())}}}};
-    }
-    case ToolContent::Audio:
-        return QJsonObject{
-            {"type", "text"},
-            {"text",
-             QString("[audio: %1]")
-                 .arg(block.mimeType.isEmpty() ? QStringLiteral("unknown") : block.mimeType)}};
-    case ToolContent::Resource:
-        if (!block.resourceText.isEmpty())
-            return QJsonObject{{"type", "text"}, {"text", block.resourceText}};
-        return QJsonObject{
-            {"type", "text"}, {"text", QString("[resource: %1]").arg(block.uri)}};
-    case ToolContent::ResourceLink:
-        return QJsonObject{
-            {"type", "text"}, {"text", QString("[resource link: %1]").arg(block.uri)}};
-    }
-    return QJsonObject{{"type", "text"}, {"text", QString()}};
-}
-
-QJsonValue buildClaudeToolResultContent(const ToolResult &r)
-{
-    if (r.content.isEmpty())
-        return QString();
-    if (r.content.size() == 1 && r.content.first().type == ToolContent::Text)
-        return r.content.first().text;
-
-    QJsonArray arr;
-    for (const ToolContent &block : r.content)
-        arr.append(toClaudeInnerBlock(block));
-    return arr;
-}
-
-} // namespace
 
 QJsonArray ClaudeMessage::createToolResultsContent(
     const QHash<QString, ToolResult> &toolResults) const
@@ -279,7 +287,7 @@ QJsonArray ClaudeMessage::createToolResultsContent(
         toolResults, [](const ToolUseContent &use, const ToolResult &r, QJsonArray &out) {
             QJsonObject block{
                 {"type", "tool_result"},
-                {"tool_use_id", use.id()},
+                {"tool_use_id", use.id},
                 {"content", buildClaudeToolResultContent(r)},
             };
             if (r.isError)
@@ -288,13 +296,12 @@ QJsonArray ClaudeMessage::createToolResultsContent(
         });
 }
 
-QList<RedactedThinkingContent *> ClaudeMessage::getCurrentRedactedThinkingContent() const
+QList<RedactedThinkingContent> ClaudeMessage::currentRedactedThinkingContent() const
 {
-    QList<RedactedThinkingContent *> redactedBlocks;
-    for (auto *block : m_currentBlocks) {
-        if (auto *redactedContent = dynamic_cast<RedactedThinkingContent *>(block)) {
-            redactedBlocks.append(redactedContent);
-        }
+    QList<RedactedThinkingContent> redactedBlocks;
+    for (const TurnContent &block : m_currentBlocks) {
+        if (const auto *redactedContent = std::get_if<RedactedThinkingContent>(&block))
+            redactedBlocks.append(*redactedContent);
     }
     return redactedBlocks;
 }
@@ -310,7 +317,7 @@ void ClaudeMessage::startNewContinuation()
 
 void ClaudeMessage::updateStateFromStopReason()
 {
-    if (m_stopReason == "tool_use" && !getCurrentToolUseContent().empty()) {
+    if (m_stopReason == "tool_use" && !currentToolUseContent().empty()) {
         m_state = MessageState::RequiresToolExecution;
     } else if (m_stopReason == "end_turn") {
         m_state = MessageState::Final;

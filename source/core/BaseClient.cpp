@@ -3,12 +3,18 @@
 
 #include <LLMQore/BaseClient.hpp>
 
+#include <algorithm>
+
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QPointer>
 #include <QThread>
 #include <QUrlQuery>
+#include <QPromise>
 #include <QUuid>
+
+#include <stdexcept>
+#include <utility>
 
 #include "Usage.hpp"
 #include <LLMQore/FutureUtils.hpp>
@@ -17,6 +23,8 @@
 #include <LLMQore/HttpTransportError.hpp>
 #include <LLMQore/Log.hpp>
 #include <LLMQore/ToolsManager.hpp>
+
+#include "core/ThreadAffinity.hpp"
 
 namespace LLMQore {
 
@@ -53,6 +61,10 @@ struct ActiveRequest
     std::optional<TokenUsage> usage = {};
     std::optional<TokenUsage> turnUsage = {};
     int toolRounds = 0;
+    Conversation conversation = {};
+    bool tracksConversation = false;
+    QList<TurnContent> finalBlocks = {};
+    int roundTextOffset = 0;
 
     QPointer<BaseMessage> message;
 };
@@ -62,12 +74,16 @@ struct ActiveRequest
 struct BaseClient::Impl
 {
     HttpTransport *transport = nullptr;
+    QHash<RequestID, std::shared_ptr<QPromise<CompletionInfo>>> oneShots;
+    std::shared_ptr<QPromise<CompletionInfo>> pendingOneShot;
     AuthScheme authScheme;
     QHash<QString, QString> headers;
     ToolsManager *toolsManager = nullptr;
     int maxToolRounds = BaseClient::kDefaultMaxToolRounds;
     const QLoggingCategory *logCategory = &llmQoreLog();
     QHash<RequestID, ActiveRequest> requests;
+    QList<ModelInfo> modelCache;
+    QHash<QString, int> modelIndex;
 };
 
 namespace {
@@ -108,6 +124,15 @@ BaseClient::~BaseClient()
         delete it->stream;
     }
     m_impl->requests.clear();
+
+    const auto abandoned = std::exchange(m_impl->oneShots, {});
+    for (const auto &promise : abandoned) {
+        if (!promise)
+            continue;
+        promise->setException(std::make_exception_ptr(
+            std::runtime_error("client destroyed before the request finished")));
+        promise->finish();
+    }
 }
 
 QString BaseClient::url() const
@@ -121,7 +146,10 @@ void BaseClient::setUrl(const QString &url)
 {
     Q_ASSERT_X(thread() == QThread::currentThread(), Q_FUNC_INFO,
                "BaseClient::setUrl called from non-owning thread");
+    if (m_url == url)
+        return;
     m_url = url;
+    clearModelCache();
 }
 
 QString BaseClient::apiKey() const
@@ -135,7 +163,10 @@ void BaseClient::setApiKey(const QString &apiKey)
 {
     Q_ASSERT_X(thread() == QThread::currentThread(), Q_FUNC_INFO,
                "BaseClient::setApiKey called from non-owning thread");
+    if (m_apiKey == apiKey)
+        return;
     m_apiKey = apiKey;
+    clearModelCache();
 }
 
 QString BaseClient::model() const
@@ -224,16 +255,19 @@ HttpTransport *BaseClient::transport() const
 
 int BaseClient::transferTimeoutMs() const
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     return m_impl->transport->transferTimeoutMs();
 }
 
 void BaseClient::setTransferTimeout(int milliseconds)
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     m_impl->transport->setTransferTimeout(milliseconds);
 }
 
 ToolsManager *BaseClient::tools()
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     if (!m_impl->toolsManager) {
         m_impl->toolsManager = new ToolsManager(toolDialect(), this);
 
@@ -259,11 +293,13 @@ bool BaseClient::hasTools() const noexcept
 
 int BaseClient::maxToolContinuations() const
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     return m_impl->maxToolRounds;
 }
 
 void BaseClient::setMaxToolContinuations(int limit)
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     m_impl->maxToolRounds = limit > 0 ? limit : 1;
 }
 
@@ -301,11 +337,18 @@ void BaseClient::handleToolsCompleted(
 RequestID BaseClient::createRequest()
 {
     RequestID id = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    const auto registerRequest = [this, id]() { m_impl->requests[id] = ActiveRequest{}; };
+
+    auto oneShot = std::exchange(m_impl->pendingOneShot, {});
+
+    auto registerRequest = [this, id, oneShot = std::move(oneShot)]() mutable {
+        m_impl->requests[id] = ActiveRequest{};
+        if (oneShot)
+            m_impl->oneShots.insert(id, std::move(oneShot));
+    };
     if (thread() == QThread::currentThread())
         registerRequest();
     else
-        QMetaObject::invokeMethod(this, registerRequest, Qt::QueuedConnection);
+        QMetaObject::invokeMethod(this, std::move(registerRequest), Qt::QueuedConnection);
     return id;
 }
 
@@ -369,44 +412,98 @@ QUrl BaseClient::endpointUrl(const QString &endpoint, const QString &defaultPath
     return QUrl(m_url + (endpoint.isEmpty() ? defaultPath : endpoint));
 }
 
-QFuture<QList<QString>> BaseClient::fetchModelList(
+QFuture<QList<ModelInfo>> BaseClient::fetchModelList(
     const QUrl &url,
     const QString &arrayKey,
     const QString &idKey,
-    const std::function<QString(QString)> &idMapper)
+    const std::function<QString(QString)> &idMapper,
+    const ModelInfoEnricher &enrich)
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     const QNetworkRequest request = prepareNetworkRequest(url);
     const QLoggingCategory *cat = &logCategory();
 
     return LLMQore::compat(transport()->send(request, QByteArrayView("GET")))
-        .then(this, [cat, arrayKey, idKey, idMapper](const HttpResponse &response) {
+        .then(this, [this, cat, arrayKey, idKey, idMapper, enrich](const HttpResponse &response) {
             const QLoggingCategory &log = *cat;
 
-            QList<QString> models;
+            QList<ModelInfo> models;
             if (!response.isSuccess()) {
                 qCDebug(log).noquote()
                     << QString("Error fetching models: HTTP %1").arg(response.statusCode);
                 return models;
             }
 
-            const QJsonObject json = QJsonDocument::fromJson(response.body).object();
-            const QJsonArray entries = json.value(arrayKey).toArray();
+            QJsonParseError parseError;
+            const QJsonDocument doc = QJsonDocument::fromJson(response.body, &parseError);
+            if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+                qCDebug(log).noquote()
+                    << QString("Error fetching models: malformed response (%1)")
+                           .arg(parseError.errorString());
+                return models;
+            }
+
+            const QJsonObject json = doc.object();
+            const QJsonValue arrayValue = json.value(arrayKey);
+            if (!arrayValue.isArray()) {
+                qCDebug(log).noquote()
+                    << QString("Error fetching models: response has no '%1' array").arg(arrayKey);
+                return models;
+            }
+
+            const QJsonArray entries = arrayValue.toArray();
             for (const QJsonValue &value : entries) {
-                QString id = value.toObject().value(idKey).toString();
+                const QJsonObject entry = value.toObject();
+
+                QString id = entry.value(idKey).toString();
                 if (id.isEmpty())
                     continue;
                 if (idMapper)
                     id = idMapper(std::move(id));
-                if (!id.isEmpty())
-                    models.append(id);
+                if (id.isEmpty())
+                    continue;
+
+                ModelInfo info;
+                info.id = id;
+                if (enrich)
+                    enrich(entry, info);
+                models.append(info);
             }
+
+            m_impl->modelCache = models;
+            m_impl->modelIndex.clear();
+            m_impl->modelIndex.reserve(models.size());
+            for (int i = 0; i < models.size(); ++i)
+                m_impl->modelIndex.insert(models.at(i).id, i);
+
             return models;
         })
         .onFailed(this, [cat](const std::exception &e) {
             const QLoggingCategory &log = *cat;
             qCDebug(log).noquote() << QString("Error fetching models: %1").arg(e.what());
-            return QList<QString>{};
+            return QList<ModelInfo>{};
         });
+}
+
+std::optional<ModelInfo> BaseClient::cachedModel(const QString &id) const
+{
+    LLMQORE_ASSERT_OWNING_THREAD();
+    const auto it = m_impl->modelIndex.constFind(id);
+    if (it == m_impl->modelIndex.constEnd())
+        return std::nullopt;
+    return m_impl->modelCache.at(*it);
+}
+
+const QList<ModelInfo> &BaseClient::cachedModels() const noexcept
+{
+    return m_impl->modelCache;
+}
+
+void BaseClient::clearModelCache()
+{
+    LLMQORE_ASSERT_OWNING_THREAD();
+    m_impl->modelCache.clear();
+    m_impl->modelIndex.clear();
 }
 
 QString BaseClient::parseErrorObject(
@@ -637,6 +734,76 @@ void BaseClient::addChunk(const RequestID &id, const QString &chunk)
     emit accumulatedReceived(id, accumulated);
 }
 
+RequestID BaseClient::ask(
+    const Conversation &conversation, const QJsonObject &extra, RequestMode mode)
+{
+    Q_ASSERT_X(thread() == QThread::currentThread(), Q_FUNC_INFO,
+               "BaseClient::ask called from non-owning thread");
+
+    QJsonObject payload = buildConversationPayload(conversation);
+    for (auto it = extra.constBegin(); it != extra.constEnd(); ++it)
+        payload.insert(it.key(), it.value());
+
+    const RequestID id = sendMessage(payload, {}, mode);
+
+    auto request = m_impl->requests.find(id);
+    if (request != m_impl->requests.end()) {
+        request->conversation = conversation;
+        request->tracksConversation = true;
+    }
+
+    return id;
+}
+
+QFuture<CompletionInfo> BaseClient::trackOneShot(const std::function<RequestID()> &dispatch)
+{
+    LLMQORE_ASSERT_OWNING_THREAD();
+    auto promise = std::make_shared<QPromise<CompletionInfo>>();
+    promise->start();
+
+    m_impl->pendingOneShot = promise;
+    dispatch();
+    const bool tracked = !m_impl->pendingOneShot;
+    m_impl->pendingOneShot.reset();
+
+    if (!tracked) {
+        promise->setException(std::make_exception_ptr(
+            std::runtime_error("request finished before it could be tracked")));
+        promise->finish();
+    }
+
+    return promise->future();
+}
+
+void BaseClient::resolveOneShot(const RequestID &id, const CompletionInfo &info)
+{
+    if (auto promise = m_impl->oneShots.take(id)) {
+        promise->addResult(info);
+        promise->finish();
+    }
+}
+
+void BaseClient::rejectOneShot(const RequestID &id, const QString &error)
+{
+    if (auto promise = m_impl->oneShots.take(id)) {
+        promise->setException(
+            std::make_exception_ptr(std::runtime_error(error.toStdString())));
+        promise->finish();
+    }
+}
+
+QFuture<CompletionInfo> BaseClient::askOnce(const QString &prompt, RequestMode mode)
+{
+    return trackOneShot([this, &prompt, mode]() { return ask(prompt, mode); });
+}
+
+QFuture<CompletionInfo> BaseClient::askOnce(
+    const Conversation &conversation, const QJsonObject &extra, RequestMode mode)
+{
+    return trackOneShot(
+        [this, &conversation, &extra, mode]() { return ask(conversation, extra, mode); });
+}
+
 void BaseClient::completeRequest(const RequestID &id)
 {
     Q_ASSERT_X(thread() == QThread::currentThread(), Q_FUNC_INFO,
@@ -652,6 +819,21 @@ void BaseClient::completeRequest(const RequestID &id)
     std::optional<TokenUsage> usage = it->usage;
     QJsonObject requestPayload = it->finalPayload.isEmpty() ? it->originalPayload
                                                            : it->finalPayload;
+
+    Conversation conversation;
+    if (it->tracksConversation) {
+        conversation = it->conversation;
+        if (!it->finalBlocks.isEmpty()) {
+            conversation.addAssistant(it->finalBlocks);
+        } else {
+            const int offset
+                = std::clamp(it->roundTextOffset, 0, int(fullText.size()));
+            const QString roundText = fullText.mid(offset);
+            if (!roundText.isEmpty())
+                conversation.addAssistant(roundText);
+        }
+    }
+
     cleanupRequest(id);
 
     CompletionInfo info;
@@ -660,8 +842,10 @@ void BaseClient::completeRequest(const RequestID &id)
     info.stopReason = stopReason;
     info.usage = usage;
     info.requestPayload = requestPayload;
+    info.conversation = conversation;
     emit requestFinalized(id, info);
     emit requestCompleted(id, fullText);
+    resolveOneShot(id, info);
 }
 
 void BaseClient::setUsage(const RequestID &id, const TokenUsage &usage)
@@ -725,6 +909,7 @@ void BaseClient::failRequest(const RequestID &id, const QString &error)
 
     cleanupRequest(id);
     emit requestFailed(id, error);
+    rejectOneShot(id, error);
 }
 
 void BaseClient::cancelRequest(const RequestID &requestId)
@@ -764,15 +949,14 @@ void BaseClient::executeToolsFromMessage(const RequestID &id)
     if (msg->state() != MessageState::RequiresToolExecution)
         return;
 
-    const auto toolUseContent = msg->getCurrentToolUseContent();
+    const auto toolUseContent = msg->currentToolUseContent();
     if (toolUseContent.isEmpty())
         return;
 
     QList<ToolRound::Call> calls;
     calls.reserve(toolUseContent.size());
-    for (const auto *toolContent : toolUseContent)
-        calls.append(
-            ToolRound::Call{toolContent->id(), toolContent->name(), toolContent->input()});
+    for (const auto &toolContent : toolUseContent)
+        calls.append(ToolRound::Call{toolContent.id, toolContent.name, toolContent.input});
 
     tools()->beginRound(id, calls);
 }
@@ -784,6 +968,21 @@ QJsonObject BaseClient::buildReplayContinuation(
     auto it = m_impl->requests.find(id);
     if (!message || it == m_impl->requests.end())
         return {};
+
+    if (it->tracksConversation) {
+        const QList<TurnContent> &blocks = message->currentBlocks();
+        if (!blocks.isEmpty())
+            it->conversation.addAssistant(blocks);
+
+        QList<ToolResultContent> results;
+        for (const ToolUseContent &use : message->currentToolUseContent()) {
+            const auto result = toolResults.constFind(use.id);
+            if (result == toolResults.constEnd())
+                continue;
+            results.append(makeToolResultContent(use.id, use.name, *result));
+        }
+        it->conversation.addToolResults(results);
+    }
 
     return buildContinuationPayload(it->originalPayload, message, toolResults);
 }
@@ -802,6 +1001,8 @@ void BaseClient::continueRequest(const RequestID &id, const QJsonObject &payload
     }
 
     finalizeTurn(id);
+    it->roundTextOffset = int(it->buffers.responseContent.size());
+    it->finalBlocks.clear();
     sendRequest(id, it->url, payload, it->mode);
 }
 
@@ -811,8 +1012,10 @@ void BaseClient::cleanupFullRequest(const RequestID &id)
 
     auto it = m_impl->requests.find(id);
     if (it != m_impl->requests.end()) {
-        if (it->message)
+        if (it->message) {
+            it->finalBlocks = it->message->currentBlocks();
             it->message->deleteLater();
+        }
         it->message = nullptr;
         it->url.clear();
         it->finalPayload = it->originalPayload;
@@ -846,23 +1049,11 @@ void BaseClient::notifyPendingThinkingBlocks(const RequestID &id)
     if (!message || !hasRequest(id))
         return;
 
-    // Walks the blocks in wire order and announces each one once. Both thinking
-    // shapes go out the same way, and the "already announced" mark lives on the
-    // block, so a request that is torn down mid-loop cannot re-announce.
-    for (ContentBlock *block : message->getCurrentBlocks()) {
-        if (auto *thinking = dynamic_cast<ThinkingContent *>(block)) {
-            if (thinking->isNotified() || thinking->thinking().trimmed().isEmpty())
-                continue;
-            thinking->markNotified();
-            emit thinkingBlockReceived(id, thinking->thinking(), thinking->signature());
-        } else if (auto *redacted = dynamic_cast<RedactedThinkingContent *>(block)) {
-            if (redacted->isNotified())
-                continue;
-            redacted->markNotified();
-            emit thinkingBlockReceived(id, QString(), redacted->signature());
-        } else {
-            continue;
-        }
+    const QList<PendingThinkingNotification> pending
+        = message->takePendingThinkingNotifications();
+
+    for (const PendingThinkingNotification &notification : pending) {
+        emit thinkingBlockReceived(id, notification.thinking, notification.signature);
 
         if (!hasRequest(id))
             return;

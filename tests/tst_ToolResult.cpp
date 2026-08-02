@@ -18,8 +18,8 @@ TEST(ToolResultTest, TextFactoryProducesSingleTextBlock)
     const ToolResult r = ToolResult::text("hello world");
     EXPECT_FALSE(r.isError);
     ASSERT_EQ(r.content.size(), 1);
-    EXPECT_EQ(r.content.first().type, ToolContent::Text);
-    EXPECT_EQ(r.content.first().text, "hello world");
+    EXPECT_TRUE(std::holds_alternative<TextContent>(r.content.first()));
+    EXPECT_EQ(std::get<TextContent>(r.content.first()).text, "hello world");
     EXPECT_EQ(r.asText(), "hello world");
 }
 
@@ -28,8 +28,8 @@ TEST(ToolResultTest, ErrorFactorySetsIsErrorAndText)
     const ToolResult r = ToolResult::error("oops");
     EXPECT_TRUE(r.isError);
     ASSERT_EQ(r.content.size(), 1);
-    EXPECT_EQ(r.content.first().type, ToolContent::Text);
-    EXPECT_EQ(r.content.first().text, "oops");
+    EXPECT_TRUE(std::holds_alternative<TextContent>(r.content.first()));
+    EXPECT_EQ(std::get<TextContent>(r.content.first()).text, "oops");
 }
 
 TEST(ToolResultTest, EmptyFactoryHasNoContent)
@@ -46,17 +46,17 @@ TEST(ToolResultTest, EmptyFactoryHasNoContent)
 TEST(ToolResultTest, AsTextJoinsMultipleTextBlocks)
 {
     ToolResult r;
-    r.content.append(ToolContent::makeText("Hello"));
-    r.content.append(ToolContent::makeText("World"));
+    r.content.append(TextContent{"Hello"});
+    r.content.append(TextContent{"World"});
     EXPECT_EQ(r.asText(), "Hello\nWorld");
 }
 
 TEST(ToolResultTest, AsTextSubstitutesImageBlock)
 {
     ToolResult r;
-    r.content.append(ToolContent::makeText("Before"));
-    r.content.append(ToolContent::makeImage(QByteArray("\x01\x02", 2), "image/png"));
-    r.content.append(ToolContent::makeText("After"));
+    r.content.append(TextContent{"Before"});
+    r.content.append(ImageContent::fromBytes(QByteArray("\x01\x02", 2), "image/png"));
+    r.content.append(TextContent{"After"});
     const QString text = r.asText();
     EXPECT_TRUE(text.contains("Before"));
     EXPECT_TRUE(text.contains("After"));
@@ -66,14 +66,14 @@ TEST(ToolResultTest, AsTextSubstitutesImageBlock)
 TEST(ToolResultTest, AsTextSubstitutesAudioBlock)
 {
     ToolResult r;
-    r.content.append(ToolContent::makeAudio(QByteArray("AUDIO", 5), "audio/wav"));
+    r.content.append(AudioContent{QByteArray("AUDIO", 5), "audio/wav"});
     EXPECT_EQ(r.asText(), "[audio: audio/wav]");
 }
 
 TEST(ToolResultTest, AsTextInlinesEmbeddedResourceText)
 {
     ToolResult r;
-    r.content.append(ToolContent::makeResourceText(
+    r.content.append(ResourceContent::fromText(
         "mem://note", "line1\nline2", "text/plain"));
     EXPECT_EQ(r.asText(), "line1\nline2");
 }
@@ -82,7 +82,7 @@ TEST(ToolResultTest, AsTextSubstitutesEmbeddedResourceBlob)
 {
     ToolResult r;
     r.content.append(
-        ToolContent::makeResourceBlob("mem://blob", QByteArray("\x00\x01", 2)));
+        ResourceContent::fromBlob("mem://blob", QByteArray("\x00\x01", 2)));
     EXPECT_EQ(r.asText(), "[resource: mem://blob]");
 }
 
@@ -90,7 +90,7 @@ TEST(ToolResultTest, AsTextSubstitutesResourceLink)
 {
     ToolResult r;
     r.content.append(
-        ToolContent::makeResourceLink("https://example.com/a.txt", "A", "An A"));
+        ResourceLinkContent{"https://example.com/a.txt", "A", "An A"});
     EXPECT_EQ(r.asText(), "[resource link: https://example.com/a.txt]");
 }
 
@@ -98,101 +98,101 @@ TEST(ToolResultTest, AsTextSubstitutesResourceLink)
 
 TEST(ToolResultTest, TextContentRoundTrip)
 {
-    const ToolContent original = ToolContent::makeText("hi");
-    const QJsonObject json = original.toJson();
+    const ToolContent original = TextContent{"hi"};
+    const QJsonObject json = toolContentToJson(original);
     EXPECT_EQ(json.value("type").toString(), "text");
     EXPECT_EQ(json.value("text").toString(), "hi");
 
-    const ToolContent back = ToolContent::fromJson(json);
-    EXPECT_EQ(back.type, ToolContent::Text);
-    EXPECT_EQ(back.text, "hi");
+    const ToolContent back = toolContentFromJson(json);
+    EXPECT_TRUE(std::holds_alternative<TextContent>(back));
+    EXPECT_EQ(std::get<TextContent>(back).text, "hi");
 }
 
 TEST(ToolResultTest, ImageContentRoundTripUsesBase64)
 {
     const QByteArray bytes("\x01\x02\xff", 3);
-    const ToolContent original = ToolContent::makeImage(bytes, "image/png");
-    const QJsonObject json = original.toJson();
+    const ToolContent original = ImageContent::fromBytes(bytes, "image/png");
+    const QJsonObject json = toolContentToJson(original);
     EXPECT_EQ(json.value("type").toString(), "image");
     EXPECT_EQ(json.value("mimeType").toString(), "image/png");
     EXPECT_EQ(
         QByteArray::fromBase64(json.value("data").toString().toUtf8()), bytes);
 
-    const ToolContent back = ToolContent::fromJson(json);
-    EXPECT_EQ(back.type, ToolContent::Image);
-    EXPECT_EQ(back.data, bytes);
-    EXPECT_EQ(back.mimeType, "image/png");
+    const ToolContent back = toolContentFromJson(json);
+    EXPECT_TRUE(std::holds_alternative<ImageContent>(back));
+    EXPECT_EQ(std::get<ImageContent>(back).bytes(), bytes);
+    EXPECT_EQ(std::get<ImageContent>(back).mimeType, "image/png");
 }
 
 TEST(ToolResultTest, AudioContentRoundTrip)
 {
     const QByteArray bytes("audio-bytes", 11);
-    const ToolContent original = ToolContent::makeAudio(bytes, "audio/mpeg");
-    const QJsonObject json = original.toJson();
+    const ToolContent original = AudioContent{bytes, "audio/mpeg"};
+    const QJsonObject json = toolContentToJson(original);
     EXPECT_EQ(json.value("type").toString(), "audio");
 
-    const ToolContent back = ToolContent::fromJson(json);
-    EXPECT_EQ(back.type, ToolContent::Audio);
-    EXPECT_EQ(back.data, bytes);
-    EXPECT_EQ(back.mimeType, "audio/mpeg");
+    const ToolContent back = toolContentFromJson(json);
+    EXPECT_TRUE(std::holds_alternative<AudioContent>(back));
+    EXPECT_EQ(std::get<AudioContent>(back).data, bytes);
+    EXPECT_EQ(std::get<AudioContent>(back).mimeType, "audio/mpeg");
 }
 
 TEST(ToolResultTest, EmbeddedResourceTextRoundTrip)
 {
-    const ToolContent original = ToolContent::makeResourceText(
+    const ToolContent original = ResourceContent::fromText(
         "mem://readme", "contents", "text/markdown");
-    const QJsonObject json = original.toJson();
+    const QJsonObject json = toolContentToJson(original);
     EXPECT_EQ(json.value("type").toString(), "resource");
     const QJsonObject inner = json.value("resource").toObject();
     EXPECT_EQ(inner.value("uri").toString(), "mem://readme");
     EXPECT_EQ(inner.value("text").toString(), "contents");
     EXPECT_EQ(inner.value("mimeType").toString(), "text/markdown");
 
-    const ToolContent back = ToolContent::fromJson(json);
-    EXPECT_EQ(back.type, ToolContent::Resource);
-    EXPECT_EQ(back.uri, "mem://readme");
-    EXPECT_EQ(back.resourceText, "contents");
-    EXPECT_EQ(back.mimeType, "text/markdown");
+    const ToolContent back = toolContentFromJson(json);
+    EXPECT_TRUE(std::holds_alternative<ResourceContent>(back));
+    EXPECT_EQ(std::get<ResourceContent>(back).uri, "mem://readme");
+    EXPECT_EQ(std::get<ResourceContent>(back).text(), "contents");
+    EXPECT_EQ(std::get<ResourceContent>(back).mimeType, "text/markdown");
 }
 
 TEST(ToolResultTest, EmbeddedResourceBlobRoundTrip)
 {
     const QByteArray bytes("\xFF\xD8\xFF", 3); // JPEG magic
-    const ToolContent original = ToolContent::makeResourceBlob(
+    const ToolContent original = ResourceContent::fromBlob(
         "mem://thumb", bytes, "image/jpeg");
-    const QJsonObject json = original.toJson();
+    const QJsonObject json = toolContentToJson(original);
     const QJsonObject inner = json.value("resource").toObject();
     EXPECT_TRUE(inner.contains("blob"));
     EXPECT_FALSE(inner.contains("text"));
 
-    const ToolContent back = ToolContent::fromJson(json);
-    EXPECT_EQ(back.type, ToolContent::Resource);
-    EXPECT_EQ(back.resourceBlob, bytes);
+    const ToolContent back = toolContentFromJson(json);
+    EXPECT_TRUE(std::holds_alternative<ResourceContent>(back));
+    EXPECT_EQ(std::get<ResourceContent>(back).blob(), bytes);
 }
 
 TEST(ToolResultTest, ResourceLinkRoundTrip)
 {
-    const ToolContent original = ToolContent::makeResourceLink(
-        "file:///tmp/log.txt", "Log", "Build log", "text/plain");
-    const QJsonObject json = original.toJson();
+    const ToolContent original = ResourceLinkContent{
+        "file:///tmp/log.txt", "Log", "Build log", "text/plain"};
+    const QJsonObject json = toolContentToJson(original);
     EXPECT_EQ(json.value("type").toString(), "resource_link");
     EXPECT_EQ(json.value("uri").toString(), "file:///tmp/log.txt");
     EXPECT_EQ(json.value("name").toString(), "Log");
 
-    const ToolContent back = ToolContent::fromJson(json);
-    EXPECT_EQ(back.type, ToolContent::ResourceLink);
-    EXPECT_EQ(back.uri, "file:///tmp/log.txt");
-    EXPECT_EQ(back.name, "Log");
-    EXPECT_EQ(back.description, "Build log");
-    EXPECT_EQ(back.mimeType, "text/plain");
+    const ToolContent back = toolContentFromJson(json);
+    EXPECT_TRUE(std::holds_alternative<ResourceLinkContent>(back));
+    EXPECT_EQ(std::get<ResourceLinkContent>(back).uri, "file:///tmp/log.txt");
+    EXPECT_EQ(std::get<ResourceLinkContent>(back).name, "Log");
+    EXPECT_EQ(std::get<ResourceLinkContent>(back).description, "Build log");
+    EXPECT_EQ(std::get<ResourceLinkContent>(back).mimeType, "text/plain");
 }
 
 TEST(ToolResultTest, UnknownContentTypeFallsBackToTextPlaceholder)
 {
     const QJsonObject obj{{"type", "weird-future-type"}};
-    const ToolContent back = ToolContent::fromJson(obj);
-    EXPECT_EQ(back.type, ToolContent::Text);
-    EXPECT_TRUE(back.text.contains("weird-future-type"));
+    const ToolContent back = toolContentFromJson(obj);
+    EXPECT_TRUE(std::holds_alternative<TextContent>(back));
+    EXPECT_TRUE(std::get<TextContent>(back).text.contains("weird-future-type"));
 }
 
 // ---------- full ToolResult envelope round trip ----------
@@ -200,9 +200,9 @@ TEST(ToolResultTest, UnknownContentTypeFallsBackToTextPlaceholder)
 TEST(ToolResultTest, FullEnvelopeRoundTripPreservesEverything)
 {
     ToolResult original;
-    original.content.append(ToolContent::makeText("summary"));
+    original.content.append(TextContent{"summary"});
     original.content.append(
-        ToolContent::makeImage(QByteArray("png", 3), "image/png"));
+        ImageContent::fromBytes(QByteArray("png", 3), "image/png"));
     original.isError = false;
     original.structuredContent
         = QJsonObject{{"status", "ok"}, {"items", 3}};
@@ -215,9 +215,9 @@ TEST(ToolResultTest, FullEnvelopeRoundTripPreservesEverything)
 
     const ToolResult back = ToolResult::fromJson(json);
     ASSERT_EQ(back.content.size(), 2);
-    EXPECT_EQ(back.content.at(0).type, ToolContent::Text);
-    EXPECT_EQ(back.content.at(0).text, "summary");
-    EXPECT_EQ(back.content.at(1).type, ToolContent::Image);
+    EXPECT_TRUE(std::holds_alternative<TextContent>(back.content.at(0)));
+    EXPECT_EQ(std::get<TextContent>(back.content.at(0)).text, "summary");
+    EXPECT_TRUE(std::holds_alternative<ImageContent>(back.content.at(1)));
     EXPECT_EQ(back.structuredContent.value("items").toInt(), 3);
     EXPECT_FALSE(back.isError);
 }

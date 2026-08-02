@@ -84,14 +84,14 @@ OpenAIMessage::OpenAIMessage(QObject *parent)
 
 void OpenAIMessage::handleContentDelta(const QString &content)
 {
-    auto textContent = getOrCreateTextContent();
-    textContent->appendText(content);
+    appendTextDelta(content);
 }
 
 void OpenAIMessage::handleReasoningDelta(const QString &reasoning)
 {
-    auto *thinkingContent = getOrCreateThinkingContent();
-    thinkingContent->appendThinking(reasoning);
+    const int index = getOrCreateThinkingContentIndex();
+    if (auto *thinkingContent = blockAt<ThinkingContent>(index))
+        thinkingContent->thinking += reasoning;
 }
 
 void OpenAIMessage::handleToolCallStart(int index, const QString &id, const QString &name)
@@ -99,8 +99,7 @@ void OpenAIMessage::handleToolCallStart(int index, const QString &id, const QStr
     qCDebug(llmOpenAILog).noquote()
         << QString("handleToolCallStart index=%1, id=%2, name=%3").arg(index).arg(id, name);
 
-    auto *toolContent = addCurrentContent<ToolUseContent>(id, name);
-    m_toolCallByIndex[index] = toolContent;
+    m_toolCallByIndex[index] = addCurrentContent(ToolUseContent{id, name, {}});
     m_pendingToolArguments[index] = "";
 }
 
@@ -125,8 +124,8 @@ void OpenAIMessage::handleToolCallComplete(int index)
             argsObject = doc.object();
     }
 
-    if (auto *toolContent = m_toolCallByIndex.value(index))
-        toolContent->setInput(argsObject);
+    if (auto *toolContent = blockAt<ToolUseContent>(m_toolCallByIndex.value(index, -1)))
+        toolContent->input = argsObject;
 
     m_toolCallByIndex.remove(index);
 }
@@ -144,41 +143,79 @@ void OpenAIMessage::handleFinishReason(const QString &finishReason)
     updateStateFromFinishReason();
 }
 
-QJsonObject OpenAIMessage::toProviderFormat() const
+QJsonObject OpenAIMessage::serializeTurn(TurnRole role, const QList<TurnContent> &blocks)
 {
-    QJsonObject message;
-    message["role"] = "assistant";
+    const bool isAssistant = role == TurnRole::Assistant;
 
     QString textContent;
+    QString reasoningContent;
+    QJsonArray parts;
     QJsonArray toolCalls;
 
-    for (const auto *block : m_currentBlocks) {
-        if (const auto *text = dynamic_cast<const TextContent *>(block)) {
-            textContent += text->text();
-        } else if (const auto *tool = dynamic_cast<const ToolUseContent *>(block)) {
-            QJsonDocument doc(tool->input());
-            toolCalls.append(
-                QJsonObject{
-                    {"id", tool->id()},
-                    {"type", "function"},
-                    {"function",
-                     QJsonObject{
-                         {"name", tool->name()},
-                         {"arguments", QString::fromUtf8(doc.toJson(QJsonDocument::Compact))}}}});
-        }
+    for (const TurnContent &block : blocks) {
+        std::visit(
+            detail::overloaded{
+                [&](const TextContent &c) {
+                    textContent += c.text;
+                    if (!isAssistant)
+                        parts.append(QJsonObject{{"type", "text"}, {"text", c.text}});
+                },
+                [&](const ImageContent &c) {
+                    if (isAssistant)
+                        return;
+                    const QString url = c.isUrl()
+                        ? c.url().toString()
+                        : QStringLiteral("data:%1;base64,%2")
+                              .arg(
+                                  c.mimeType.isEmpty() ? QStringLiteral("image/png") : c.mimeType,
+                                  c.base64());
+                    parts.append(
+                        QJsonObject{
+                            {"type", "image_url"}, {"image_url", QJsonObject{{"url", url}}}});
+                },
+                [&](const AudioContent &) {},
+                [&](const ToolUseContent &c) {
+                    const QJsonDocument doc(c.input);
+                    toolCalls.append(
+                        QJsonObject{
+                            {"id", c.id},
+                            {"type", "function"},
+                            {"function",
+                             QJsonObject{
+                                 {"name", c.name},
+                                 {"arguments",
+                                  QString::fromUtf8(doc.toJson(QJsonDocument::Compact))}}}});
+                },
+                [&](const ToolResultContent &) {},
+                [&](const ThinkingContent &c) { reasoningContent += c.thinking; },
+                [&](const RedactedThinkingContent &) {}},
+            block);
     }
 
-    if (!textContent.isEmpty()) {
+    QJsonObject message;
+    message["role"] = isAssistant ? QStringLiteral("assistant") : QStringLiteral("user");
+
+    const bool hasNonText = parts.size() > 1
+        || (parts.size() == 1 && parts.first().toObject().value("type").toString() != "text");
+
+    if (!isAssistant && hasNonText)
+        message["content"] = parts;
+    else if (!textContent.isEmpty())
         message["content"] = textContent;
-    } else {
+    else if (isAssistant)
         message["content"] = QJsonValue();
-    }
 
-    if (!toolCalls.isEmpty()) {
+    if (!reasoningContent.isEmpty())
+        message["reasoning_content"] = reasoningContent;
+    if (!toolCalls.isEmpty())
         message["tool_calls"] = toolCalls;
-    }
 
     return message;
+}
+
+QJsonObject OpenAIMessage::toProviderFormat() const
+{
+    return serializeTurn(TurnRole::Assistant, m_currentBlocks);
 }
 
 QJsonArray OpenAIMessage::createToolResultMessages(
@@ -189,7 +226,7 @@ QJsonArray OpenAIMessage::createToolResultMessages(
             out.append(
                 QJsonObject{
                     {"role", "tool"},
-                    {"tool_call_id", use.id()},
+                    {"tool_call_id", use.id},
                     {"content", toolResultText(r)}});
         });
 }
@@ -203,28 +240,28 @@ void OpenAIMessage::startNewContinuation()
     BaseMessage::startNewContinuation();
     m_pendingToolArguments.clear();
     m_finishReason.clear();
-    m_currentThinkingContent = nullptr;
+    m_currentThinkingIndex = -1;
 }
 
-ThinkingContent *OpenAIMessage::getOrCreateThinkingContent()
+int OpenAIMessage::getOrCreateThinkingContentIndex()
 {
-    if (m_currentThinkingContent)
-        return m_currentThinkingContent;
+    if (m_currentThinkingIndex >= 0)
+        return m_currentThinkingIndex;
 
-    for (auto *block : m_currentBlocks) {
-        if (auto *thinkingContent = dynamic_cast<ThinkingContent *>(block)) {
-            m_currentThinkingContent = thinkingContent;
-            return m_currentThinkingContent;
+    for (int i = 0; i < m_currentBlocks.size(); ++i) {
+        if (std::holds_alternative<ThinkingContent>(m_currentBlocks[i])) {
+            m_currentThinkingIndex = i;
+            return m_currentThinkingIndex;
         }
     }
 
-    m_currentThinkingContent = addCurrentContent<ThinkingContent>();
-    return m_currentThinkingContent;
+    m_currentThinkingIndex = addCurrentContent(ThinkingContent{});
+    return m_currentThinkingIndex;
 }
 
 void OpenAIMessage::updateStateFromFinishReason()
 {
-    if (m_finishReason == "tool_calls" && !getCurrentToolUseContent().empty()) {
+    if (m_finishReason == "tool_calls" && !currentToolUseContent().empty()) {
         m_state = MessageState::RequiresToolExecution;
     } else if (m_finishReason == "stop") {
         m_state = MessageState::Final;

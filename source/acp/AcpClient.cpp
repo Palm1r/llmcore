@@ -15,6 +15,8 @@
 #include <LLMQore/RpcExceptions.hpp>
 #include <LLMQore/RpcStdioTransport.hpp>
 
+#include "core/ThreadAffinity.hpp"
+
 namespace LLMQore::Acp {
 
 namespace {
@@ -70,16 +72,19 @@ ClientCapabilities AcpClient::clientCapabilities() const
 
 void AcpClient::setPermissionProvider(AcpPermissionProvider *provider)
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     m_permissionProvider = provider;
 }
 
 void AcpClient::setFileSystemProvider(AcpFileSystemProvider *provider)
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     m_fsProvider = provider;
 }
 
 void AcpClient::setTerminalProvider(AcpTerminalProvider *provider)
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     m_terminalProvider = provider;
 }
 
@@ -174,6 +179,7 @@ QFuture<void> AcpClient::setMode(
 
 void AcpClient::shutdown()
 {
+    LLMQORE_ASSERT_OWNING_THREAD();
     m_peer->session()->abortPending(QStringLiteral("AcpClient shutdown"));
     m_peer->close();
 }

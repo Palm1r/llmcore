@@ -26,7 +26,7 @@ public:
         const QString &endpoint = {},
         RequestMode mode = RequestMode::Streaming) override;
 
-    QFuture<QList<QString>> listModels(const QString &endpoint = {}) override;
+    QFuture<QList<ModelInfo>> listModels(const QString &endpoint = {}) override;
 };
 
 } // namespace LLMQore
