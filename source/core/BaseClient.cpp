@@ -64,7 +64,7 @@ struct ActiveRequest
     Conversation conversation = {};
     bool tracksConversation = false;
     QList<TurnContent> finalBlocks = {};
-    qsizetype roundTextOffset = 0;
+    int roundTextOffset = 0;
 
     QPointer<BaseMessage> message;
 };
@@ -83,7 +83,7 @@ struct BaseClient::Impl
     const QLoggingCategory *logCategory = &llmQoreLog();
     QHash<RequestID, ActiveRequest> requests;
     QList<ModelInfo> modelCache;
-    QHash<QString, qsizetype> modelIndex;
+    QHash<QString, int> modelIndex;
 };
 
 namespace {
@@ -473,7 +473,7 @@ QFuture<QList<ModelInfo>> BaseClient::fetchModelList(
             m_impl->modelCache = models;
             m_impl->modelIndex.clear();
             m_impl->modelIndex.reserve(models.size());
-            for (qsizetype i = 0; i < models.size(); ++i)
+            for (int i = 0; i < models.size(); ++i)
                 m_impl->modelIndex.insert(models.at(i).id, i);
 
             return models;
@@ -826,9 +826,9 @@ void BaseClient::completeRequest(const RequestID &id)
         if (!it->finalBlocks.isEmpty()) {
             conversation.addAssistant(it->finalBlocks);
         } else {
-            const qsizetype offset
-                = std::clamp(it->roundTextOffset, qsizetype(0), fullText.size());
-            const QString roundText = fullText.sliced(offset);
+            const int offset
+                = std::clamp(it->roundTextOffset, 0, int(fullText.size()));
+            const QString roundText = fullText.mid(offset);
             if (!roundText.isEmpty())
                 conversation.addAssistant(roundText);
         }
@@ -1001,7 +1001,7 @@ void BaseClient::continueRequest(const RequestID &id, const QJsonObject &payload
     }
 
     finalizeTurn(id);
-    it->roundTextOffset = it->buffers.responseContent.size();
+    it->roundTextOffset = int(it->buffers.responseContent.size());
     it->finalBlocks.clear();
     sendRequest(id, it->url, payload, it->mode);
 }

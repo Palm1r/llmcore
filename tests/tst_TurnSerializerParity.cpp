@@ -50,11 +50,6 @@ Conversation conversationWith(const QList<TurnContent> &user, const QList<TurnCo
 
 } // namespace
 
-// The whole point of these tests is that each provider has exactly ONE
-// turn-to-wire mapping. Both the in-flight continuation path and the
-// Conversation replay path must go through it. Re-inlining the visitor in
-// either place makes one of these fail.
-
 TEST(TurnSerializerParity, OpenAIReplayMatchesSerializeTurn)
 {
     OpenAIClient client("https://fake.local", "k", "gpt-test");
@@ -118,12 +113,10 @@ TEST(TurnSerializerParity, OpenAIResponsesReplayMatchesSerializeTurn)
         TurnRole::Assistant, assistantBlocks(), ReasoningPersistence::Replay);
 
     ASSERT_EQ(input.size(), expected.size());
-    for (qsizetype i = 0; i < expected.size(); ++i)
+    for (int i = 0; i < expected.size(); ++i)
         EXPECT_EQ(input[i].toObject(), expected[i]) << "item " << i;
 }
 
-// The Responses assistant turn must keep the model's own ordering: the narration
-// it emitted before calling a tool has to precede the function_call item.
 TEST(TurnSerializerParity, OpenAIResponsesKeepsTextBeforeToolCall)
 {
     const QList<QJsonObject> items = OpenAIResponsesMessage::serializeTurn(
@@ -137,9 +130,6 @@ TEST(TurnSerializerParity, OpenAIResponsesKeepsTextBeforeToolCall)
     EXPECT_EQ(items[1].value("type").toString(), "function_call");
 }
 
-// An MCP tool may answer with structuredContent and no content blocks at all. The
-// replay path used to render that as an empty string, so the model saw a tool call
-// that returned nothing.
 TEST(TurnSerializerParity, StructuredOnlyToolResultSurvivesReplay)
 {
     ToolResult result;
@@ -186,8 +176,6 @@ TEST(TurnSerializerParity, StructuredOnlyToolResultSurvivesReplay)
         expected);
 }
 
-// An image supplied by URL used to come back from Conversation JSON as a
-// ResourceLinkContent, which the providers then rendered as a text placeholder.
 TEST(TurnSerializerParity, UrlImageInToolResultSurvivesJsonRoundTrip)
 {
     ToolResult result;
@@ -213,8 +201,6 @@ TEST(TurnSerializerParity, UrlImageInToolResultSurvivesJsonRoundTrip)
     EXPECT_EQ(image->mimeType, "image/png");
 }
 
-// A thought signature binds to the functionCall part that follows it. Losing that
-// binding on replay makes Gemini reject the history.
 TEST(TurnSerializerParity, GoogleBindsThoughtSignatureToFunctionCall)
 {
     const QJsonObject turn

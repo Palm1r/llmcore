@@ -24,12 +24,6 @@ struct LLMQORE_EXPORT Turn
     [[nodiscard]] QString text() const;
 };
 
-// An ordered list of turns, not a validating aggregate. The add* methods append
-// blindly: nothing here checks role alternation, nor that a tool result matches a
-// ToolUseContent in the preceding assistant turn. Providers reject a malformed
-// history with a 400, so the caller owns keeping it well-formed — in particular,
-// stage a user turn on a copy and commit it only once the request succeeds, since
-// a cancelled or failed request leaves no assistant reply to pair it with.
 class LLMQORE_EXPORT Conversation
 {
 public:

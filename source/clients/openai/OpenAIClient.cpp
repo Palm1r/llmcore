@@ -195,9 +195,9 @@ void OpenAIClient::processStreamChunk(const RequestID &id, const QJsonObject &ch
             int index = toolCall["index"].toInt();
             QJsonObject function = toolCall["function"].toObject();
 
-            if (toolCall.contains("id"))
-                message->handleToolCallStart(index, toolCall["id"].toString(),
-                                             function["name"].toString());
+            const QString toolCallId = toolCall["id"].toString();
+            if (!toolCallId.isEmpty())
+                message->handleToolCallStart(index, toolCallId, function["name"].toString());
 
             if (function.contains("arguments"))
                 message->handleToolCallDelta(index, function["arguments"].toString());

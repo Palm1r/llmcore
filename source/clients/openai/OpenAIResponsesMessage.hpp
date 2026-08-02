@@ -16,7 +16,6 @@ class OpenAIResponsesMessage : public BaseMessage
 public:
     explicit OpenAIResponsesMessage(QObject *parent = nullptr);
 
-    // How this provider spells tool schemas on the way out.
     static const ToolDialect &toolDialect();
 
     void handleContentDelta(const QString &text);
@@ -31,9 +30,6 @@ public:
 
     QString stopReason() const override { return m_status; }
 
-    // The single turn-to-wire mapping for this provider, shared by the in-flight
-    // continuation path (toItemsFormat) and the Conversation replay path
-    // (OpenAIResponsesClient::buildConversationPayload) so the two cannot drift.
     [[nodiscard]] static QList<QJsonObject> serializeTurn(
         TurnRole role, const QList<TurnContent> &blocks, ReasoningPersistence reasoning);
 

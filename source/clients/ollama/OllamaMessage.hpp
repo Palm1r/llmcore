@@ -16,7 +16,6 @@ class OllamaMessage : public BaseMessage
 public:
     explicit OllamaMessage(QObject *parent = nullptr);
 
-    // How this provider spells tool schemas on the way out.
     static const ToolDialect &toolDialect();
 
     void handleContentDelta(const QString &content);
@@ -27,9 +26,6 @@ public:
 
     QString stopReason() const override { return m_doneReason; }
 
-    // The single turn-to-wire mapping for this provider, shared by the in-flight
-    // continuation path (toProviderFormat) and the Conversation replay path
-    // (OllamaClient::buildConversationPayload) so the two cannot drift.
     [[nodiscard]] static QJsonObject serializeTurn(
         TurnRole role, const QList<TurnContent> &blocks);
 

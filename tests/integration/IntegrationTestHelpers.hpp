@@ -24,12 +24,8 @@
 
 namespace LLMQore::IntegrationTest {
 
-// Timeout for network requests (30 seconds)
 constexpr int kRequestTimeoutMs = 30000;
-// Timeout for tool continuation (60 seconds, includes tool exec + second request)
 constexpr int kToolContinuationTimeoutMs = 60000;
-
-// --- Environment helpers ---
 
 inline void skipIfNoEnv(const char *envVar)
 {
@@ -70,8 +66,6 @@ inline QProcessEnvironment childEnvironment()
     return environment;
 }
 
-// --- A simple test tool that echoes its input ---
-
 class EchoTool : public BaseTool
 {
     Q_OBJECT
@@ -106,12 +100,6 @@ public:
     }
 };
 
-// --- A tool that returns a tiny PNG as a rich tool-result content block ---
-
-// Small, well-formed 10x10 PNG used as the canonical "image from a tool"
-// payload in integration tests. Kept in sync with the existing
-// ClaudeIntegrationTest.ImageMessage_Base64 asset so multi-provider tests
-// agree on what the model should describe.
 inline constexpr const char *kTinyPngBase64
     = "iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAIAAAACUFjqAAAAEklEQVR4nGP4"
       "z8CAB+GTG8HSALfKY52fTcuYAAAAAElFTkSuQmCC";
@@ -149,8 +137,6 @@ public:
         });
     }
 };
-
-// --- A calculator tool for more complex tool use scenarios ---
 
 class CalculatorTool : public BaseTool
 {
@@ -212,8 +198,6 @@ public:
     }
 };
 
-// --- Result collector for async tests with diagnostics ---
-
 struct TestResult
 {
     bool completed = false;
@@ -222,11 +206,10 @@ struct TestResult
     QString fullText;
     QString errorMessage;
     QStringList chunks;
-    QList<QPair<QString, QString>> thinkingBlocks; // {thinking, signature}
-    QList<QPair<QString, QString>> toolCalls;      // {toolName, result}
+    QList<QPair<QString, QString>> thinkingBlocks;
+    QList<QPair<QString, QString>> toolCalls;
     Conversation conversation;
 
-    // Returns a diagnostic summary string for use in EXPECT/ASSERT messages
     std::string diagnostics() const
     {
         QString diag;
@@ -252,15 +235,6 @@ struct TestResult
     }
 };
 
-// --- Helper to wire all BaseClient signals to TestResult with logging ---
-//
-// Call this BEFORE sendMessage() — connections established afterwards may
-// miss synchronous failure signals.
-//
-// `scope` owns the connections: they are severed when it dies. It must not
-// outlive `result`, because every handler writes through that reference. When
-// omitted the loop itself is the scope, which is right only when `result` and
-// `loop` share a stack frame — pass an explicit scope otherwise.
 inline void wireLoggingSignals(
     BaseClient *client, TestResult &result, QEventLoop &loop, QObject *scope = nullptr)
 {
@@ -309,8 +283,6 @@ inline void wireLoggingSignals(
                      });
 }
 
-// --- Helper to run event loop with timeout and mark result ---
-
 inline void waitWithTimeout(
     QEventLoop &loop, TestResult &result, int timeoutMs, QObject *scope = nullptr)
 {
@@ -321,8 +293,6 @@ inline void waitWithTimeout(
                        });
     loop.exec();
 }
-
-// --- Test fixture base class ---
 
 class ProviderTestBase : public ::testing::Test
 {
@@ -343,7 +313,6 @@ protected:
         m_app = nullptr;
     }
 
-    // Helper to wait for a signal with timeout
     static bool waitForSignal(QSignalSpy &spy, int timeoutMs = kRequestTimeoutMs)
     {
         if (spy.count() > 0)
@@ -353,12 +322,6 @@ protected:
 
     QCoreApplication *m_app = nullptr;
 };
-
-
-// --- Conversation conformance helpers ---
-//
-// These prove the per-provider payload builders agree with the real API. A wrong
-// key name passes every unit test and 400s here.
 
 inline TestResult runConversation(
     BaseClient *client, const Conversation &conversation, QEventLoop &loop)

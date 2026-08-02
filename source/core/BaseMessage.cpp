@@ -69,7 +69,7 @@ void BaseMessage::removeBlocksIf(const std::function<bool(const TurnContent &)> 
         ++kept;
     }
 
-    m_currentBlocks.resize(kept);
+    m_currentBlocks.erase(m_currentBlocks.begin() + kept, m_currentBlocks.end());
     m_notifiedThinking = std::move(remapped);
 }
 

@@ -89,7 +89,7 @@ private:
             return;
 
         beginRemoveRows({}, 0, excess - 1);
-        m_messages.remove(0, excess);
+        m_messages.erase(m_messages.begin(), m_messages.begin() + excess);
         endRemoveRows();
     }
 

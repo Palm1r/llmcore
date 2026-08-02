@@ -15,6 +15,7 @@ add_executable(LLMQoreIntegrationTests
     tst_GoogleAIIntegration.cpp
     tst_LlamaCppIntegration.cpp
     tst_MistralIntegration.cpp
+    tst_QwenIntegration.cpp
 )
 
 set_target_properties(LLMQoreIntegrationTests PROPERTIES

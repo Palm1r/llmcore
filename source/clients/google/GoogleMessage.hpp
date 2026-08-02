@@ -16,7 +16,6 @@ class GoogleMessage : public BaseMessage
 public:
     explicit GoogleMessage(QObject *parent = nullptr);
 
-    // How this provider spells tool schemas on the way out.
     static const ToolDialect &toolDialect();
 
     void handleContentDelta(const QString &text);
@@ -27,9 +26,6 @@ public:
     void handleFunctionCallComplete();
     void handleFinishReason(const QString &reason);
 
-    // The single turn-to-wire mapping for this provider, shared by the in-flight
-    // continuation path (toProviderFormat) and the Conversation replay path
-    // (GoogleAIClient::buildConversationPayload) so the two cannot drift.
     [[nodiscard]] static QJsonObject serializeTurn(
         TurnRole role, const QList<TurnContent> &blocks);
 

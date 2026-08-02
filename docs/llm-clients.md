@@ -42,10 +42,15 @@ actually went out, for debugging.
 client->ask(conversation, {}, LLMQore::RequestMode::Buffered);
 ```
 
-In `Buffered` mode no `chunkReceived` is emitted; the answer arrives once in
-`requestCompleted`. Each client applies the mode the way its provider expects — a `stream`
-flag in the body for Claude and OpenAI, a different endpoint (`:generateContent` against
-`:streamGenerateContent`) for Google. Setting `stream` yourself has no effect; the mode wins.
+In `Buffered` mode the answer arrives in one piece. Claude, OpenAI and the Responses API
+still emit a single `chunkReceived` carrying the whole text, so a handler written for
+streaming keeps working; Google and Ollama emit only `accumulatedReceived`. Either way
+`requestCompleted` carries the final text, and that is the signal to rely on when the mode
+is not fixed.
+
+Each client applies the mode the way its provider expects — a `stream` flag in the body for
+Claude and OpenAI, a different endpoint (`:generateContent` against `:streamGenerateContent`)
+for Google. Setting `stream` yourself has no effect; the mode wins.
 
 ## One-shot or streaming
 

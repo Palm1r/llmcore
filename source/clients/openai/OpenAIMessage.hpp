@@ -22,13 +22,10 @@ public:
         QString text;
     };
 
-    // Splits an OpenAI-compatible "content" value into reasoning and answer text.
-    // A plain string is answer text; Mistral Magistral sends an array of typed chunks.
     [[nodiscard]] static ContentParts splitContentParts(const QJsonValue &content);
 
     explicit OpenAIMessage(QObject *parent = nullptr);
 
-    // How this provider spells tool schemas on the way out.
     static const ToolDialect &toolDialect();
 
     void handleContentDelta(const QString &content);
@@ -41,10 +38,6 @@ public:
 
     QString stopReason() const override { return m_finishReason; }
 
-    // The single turn-to-wire mapping for this provider. Both the in-flight
-    // continuation path (toProviderFormat) and the Conversation replay path
-    // (OpenAIClient::buildConversationPayload) go through it, so the two cannot
-    // drift.
     [[nodiscard]] static QJsonObject serializeTurn(
         TurnRole role, const QList<TurnContent> &blocks);
 

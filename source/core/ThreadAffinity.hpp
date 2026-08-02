@@ -10,6 +10,8 @@ namespace LLMQore {
 
 inline void assertOwningThread(const QObject *self, const char *what)
 {
+    Q_UNUSED(self)
+    Q_UNUSED(what)
     Q_ASSERT_X(self->thread() == QThread::currentThread(), what,
                "object accessed from a thread other than the one that owns it");
 }

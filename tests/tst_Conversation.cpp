@@ -307,8 +307,6 @@ TEST(AskOnce, CarriesConversationForward)
     EXPECT_EQ(back.turns()[1].text(), "A framework.");
 }
 
-// The assistant turn must survive as blocks, not be flattened to text. Reading them
-// off the message after it was torn down silently dropped thinking and tool_use.
 TEST(AskOnce, CarriesAssistantBlocksNotJustText)
 {
     LLMQoreTest::FakeHttpTransport transport;
@@ -340,8 +338,6 @@ TEST(AskOnce, CarriesAssistantBlocksNotJustText)
     EXPECT_EQ(back.turns()[1].text(), "A framework.");
 }
 
-// A request the library did not build a payload for owns no conversation, so it must
-// not hand back a headless [Assistant, ...] history the provider would reject.
 TEST(AskOnce, PromptRequestReturnsNoConversation)
 {
     LLMQoreTest::FakeHttpTransport transport;
@@ -358,8 +354,6 @@ TEST(AskOnce, PromptRequestReturnsNoConversation)
     EXPECT_TRUE(future.result().conversation.isEmpty());
 }
 
-// Destroying the client mid-flight must settle the future through the error channel
-// rather than abandoning it, or the caller's .onFailed never runs.
 TEST(AskOnce, RejectsWhenClientIsDestroyedMidFlight)
 {
     LLMQoreTest::FakeHttpTransport transport;
