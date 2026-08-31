@@ -21,7 +21,7 @@
 #include <LLMQore/LLMQore_global.h>
 #include <LLMQore/RpcTransport.hpp>
 
-class QTimer;
+QT_FORWARD_DECLARE_CLASS(QTimer)
 
 namespace LLMQore::Rpc {
 

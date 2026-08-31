@@ -14,7 +14,7 @@
 #include <LLMQore/HttpTransportError.hpp>
 #include <LLMQore/LLMQore_global.h>
 
-class QNetworkRequest;
+QT_FORWARD_DECLARE_CLASS(QNetworkRequest)
 
 namespace LLMQore {
 

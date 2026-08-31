@@ -21,7 +21,7 @@
 #include <LLMQore/RpcExceptions.hpp>
 #include <LLMQore/RpcTransport.hpp>
 
-class QLoggingCategory;
+QT_FORWARD_DECLARE_CLASS(QLoggingCategory)
 
 namespace LLMQore::Rpc {
 
