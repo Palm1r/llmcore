@@ -177,6 +177,22 @@ QFuture<void> AcpClient::setMode(
         .then(this, [](const QJsonValue &) {});
 }
 
+QFuture<QList<SessionConfigOption>> AcpClient::setConfigOption(
+    const QString &sessionId,
+    const QString &configId,
+    const QJsonValue &value,
+    std::chrono::milliseconds timeout)
+{
+    QJsonObject params{{"sessionId", sessionId}, {"configId", configId}, {"value", value}};
+    if (value.isBool())
+        params.insert("type", QStringLiteral("boolean"));
+    return LLMQore::compat(
+               m_peer->request(QLatin1String(Method::SetConfigOption), params, timeout))
+        .then(this, [](const QJsonValue &v) {
+            return configOptionsFromJson(v.toObject().value("configOptions").toArray());
+        });
+}
+
 void AcpClient::shutdown()
 {
     LLMQORE_ASSERT_OWNING_THREAD();
@@ -220,6 +236,8 @@ void AcpClient::handleSessionUpdate(const QJsonObject &params)
         emit availableCommandsUpdated(sid, u.availableCommands);
     } else if (kind == QLatin1String(SessionUpdateKind::CurrentModeUpdate)) {
         emit modeChanged(sid, u.currentModeId);
+    } else if (kind == QLatin1String(SessionUpdateKind::ConfigOptionUpdate)) {
+        emit configOptionsUpdated(sid, u.configOptions);
     } else if (kind == QLatin1String(SessionUpdateKind::UsageUpdate)) {
         emit usageUpdated(sid, u.usage);
     } else if (kind == QLatin1String(SessionUpdateKind::SessionInfoUpdate)) {

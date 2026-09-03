@@ -63,6 +63,11 @@ public:
         const QString &sessionId,
         const QString &modeId,
         std::chrono::milliseconds timeout = std::chrono::seconds(30));
+    QFuture<QList<SessionConfigOption>> setConfigOption(
+        const QString &sessionId,
+        const QString &configId,
+        const QJsonValue &value,
+        std::chrono::milliseconds timeout = std::chrono::seconds(30));
 
     bool isInitialized() const { return m_peer->isInitialized(); }
     const InitializeResult &agentInfo() const { return m_initResult; }
@@ -87,6 +92,8 @@ signals:
     void availableCommandsUpdated(
         const QString &sessionId, const QList<LLMQore::Acp::AvailableCommand> &commands);
     void modeChanged(const QString &sessionId, const QString &modeId);
+    void configOptionsUpdated(
+        const QString &sessionId, const QList<LLMQore::Acp::SessionConfigOption> &options);
     void usageUpdated(const QString &sessionId, const QJsonObject &usage);
     void sessionInfoUpdated(const QString &sessionId, const QString &title);
 
