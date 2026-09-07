@@ -122,6 +122,22 @@ constexpr auto jsonSchema(const SessionModeState *)
         field("availableModes", &SessionModeState::availableModes));
 }
 
+constexpr auto jsonSchema(const SessionConfigValueOption *)
+{
+    return std::make_tuple(
+        field("value", &SessionConfigValueOption::value),
+        field("name", &SessionConfigValueOption::name),
+        omitEmpty("description", &SessionConfigValueOption::description));
+}
+
+constexpr auto jsonSchema(const SessionConfigOptionGroup *)
+{
+    return std::make_tuple(
+        field("groupId", &SessionConfigOptionGroup::groupId),
+        field("name", &SessionConfigOptionGroup::name),
+        field("options", &SessionConfigOptionGroup::options));
+}
+
 constexpr auto jsonSchema(const NewSessionParams *)
 {
     return std::make_tuple(
@@ -134,7 +150,8 @@ constexpr auto jsonSchema(const NewSessionResult *)
 {
     return std::make_tuple(
         field("sessionId", &NewSessionResult::sessionId),
-        field("modes", &NewSessionResult::modes));
+        field("modes", &NewSessionResult::modes),
+        omitEmpty("configOptions", &NewSessionResult::configOptions));
 }
 
 constexpr auto jsonExtras(const NewSessionResult *)

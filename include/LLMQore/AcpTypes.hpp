@@ -48,6 +48,7 @@ inline constexpr const char *LoadSession       = "session/load";
 inline constexpr const char *Prompt            = "session/prompt";
 inline constexpr const char *Cancel            = "session/cancel";
 inline constexpr const char *SetMode           = "session/set_mode";
+inline constexpr const char *SetConfigOption   = "session/set_config_option";
 // agent -> client
 inline constexpr const char *SessionUpdate     = "session/update";
 inline constexpr const char *RequestPermission = "session/request_permission";
@@ -209,6 +210,44 @@ struct LLMQORE_EXPORT SessionModeState
     static SessionModeState fromJson(const QJsonObject &obj);
 };
 
+struct LLMQORE_EXPORT SessionConfigValueOption
+{
+    QString value;
+    QString name;
+    QString description;
+
+    QJsonObject toJson() const;
+    static SessionConfigValueOption fromJson(const QJsonObject &obj);
+};
+
+struct LLMQORE_EXPORT SessionConfigOptionGroup
+{
+    QString groupId;
+    QString name;
+    QList<SessionConfigValueOption> options;
+
+    QJsonObject toJson() const;
+    static SessionConfigOptionGroup fromJson(const QJsonObject &obj);
+};
+
+struct LLMQORE_EXPORT SessionConfigOption
+{
+    QString id;
+    QString name;
+    QString description;
+    QString category;
+    QString type;
+    QJsonValue currentValue = QJsonValue::Undefined;
+    QList<SessionConfigValueOption> options;
+    QList<SessionConfigOptionGroup> groups;
+
+    QJsonObject toJson() const;
+    static SessionConfigOption fromJson(const QJsonObject &obj);
+};
+
+LLMQORE_EXPORT QJsonArray configOptionsToJson(const QList<SessionConfigOption> &options);
+LLMQORE_EXPORT QList<SessionConfigOption> configOptionsFromJson(const QJsonArray &arr);
+
 struct LLMQORE_EXPORT NewSessionParams
 {
     QString cwd;
@@ -223,6 +262,7 @@ struct LLMQORE_EXPORT NewSessionResult
 {
     QString sessionId;
     std::optional<SessionModeState> modes;
+    QList<SessionConfigOption> configOptions;
     QJsonObject extras;
 
     QJsonObject toJson() const;
@@ -367,6 +407,7 @@ inline constexpr const char *ToolCallUpdate     = "tool_call_update";
 inline constexpr const char *Plan               = "plan";
 inline constexpr const char *AvailableCommandsUpdate = "available_commands_update";
 inline constexpr const char *CurrentModeUpdate  = "current_mode_update";
+inline constexpr const char *ConfigOptionUpdate = "config_option_update";
 inline constexpr const char *UsageUpdate        = "usage_update";
 inline constexpr const char *SessionInfoUpdate  = "session_info_update";
 } // namespace SessionUpdateKind
@@ -379,7 +420,8 @@ struct LLMQORE_EXPORT SessionUpdate
     std::optional<Acp::Plan> plan;
     QList<AvailableCommand> availableCommands;
     QString currentModeId;
-    QJsonObject usage;                         
+    QList<SessionConfigOption> configOptions;
+    QJsonObject usage;
     QString title;
 
     QJsonObject toJson() const;
@@ -529,6 +571,8 @@ using QueuedTypes = std::tuple<
     Plan,
     AvailableCommand,
     QList<AvailableCommand>,
+    SessionConfigOption,
+    QList<SessionConfigOption>,
     PromptResult,
     InitializeResult,
     NewSessionResult,
@@ -542,6 +586,7 @@ Q_DECLARE_METATYPE(LLMQore::Acp::ContentBlock)
 Q_DECLARE_METATYPE(LLMQore::Acp::ToolCall)
 Q_DECLARE_METATYPE(LLMQore::Acp::Plan)
 Q_DECLARE_METATYPE(LLMQore::Acp::AvailableCommand)
+Q_DECLARE_METATYPE(LLMQore::Acp::SessionConfigOption)
 Q_DECLARE_METATYPE(LLMQore::Acp::PromptResult)
 Q_DECLARE_METATYPE(LLMQore::Acp::InitializeResult)
 Q_DECLARE_METATYPE(LLMQore::Acp::NewSessionResult)

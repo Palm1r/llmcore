@@ -104,6 +104,109 @@ TEST(AcpTypes, NewSessionResultModesOptional)
     ASSERT_EQ(back.modes->availableModes.size(), 2);
 }
 
+TEST(AcpTypes, SessionConfigOptionSelectRoundTrip)
+{
+    SessionConfigOption o;
+    o.id = "model";
+    o.name = "Model";
+    o.description = "AI model to use";
+    o.category = "model";
+    o.type = "select";
+    o.currentValue = "default";
+    o.options.append(SessionConfigValueOption{"default", "Default", "Opus 4.5"});
+    o.options.append(SessionConfigValueOption{"sonnet", "Sonnet", ""});
+
+    const QJsonObject obj = o.toJson();
+    const SessionConfigOption back = SessionConfigOption::fromJson(obj);
+    EXPECT_EQ(back.id, "model");
+    EXPECT_EQ(back.category, "model");
+    EXPECT_EQ(back.currentValue.toString(), "default");
+    ASSERT_EQ(back.options.size(), 2);
+    EXPECT_EQ(back.options.first().description, "Opus 4.5");
+    EXPECT_TRUE(back.groups.isEmpty());
+    EXPECT_EQ(back.toJson(), obj);
+}
+
+TEST(AcpTypes, SessionConfigOptionGroupedRoundTrip)
+{
+    SessionConfigOption o;
+    o.id = "model";
+    o.name = "Model";
+    o.type = "select";
+    o.currentValue = "opus";
+    SessionConfigOptionGroup g;
+    g.groupId = "anthropic";
+    g.name = "Anthropic";
+    g.options.append(SessionConfigValueOption{"opus", "Opus", ""});
+    g.options.append(SessionConfigValueOption{"sonnet", "Sonnet", ""});
+    o.groups.append(g);
+
+    const QJsonObject obj = o.toJson();
+    const SessionConfigOption back = SessionConfigOption::fromJson(obj);
+    EXPECT_TRUE(back.options.isEmpty());
+    ASSERT_EQ(back.groups.size(), 1);
+    EXPECT_EQ(back.groups.first().groupId, "anthropic");
+    ASSERT_EQ(back.groups.first().options.size(), 2);
+    EXPECT_EQ(back.toJson(), obj);
+}
+
+TEST(AcpTypes, SessionConfigOptionBooleanRoundTrip)
+{
+    SessionConfigOption o;
+    o.id = "fast";
+    o.name = "Fast mode";
+    o.type = "boolean";
+    o.currentValue = true;
+
+    const QJsonObject obj = o.toJson();
+    EXPECT_FALSE(obj.contains("options"));
+    const SessionConfigOption back = SessionConfigOption::fromJson(obj);
+    EXPECT_TRUE(back.currentValue.isBool());
+    EXPECT_TRUE(back.currentValue.toBool());
+    EXPECT_EQ(back.toJson(), obj);
+}
+
+TEST(AcpTypes, NewSessionResultCarriesConfigOptions)
+{
+    NewSessionResult r;
+    r.sessionId = "sess-1";
+    EXPECT_FALSE(r.toJson().contains("configOptions"));
+
+    SessionConfigOption o;
+    o.id = "effort";
+    o.name = "Effort";
+    o.type = "select";
+    o.currentValue = "high";
+    o.options.append(SessionConfigValueOption{"default", "Default", ""});
+    o.options.append(SessionConfigValueOption{"high", "High", ""});
+    r.configOptions.append(o);
+
+    const NewSessionResult back = NewSessionResult::fromJson(r.toJson());
+    ASSERT_EQ(back.configOptions.size(), 1);
+    EXPECT_EQ(back.configOptions.first().id, "effort");
+    EXPECT_EQ(back.configOptions.first().currentValue.toString(), "high");
+    ASSERT_EQ(back.configOptions.first().options.size(), 2);
+}
+
+TEST(AcpTypes, SessionUpdateConfigOptionsRoundTrip)
+{
+    SessionUpdate u;
+    u.sessionUpdate = SessionUpdateKind::ConfigOptionUpdate;
+    SessionConfigOption o;
+    o.id = "model";
+    o.name = "Model";
+    o.type = "select";
+    o.currentValue = "sonnet";
+    u.configOptions.append(o);
+
+    const QJsonObject obj = u.toJson();
+    EXPECT_EQ(obj.value("sessionUpdate").toString(), "config_option_update");
+
+    const SessionUpdate back = SessionUpdate::fromJson(obj);
+    ASSERT_EQ(back.configOptions.size(), 1);
+    EXPECT_EQ(back.configOptions.first().currentValue.toString(), "sonnet");
+}
+
 TEST(AcpTypes, ContentBlockTextRoundTrip)
 {
     const ContentBlock b = ContentBlock::makeText("hello");
@@ -417,6 +520,8 @@ TEST(AcpTypes, EveryTabledStructureHandsBackWhatItWasGiven)
     expectRoundTrip<InitializeResult>("InitializeResult");
     expectRoundTrip<SessionMode>("SessionMode");
     expectRoundTrip<SessionModeState>("SessionModeState");
+    expectRoundTrip<SessionConfigValueOption>("SessionConfigValueOption");
+    expectRoundTrip<SessionConfigOptionGroup>("SessionConfigOptionGroup");
     expectRoundTrip<NewSessionParams>("NewSessionParams");
     expectRoundTrip<NewSessionResult>("NewSessionResult");
     expectRoundTrip<LoadSessionParams>("LoadSessionParams");
