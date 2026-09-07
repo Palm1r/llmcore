@@ -8,7 +8,7 @@
 #include <LLMQore/LLMQore_global.h>
 #include <LLMQore/RpcTransport.hpp>
 
-class QIODevice;
+QT_FORWARD_DECLARE_CLASS(QIODevice)
 
 namespace LLMQore::Mcp {
 
